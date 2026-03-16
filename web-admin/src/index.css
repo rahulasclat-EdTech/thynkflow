@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #f1f5f9; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+@layer components {
+  .btn-primary {
+    @apply bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2;
+  }
+  .btn-secondary {
+    @apply bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center gap-2;
+  }
+  .btn-danger {
+    @apply bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors flex items-center gap-2;
+  }
+  .input {
+    @apply w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white;
+  }
+  .card {
+    @apply bg-white rounded-xl border border-slate-200 shadow-sm;
+  }
+  .badge-new { @apply bg-blue-100 text-blue-800 text-xs font-semibold px-2 py-0.5 rounded-full; }
+  .badge-hot { @apply bg-red-100 text-red-800 text-xs font-semibold px-2 py-0.5 rounded-full; }
+  .badge-warm { @apply bg-amber-100 text-amber-800 text-xs font-semibold px-2 py-0.5 rounded-full; }
+  .badge-cold { @apply bg-slate-100 text-slate-600 text-xs font-semibold px-2 py-0.5 rounded-full; }
+  .badge-converted { @apply bg-green-100 text-green-800 text-xs font-semibold px-2 py-0.5 rounded-full; }
+  .badge-not_interested { @apply bg-slate-100 text-slate-500 text-xs font-semibold px-2 py-0.5 rounded-full; }
+  .badge-call_back { @apply bg-purple-100 text-purple-800 text-xs font-semibold px-2 py-0.5 rounded-full; }
+}

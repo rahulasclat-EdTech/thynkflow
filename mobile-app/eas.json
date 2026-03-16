@@ -1,0 +1,25 @@
+{
+  "cli": { "version": ">= 5.9.1" },
+  "build": {
+    "preview": {
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release"
+      }
+    },
+    "production": {
+      "android": { "buildType": "app-bundle" },
+      "ios": { "buildConfiguration": "Release" }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": { "track": "internal" },
+      "ios": { "appleId": "your@apple.com", "ascAppId": "your-app-id" }
+    }
+  }
+}
