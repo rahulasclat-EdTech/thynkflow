@@ -9,6 +9,8 @@ import AssignPage from './pages/AssignPage'
 import FollowUpsPage from './pages/FollowUpsPage'
 import ReportsPage from './pages/ReportsPage'
 import UsersPage from './pages/UsersPage'
+import SettingsPage from './pages/SettingsPage'
+import ProductDashboardPage from './pages/ProductDashboardPage'
 
 function PrivateRoute({ children }) {
   const { user } = useAuth()
@@ -34,7 +36,9 @@ export default function App() {
           <Route path="followups" element={<FollowUpsPage />} />
           <Route path="assign" element={<AdminRoute><AssignPage /></AdminRoute>} />
           <Route path="reports" element={<ReportsPage />} />
+          <Route path="products" element={<ProductDashboardPage />} />
           <Route path="users" element={<AdminRoute><UsersPage /></AdminRoute>} />
+          <Route path="settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
