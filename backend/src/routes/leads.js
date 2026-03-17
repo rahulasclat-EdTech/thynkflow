@@ -170,5 +170,65 @@ router.post('/assign', auth, adminOnly, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+// PATCH /api/leads/:id/product - assign or update product on a lead
+router.patch('/:id/product', auth, async (req, res) => {
+  try {
+    const { product_id, product_detail } = req.body;
+    const { rows } = await db.query(
+      `UPDATE leads SET product_id = $1, product_detail = $2, updated_at = NOW() WHERE id = $3 RETURNING *`,
+      [product_id || null, product_detail || null, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ success: false, message: 'Lead not found' });
+    res.json({ success: true, data: rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
 
+// GET /api/leads/:id/communications
+router.get('/:id/communications', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT cl.*, u.name as agent_name FROM communication_logs cl JOIN users u ON cl.agent_id = u.id WHERE cl.lead_id = $1 ORDER BY cl.created_at DESC`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/leads/:id/communications
+router.post('/:id/communications', auth, async (req, res) => {
+  try {
+    const { type, direction, note, duration_sec } = req.body;
+    if (!['call', 'whatsapp', 'email'].includes(type)) {
+      return res.status(400).json({ success: false, message: 'type must be call, whatsapp, or email' });
+    }
+    const { rows } = await db.query(
+      `INSERT INTO communication_logs (lead_id, agent_id, type, direction, note, duration_sec) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [req.params.id, req.user.id, type, direction || 'outbound', note || '', duration_sec || null]
+    );
+    res.status(201).json({ success: true, data: rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/leads/lookup-products
+router.post('/lookup-products', auth, async (req, res) => {
+  try {
+    const { names } = req.body;
+    if (!Array.isArray(names) || !names.length) return res.json({ success: true, data: {} });
+    const { rows } = await db.query(
+      `SELECT id, name FROM products WHERE LOWER(name) = ANY($1::text[]) AND is_active = true`,
+      [names.map(n => n.toLowerCase())]
+    );
+    const map = {};
+    rows.forEach(r => { map[r.name.toLowerCase()] = r.id; });
+    res.json({ success: true, data: map });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
 module.exports = router;
