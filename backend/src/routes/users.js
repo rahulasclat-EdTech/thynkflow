@@ -108,5 +108,75 @@ router.get('/roles', auth, adminOnly, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+// ADD THESE TWO ROUTES to your existing backend/src/routes/users.js file
+// Add them BEFORE the module.exports line at the bottom
 
+// GET /api/users/:id/logs - get login and working logs for a user
+router.get('/:id/logs', auth, adminOnly, async (req, res) => {
+  try {
+    const userId = req.params.id
+
+    // Login logs - from login_logs table if exists, else empty
+    let loginLogs = []
+    try {
+      const { rows } = await db.query(
+        `SELECT * FROM login_logs WHERE user_id = $1 ORDER BY logged_in_at DESC LIMIT 50`,
+        [userId]
+      )
+      loginLogs = rows
+    } catch {
+      // Table may not exist yet - return empty
+      loginLogs = []
+    }
+
+    // Working logs - calls made by this agent
+    const { rows: workingLogs } = await db.query(
+      `SELECT 
+        f.id, f.status, f.discussion, f.called_at,
+        l.school_name, l.contact_name, l.phone,
+        p.name as product_name
+       FROM followups f
+       JOIN leads l ON l.id = f.lead_id
+       LEFT JOIN products p ON p.id = l.product_id
+       WHERE f.agent_id = $1
+       ORDER BY f.called_at DESC
+       LIMIT 100`,
+      [userId]
+    )
+
+    res.json({
+      success: true,
+      data: {
+        login_logs: loginLogs,
+        working_logs: workingLogs
+      }
+    })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
+// PUT /api/users/:id/reset-password - admin resets password for any user
+router.put('/:id/reset-password', auth, adminOnly, async (req, res) => {
+  try {
+    const { new_password } = req.body
+    if (!new_password || new_password.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' })
+    }
+
+    const bcrypt = require('bcryptjs')
+    const hashed = await bcrypt.hash(new_password, 10)
+
+    const { rows } = await db.query(
+      `UPDATE users SET password_hash = $1 WHERE id = $2 RETURNING id, name, email`,
+      [hashed, req.params.id]
+    )
+
+    if (!rows.length) return res.status(404).json({ success: false, message: 'User not found' })
+
+    res.json({ success: true, message: `Password reset successfully for ${rows[0].name}` })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
 module.exports = router;
