@@ -1,7 +1,7 @@
 import axios from 'axios'
 import * as SecureStore from 'expo-secure-store'
 
-const API_URL = process.env.API_URL || 'http://localhost:5000/api'
+const API_URL = process.env.API_URL || 'https://thynkflow.onrender.com/api'
 
 const api = axios.create({
   baseURL: API_URL,
