@@ -10,6 +10,7 @@ const followupRoutes = require('./routes/followups');
 const reportRoutes = require('./routes/reports');
 const dashboardRoutes = require('./routes/dashboard');
 const settingsRoutes = require('./routes/settings');
+const productRoutes = require('./routes/products');
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.use('/api/followups', followupRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/products', productRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', app: 'ThynkFlow' }));
 
