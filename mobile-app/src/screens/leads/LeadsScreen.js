@@ -275,27 +275,50 @@ function CreateLeadModal({ visible, onClose, onSave, products, agents }) {
           </View>
           {/* Product */}
           {products.length>0 && <View style={{marginBottom:14}}>
-            <Text style={s.lbl}>Product</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {[{id:'',name:'None'}, ...products].map(p=>{
+            <Text style={s.lbl}>Product Interest</Text>
+            <View style={s.dropdownWrap}>
+              <TouchableOpacity style={[s.dropdownItem, !form.product_id && s.dropdownItemActive]}
+                onPress={()=>f('product_id')('')}>
+                <Text style={[s.dropdownText, !form.product_id && s.dropdownTextActive]}>— No product —</Text>
+                {!form.product_id && <Ionicons name="checkmark" size={16} color="#4F46E5" />}
+              </TouchableOpacity>
+              {products.map(p=>{
                 const sel=form.product_id===String(p.id)
-                return <TouchableOpacity key={String(p.id)} onPress={()=>f('product_id')(String(p.id))} style={[s.chip,sel&&s.chipActive,{marginRight:6}]}>
-                  <Text style={[s.chipTxt,sel&&s.chipTxtActive]}>{p.name}</Text>
+                return <TouchableOpacity key={String(p.id)} style={[s.dropdownItem,sel&&s.dropdownItemActive]}
+                  onPress={()=>f('product_id')(String(p.id))}>
+                  <View style={{flex:1}}>
+                    <Text style={[s.dropdownText,sel&&s.dropdownTextActive]}>{p.name}</Text>
+                    <Text style={s.dropdownSub}>{p.type}</Text>
+                  </View>
+                  {sel && <Ionicons name="checkmark" size={16} color="#4F46E5" />}
                 </TouchableOpacity>
               })}
-            </ScrollView>
+            </View>
           </View>}
           {/* Assign To */}
           {agents.length>0 && <View style={{marginBottom:14}}>
             <Text style={s.lbl}>Assign To</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {[{id:'',name:'Me (self)'}, ...agents].map(a=>{
+            <View style={s.dropdownWrap}>
+              <TouchableOpacity style={[s.dropdownItem, !form.assigned_to && s.dropdownItemActive]}
+                onPress={()=>f('assigned_to')('')}>
+                <Text style={[s.dropdownText, !form.assigned_to && s.dropdownTextActive]}>— Assign to me —</Text>
+                {!form.assigned_to && <Ionicons name="checkmark" size={16} color="#4F46E5" />}
+              </TouchableOpacity>
+              {agents.map(a=>{
                 const sel=form.assigned_to===a.id
-                return <TouchableOpacity key={String(a.id)} onPress={()=>f('assigned_to')(a.id)} style={[s.chip,sel&&s.chipActive,{marginRight:6}]}>
-                  <Text style={[s.chipTxt,sel&&s.chipTxtActive]}>{a.name}</Text>
+                return <TouchableOpacity key={String(a.id)} style={[s.dropdownItem,sel&&s.dropdownItemActive]}
+                  onPress={()=>f('assigned_to')(a.id)}>
+                  <View style={[s.agentDot,{backgroundColor:sel?'#4F46E5':'#9CA3AF'}]}>
+                    <Text style={{color:'#fff',fontSize:11,fontWeight:'700'}}>{a.name?.charAt(0)?.toUpperCase()}</Text>
+                  </View>
+                  <View style={{flex:1}}>
+                    <Text style={[s.dropdownText,sel&&s.dropdownTextActive]}>{a.name}</Text>
+                    <Text style={s.dropdownSub}>{a.role_name||'agent'}</Text>
+                  </View>
+                  {sel && <Ionicons name="checkmark" size={16} color="#4F46E5" />}
                 </TouchableOpacity>
               })}
-            </ScrollView>
+            </View>
           </View>}
           {/* Notes */}
           <View style={{marginBottom:14}}>
@@ -359,6 +382,13 @@ const s = StyleSheet.create({
   inp:       {backgroundColor:'#F9FAFB',borderWidth:1,borderColor:'#E5E7EB',borderRadius:10,paddingHorizontal:12,paddingVertical:10,fontSize:14,color:'#111827'},
   chipTxtActive:{color:'#fff',fontWeight:'600'},
   dateBtn:   {flexDirection:'row',alignItems:'center',gap:8,backgroundColor:'#F9FAFB',borderWidth:1,borderColor:'#E5E7EB',borderRadius:10,paddingHorizontal:12,paddingVertical:10},
+  dropdownWrap:{borderWidth:1,borderColor:'#E5E7EB',borderRadius:12,overflow:'hidden',marginTop:4},
+  dropdownItem:{flexDirection:'row',alignItems:'center',gap:10,padding:12,borderBottomWidth:1,borderBottomColor:'#F3F4F6',backgroundColor:'#fff'},
+  dropdownItemActive:{backgroundColor:'#EEF2FF'},
+  dropdownText:{fontSize:14,color:'#374151',fontWeight:'500'},
+  dropdownTextActive:{color:'#4F46E5',fontWeight:'700'},
+  dropdownSub: {fontSize:11,color:'#9CA3AF',marginTop:1},
+  agentDot:    {width:28,height:28,borderRadius:14,alignItems:'center',justifyContent:'center'},
   popupOverlay:{flex:1,backgroundColor:'rgba(0,0,0,0.5)',alignItems:'center',justifyContent:'flex-end'},
   popupCard: {backgroundColor:'#fff',borderTopLeftRadius:24,borderTopRightRadius:24,padding:24,width:'100%',paddingBottom:40},
   popupTitle:{fontSize:20,fontWeight:'800',color:'#111827',textAlign:'center'},
