@@ -11,6 +11,7 @@ const navItems = [
   { to: '/followups',  label: 'Follow Ups',   icon: '📅', adminOnly: false },
   { to: '/products',   label: 'Products',     icon: '📦', adminOnly: false },
   { to: '/email',      label: 'Email',        icon: '📧', adminOnly: false },
+  { to: '/chat',       label: 'Chat',         icon: '💬', adminOnly: false },
   { to: '/assign',     label: 'Assign Leads', icon: '↗',  adminOnly: true },
   { to: '/reports',    label: 'Reports',      icon: '📊', adminOnly: false },
   { to: '/users',      label: 'Users',        icon: '👤', adminOnly: true },
