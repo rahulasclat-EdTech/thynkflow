@@ -11,6 +11,8 @@ const reportRoutes = require('./routes/reports');
 const dashboardRoutes = require('./routes/dashboard');
 const settingsRoutes = require('./routes/settings');
 const productRoutes = require('./routes/products');
+const emailRoutes = require('./routes/emails');
+app.use('/api/emails', emailRoutes);
 
 const app = express();
 
