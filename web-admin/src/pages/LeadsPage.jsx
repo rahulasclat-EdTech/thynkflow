@@ -95,8 +95,12 @@ export default function LeadsPage() {
   const [savingEdit, setSavingEdit]               = useState(false)
 
   // ── create form ───────────────────────────────────────────────
-  const emptyForm = { name: '', phone: '', email: '', source: '', city: '', status: 'new',
-                      assigned_to: '', product_id: '', product_detail: '', admin_remark: '' }
+  const emptyForm = {
+    name: '', phone: '', email: '', source: '', city: '',
+    status: 'new', assigned_to: '', product_id: '',
+    product_detail: '', admin_remark: '', follow_up_date: '',
+    notes: ''
+  }
   const [form, setForm]               = useState(emptyForm)
   const [saving, setSaving]           = useState(false)
 
@@ -285,16 +289,36 @@ export default function LeadsPage() {
   // ══════════════════════════════════════════════════════════════
   const handleCreate = async (e) => {
     e.preventDefault()
-    if (!form.name || !form.phone) return toast.error('Name and phone are required')
+    if (!form.name || !form.name.trim()) return toast.error('Name is required')
+    if (!form.phone || !form.phone.trim()) return toast.error('Phone is required')
     setSaving(true)
     try {
-      await api.post('/leads', {
-        ...form,
+      const res = await api.post('/leads', {
+        name:           form.name.trim(),
+        contact_name:   form.name.trim(),
+        phone:          form.phone.trim(),
+        email:          form.email.trim() || null,
+        city:           form.city || null,
+        source:         form.source || null,
+        status:         form.status || 'new',
         product_id:     form.product_id     || null,
         product_detail: form.product_detail || null,
         assigned_to:    form.assigned_to    || null,
+        admin_remark:   form.admin_remark   || null,
       })
-      toast.success('Lead created')
+      // Create follow-up if date provided
+      if (form.follow_up_date) {
+        const newLead = res.data?.data || res.data
+        const leadId  = newLead?.id
+        if (leadId) {
+          await api.post('/followups', {
+            lead_id:        leadId,
+            follow_up_date: form.follow_up_date,
+            notes:          form.notes || form.admin_remark || '',
+          }).catch(() => {})
+        }
+      }
+      toast.success('Lead created successfully!')
       setShowCreateModal(false)
       setForm(emptyForm)
       fetchAll()
@@ -877,89 +901,220 @@ export default function LeadsPage() {
          ══════════════════════════════════════════════════════ */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b sticky top-0 bg-white">
-              <h2 className="text-lg font-bold">Add New Lead</h2>
-              <button onClick={() => setShowCreateModal(false)} className="p-2 rounded-lg hover:bg-gray-100"><XIcon /></button>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col">
+
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-indigo-600 to-indigo-700 rounded-t-2xl">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
+                  <PlusIcon />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Add New Lead</h2>
+                  <p className="text-indigo-200 text-xs">{isAdmin ? 'Admin — can assign to any agent' : 'Lead will be assigned to you'}</p>
+                </div>
+              </div>
+              <button onClick={() => { setShowCreateModal(false); setForm(emptyForm) }}
+                className="p-2 rounded-lg hover:bg-white/20 text-white">
+                <XIcon />
+              </button>
             </div>
-            <form onSubmit={handleCreate} className="px-6 py-5 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
-                  <input required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Phone *</label>
-                  <input required value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
-                  <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">City</label>
-                  <input value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))}
-                    list="city-list"
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-                  <datalist id="city-list">{settings.cities.map(c => <option key={c} value={c} />)}</datalist>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Source</label>
-                  <select value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-                    <option value="">— Select —</option>
-                    {settings.sources.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
-                  <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-                    {Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
-                  </select>
+
+            <form onSubmit={handleCreate} className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+
+              {/* Section 1: Basic Info */}
+              <div>
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Basic Information</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                      Full Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      required
+                      value={form.name}
+                      onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                      placeholder="e.g. Rahul Sharma"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent" />
+                  </div>
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                      Phone Number <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      required
+                      value={form.phone}
+                      onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                      placeholder="e.g. 9876543210"
+                      type="tel"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Email Address</label>
+                    <input
+                      type="email"
+                      value={form.email}
+                      onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                      placeholder="rahul@example.com"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">City</label>
+                    <input
+                      value={form.city}
+                      onChange={e => setForm(f => ({ ...f, city: e.target.value }))}
+                      placeholder="e.g. Delhi"
+                      list="city-list-create"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent" />
+                    <datalist id="city-list-create">{settings.cities.map(c => <option key={c} value={c} />)}</datalist>
+                  </div>
                 </div>
               </div>
 
-              {/* PRODUCT — optional at creation */}
-              <div className="border-t pt-3">
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Product <span className="text-gray-400">(optional — can be set later)</span>
-                </label>
-                <select value={form.product_id} onChange={e => setForm(f => ({ ...f, product_id: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-                  <option value="">— No product yet —</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.type})</option>)}
+              {/* Section 2: Lead Details */}
+              <div>
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Lead Details</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Source</label>
+                    <select
+                      value={form.source}
+                      onChange={e => setForm(f => ({ ...f, source: e.target.value }))}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent">
+                      <option value="">— Select source —</option>
+                      {settings.sources.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Initial Status</label>
+                    <select
+                      value={form.status}
+                      onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent">
+                      {Object.keys(STATUS_COLORS).map(s => (
+                        <option key={s} value={s}>{s.replace(/_/g,' ')}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 3: Product */}
+              <div>
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+                  Product Interest <span className="text-gray-300 font-normal normal-case">(optional)</span>
+                </h3>
+                <select
+                  value={form.product_id}
+                  onChange={e => setForm(f => ({ ...f, product_id: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent mb-2">
+                  <option value="">— No product selected yet —</option>
+                  {products.map(p => (
+                    <option key={p.id} value={p.id}>{p.name} ({p.type})</option>
+                  ))}
                 </select>
                 {form.product_id && (
-                  <input value={form.product_detail} onChange={e => setForm(f => ({ ...f, product_detail: e.target.value }))}
-                    placeholder="Product notes / plan details…"
-                    className="w-full mt-2 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                  <input
+                    value={form.product_detail}
+                    onChange={e => setForm(f => ({ ...f, product_detail: e.target.value }))}
+                    placeholder="Product notes e.g. 6-month plan, April batch…"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent" />
                 )}
               </div>
 
+              {/* Section 4: Notes & Follow-up */}
+              <div>
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Notes & Follow-up</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Notes / Remark</label>
+                    <textarea
+                      rows={3}
+                      value={form.notes}
+                      onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                      placeholder="Any initial notes about this lead…"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent resize-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                      Schedule Follow-up <span className="text-gray-300 font-normal">(optional)</span>
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={form.follow_up_date}
+                      onChange={e => setForm(f => ({ ...f, follow_up_date: e.target.value }))}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent" />
+                    {form.follow_up_date && (
+                      <p className="text-xs text-indigo-600 mt-1">📅 Follow-up will be scheduled automatically</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Admin only: assign to agent */}
               {isAdmin && (
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Assign To</label>
-                  <select value={form.assigned_to} onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Assignment</h3>
+                  <select
+                    value={form.assigned_to}
+                    onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent">
                     <option value="">— Unassigned —</option>
                     {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancel</button>
-                <button type="submit" disabled={saving}
-                  className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50">
-                  {saving ? 'Saving…' : 'Create Lead'}
-                </button>
-              </div>
+              {/* Lead preview card */}
+              {(form.name || form.phone) && (
+                <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
+                  <p className="text-xs font-bold text-indigo-500 uppercase tracking-wide mb-2">Preview</p>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                      {(form.name || '?').charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-900">{form.name || '—'}</p>
+                      <p className="text-sm text-gray-500">{form.phone || '—'} {form.email ? `· ${form.email}` : ''}</p>
+                    </div>
+                    <div className="ml-auto">
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold capitalize ${STATUS_COLORS[form.status] || 'bg-gray-100 text-gray-600'}`}>
+                        {form.status?.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                  </div>
+                  {form.product_id && (
+                    <p className="text-xs text-indigo-600 mt-2">
+                      📦 {products.find(p => String(p.id) === String(form.product_id))?.name}
+                    </p>
+                  )}
+                  {form.follow_up_date && (
+                    <p className="text-xs text-indigo-600 mt-1">
+                      📅 Follow-up: {new Date(form.follow_up_date).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  )}
+                </div>
+              )}
             </form>
+
+            {/* Footer */}
+            <div className="flex justify-between items-center px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
+              <button
+                type="button"
+                onClick={() => { setShowCreateModal(false); setForm(emptyForm) }}
+                className="px-4 py-2 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-100 text-gray-600">
+                Cancel
+              </button>
+              <button
+                onClick={handleCreate}
+                disabled={saving || !form.name || !form.phone}
+                className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-indigo-200">
+                {saving
+                  ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span> Creating…</>
+                  : <><PlusIcon /> Create Lead</>
+                }
+              </button>
+            </div>
           </div>
         </div>
       )}
