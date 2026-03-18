@@ -3,15 +3,16 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
-const authRoutes     = require('./routes/auth');
-const userRoutes     = require('./routes/users');
-const leadRoutes     = require('./routes/leads');
-const followupRoutes = require('./routes/followups');
-const reportRoutes   = require('./routes/reports');
+const authRoutes      = require('./routes/auth');
+const userRoutes      = require('./routes/users');
+const leadRoutes      = require('./routes/leads');
+const followupRoutes  = require('./routes/followups');
+const reportRoutes    = require('./routes/reports');
 const dashboardRoutes = require('./routes/dashboard');
-const settingsRoutes = require('./routes/settings');
-const productRoutes  = require('./routes/products');
-const emailRoutes    = require('./routes/emails');
+const settingsRoutes  = require('./routes/settings');
+const productRoutes   = require('./routes/products');
+const emailRoutes     = require('./routes/emails');
+const activityRoutes  = require('./routes/activities');
 
 const app = express();
 
@@ -23,15 +24,16 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-app.use('/api/auth',      authRoutes);
-app.use('/api/users',     userRoutes);
-app.use('/api/leads',     leadRoutes);
-app.use('/api/followups', followupRoutes);
-app.use('/api/reports',   reportRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/settings',  settingsRoutes);
-app.use('/api/products',  productRoutes);
-app.use('/api/emails',    emailRoutes);
+app.use('/api/auth',       authRoutes);
+app.use('/api/users',      userRoutes);
+app.use('/api/leads',      leadRoutes);
+app.use('/api/followups',  followupRoutes);
+app.use('/api/reports',    reportRoutes);
+app.use('/api/dashboard',  dashboardRoutes);
+app.use('/api/settings',   settingsRoutes);
+app.use('/api/products',   productRoutes);
+app.use('/api/emails',     emailRoutes);
+app.use('/api/activities', activityRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', app: 'ThynkFlow' }));
 
