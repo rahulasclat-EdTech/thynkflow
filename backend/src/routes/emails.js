@@ -73,7 +73,7 @@
 // =============================================================
 
 const express    = require('express')
-const nodemailer = require('nodemailer').default || require('nodemailer')
+const nodemailer = require('nodemailer')
 const db         = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
 
@@ -81,8 +81,7 @@ const router = express.Router()
 
 // ── Nodemailer transporter ────────────────────────────────────
 function createTransporter() {
-  const nm = require('nodemailer')
-  return nm.createTransport({
+  return nodemailer.createTransport({
     host:   process.env.SMTP_HOST || 'smtp.zoho.in',
     port:   parseInt(process.env.SMTP_PORT || '465'),
     secure: true,
