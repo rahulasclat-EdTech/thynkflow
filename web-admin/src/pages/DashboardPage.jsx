@@ -1,375 +1,409 @@
+// web-admin/src/pages/DashboardPage.jsx — COMPLETE REPLACEMENT
+// Fixes: correct calculation, agent scope, adds critical alerts, notifications
 import React, { useEffect, useState, useCallback } from 'react'
-import {
-  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
-  RadialBarChart, RadialBar, LineChart, Line, CartesianGrid
-} from 'recharts'
 import api from '../utils/api'
-import { format, subDays } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
+import { format } from 'date-fns'
 
 const STATUS_COLORS = {
-  new: '#3b82f6', hot: '#ef4444', warm: '#f59e0b',
-  cold: '#94a3b8', converted: '#22c55e',
-  not_interested: '#64748b', call_back: '#a855f7'
+  new:            { bg: '#dbeafe', text: '#1e40af' },
+  hot:            { bg: '#fee2e2', text: '#991b1b' },
+  warm:           { bg: '#fef3c7', text: '#92400e' },
+  cold:           { bg: '#e2e8f0', text: '#475569' },
+  converted:      { bg: '#dcfce7', text: '#14532d' },
+  not_interested: { bg: '#f1f5f9', text: '#64748b' },
+  call_back:      { bg: '#ede9fe', text: '#5b21b6' },
 }
 
-const CARD_CONFIGS = [
-  { key: 'total_leads', label: 'Total Leads', icon: '👥', bg: 'from-blue-600 to-blue-700', text: 'text-white' },
-  { key: 'unattended', label: 'Unattended', icon: '🔴', bg: 'from-red-500 to-red-600', text: 'text-white' },
-  { key: 'converted', label: 'Converted', icon: '✅', bg: 'from-green-500 to-green-600', text: 'text-white' },
-  { key: 'hot', label: 'Hot Leads', icon: '🔥', bg: 'from-orange-500 to-orange-600', text: 'text-white' },
-]
-
-function KPICard({ label, value, icon, bg, text, sub, trend }) {
+function StatusBadge({ status }) {
+  const c = STATUS_COLORS[status] || STATUS_COLORS.new
   return (
-    <div className={`rounded-2xl bg-gradient-to-br ${bg} p-5 shadow-lg`}>
+    <span className="text-xs font-bold px-2 py-0.5 rounded-full capitalize"
+      style={{ background: c.bg, color: c.text }}>
+      {status?.replace(/_/g, ' ')}
+    </span>
+  )
+}
+
+function KPICard({ label, value, icon, color = '#2563eb', sub, onClick, trend }) {
+  return (
+    <div onClick={onClick}
+      className={`bg-white border border-slate-200 rounded-2xl p-5 ${onClick ? 'cursor-pointer hover:shadow-md hover:border-blue-300 transition-all' : ''}`}>
       <div className="flex items-start justify-between mb-3">
         <span className="text-2xl">{icon}</span>
         {trend !== undefined && (
-          <span className={`text-xs font-bold px-2 py-1 rounded-full ${trend >= 0 ? 'bg-white/20 text-white' : 'bg-white/20 text-white'}`}>
-            {trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}%
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${trend >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+            {trend >= 0 ? '+' : ''}{trend}
           </span>
         )}
       </div>
-      <p className={`text-4xl font-black ${text} mb-1`}>{value ?? 0}</p>
-      <p className={`text-sm font-semibold ${text} opacity-80`}>{label}</p>
-      {sub && <p className={`text-xs ${text} opacity-60 mt-1`}>{sub}</p>}
+      <p className="text-3xl font-black" style={{ color }}>{value ?? 0}</p>
+      <p className="text-sm font-semibold text-slate-600 mt-1">{label}</p>
+      {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+      {onClick && <p className="text-xs text-blue-500 mt-2 font-medium">Click to drill down ↗</p>}
     </div>
   )
 }
 
-function SectionHeader({ title, subtitle }) {
+function DrillModal({ title, leads, onClose }) {
+  if (!leads) return null
   return (
-    <div className="mb-4">
-      <h2 className="text-lg font-bold text-slate-800">{title}</h2>
-      {subtitle && <p className="text-sm text-slate-400 mt-0.5">{subtitle}</p>}
-    </div>
-  )
-}
-
-const CustomTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-xl p-3 text-sm">
-      <p className="font-bold text-slate-700 mb-1">{label}</p>
-      {payload.map((p, i) => (
-        <p key={i} style={{ color: p.color }} className="font-medium">{p.name}: {p.value}</p>
-      ))}
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+          <div><h2 className="text-lg font-bold">{title}</h2><p className="text-sm text-slate-400">{leads.length} leads</p></div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center hover:bg-slate-200 text-slate-500">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 sticky top-0">
+              <tr>{['Name','Phone','Agent','Status','Remark'].map(h=>(
+                <th key={h} className="text-left px-4 py-3 text-xs text-slate-500 font-semibold uppercase">{h}</th>
+              ))}</tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {leads.length === 0
+                ? <tr><td colSpan={5} className="text-center py-10 text-slate-400">No leads found</td></tr>
+                : leads.map(l => (
+                  <tr key={l.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-medium">{l.school_name||l.contact_name||'—'}</td>
+                    <td className="px-4 py-3 text-blue-600">{l.phone}</td>
+                    <td className="px-4 py-3 text-slate-500">{l.agent_name||'—'}</td>
+                    <td className="px-4 py-3"><StatusBadge status={l.status} /></td>
+                    <td className="px-4 py-3 text-xs text-slate-400 max-w-[200px] truncate">{l.admin_remark||'—'}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-4 border-t border-slate-100 flex justify-end">
+          <button onClick={onClose} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-sm">Close</button>
+        </div>
+      </div>
     </div>
   )
 }
 
 export default function DashboardPage() {
-  const { user, isAdmin } = useAuth()
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [dateRange, setDateRange] = useState('7')
-  const [callTrend, setCallTrend] = useState([])
-  const [conversionFunnel, setConversionFunnel] = useState([])
+  const { user } = useAuth()
+  const isAdmin = user?.role_name === 'admin'
 
-  const fetchDashboard = useCallback(async () => {
-    setLoading(true)
+  const [stats, setStats]         = useState(null)
+  const [critical, setCritical]   = useState(null)
+  const [agentData, setAgentData] = useState([])
+  const [followups, setFollowups] = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [drillDown, setDrillDown] = useState(null)
+  const [showCritical, setShowCritical] = useState(false)
+
+  const fetchAll = useCallback(async () => {
     try {
-      const res = await api.get('/dashboard/stats')
-      setData(res.data)
+      const [dashRes, critRes, agentRes, fuRes] = await Promise.all([
+        api.get('/dashboard/stats').catch(() => ({ data: {} })),
+        api.get('/dashboard/critical').catch(() => ({ data: {} })),
+        isAdmin ? api.get('/reports/agent-wise').catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+        api.get('/reports/upcoming-followups').catch(() => ({ data: [] })),
+      ])
 
-      const days = parseInt(dateRange)
-      const trendData = []
-      for (let i = days - 1; i >= 0; i--) {
-        const date = subDays(new Date(), i)
-        const dateStr = format(date, 'dd MMM')
-        try {
-          const r = await api.get('/reports/daily-calls', {
-            params: { date: format(date, 'yyyy-MM-dd') }
-          })
-          trendData.push({ date: dateStr, calls: r.data.length })
-        } catch {
-          trendData.push({ date: dateStr, calls: 0 })
-        }
-      }
-      setCallTrend(trendData)
+      const t = dashRes.data?.data?.totals || {}
+      setStats(t)
+      setCritical(critRes.data?.data || {})
+      setAgentData(Array.isArray(agentRes.data?.data) ? agentRes.data.data : (Array.isArray(agentRes.data) ? agentRes.data : []))
+      const fu = Array.isArray(fuRes.data?.data) ? fuRes.data.data : (Array.isArray(fuRes.data) ? fuRes.data : [])
+      setFollowups(fu.slice(0, 5))
+    } catch (err) { console.error(err) }
+    finally { setLoading(false) }
+  }, [isAdmin])
 
-      if (res.data.status_breakdown) {
-        const total = res.data.totals?.total_leads || 1
-        const funnel = [
-          { name: 'Total Leads', value: parseInt(res.data.totals?.total_leads || 0), fill: '#3b82f6' },
-          { name: 'Contacted', value: parseInt(res.data.totals?.total_leads || 0) - parseInt(res.data.totals?.unattended || 0), fill: '#8b5cf6' },
-          { name: 'Interested', value: (res.data.status_breakdown.find(s => s.status === 'hot')?.count || 0) * 1 + (res.data.status_breakdown.find(s => s.status === 'warm')?.count || 0) * 1, fill: '#f59e0b' },
-          { name: 'Converted', value: parseInt(res.data.totals?.converted || 0), fill: '#22c55e' },
-        ]
-        setConversionFunnel(funnel)
-      }
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
-  }, [dateRange])
+  useEffect(() => { fetchAll() }, [fetchAll])
 
-  useEffect(() => { fetchDashboard() }, [fetchDashboard])
+  const openDrill = async (title, params) => {
+    try {
+      const r = await api.get('/leads', { params: { ...params, per_page: 200 } })
+      setDrillDown({ title, leads: Array.isArray(r.data) ? r.data : (r.data?.data || []) })
+    } catch { setDrillDown({ title, leads: [] }) }
+  }
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
-      <div className="text-center">
-        <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-        <p className="text-slate-400 text-sm">Loading dashboard...</p>
-      </div>
+      <div className="w-10 h-10 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
     </div>
   )
 
-  const { totals, status_breakdown, today_calls, pending_followups, agent_performance, recent_activity } = data || {}
+  const t             = stats || {}
+  const totalLeads    = parseInt(t.total_leads    || 0)
+  const converted     = parseInt(t.converted      || 0)
+  const hot           = parseInt(t.hot            || t.hot_leads || 0)
+  const warm          = parseInt(t.warm           || t.warm_leads || 0)
+  const cold          = parseInt(t.cold           || t.cold_leads || 0)
+  const callBack      = parseInt(t.call_back      || t.call_back_leads || 0)
+  const notInterested = parseInt(t.not_interested || t.not_interested_leads || 0)
+  const newLeads      = parseInt(t.new_leads      || 0)
+  const unattended    = parseInt(t.unattended     || 0)
+  const convRate      = totalLeads > 0 ? ((converted/totalLeads)*100).toFixed(1) : '0'
 
-  const conversionRate = totals?.total_leads > 0
-    ? ((totals.converted / totals.total_leads) * 100).toFixed(1)
-    : 0
-
-  const attendanceRate = totals?.total_leads > 0
-    ? (((totals.total_leads - totals.unattended) / totals.total_leads) * 100).toFixed(1)
-    : 0
-
-  const pieData = status_breakdown?.map(s => ({
-    name: s.status.replace('_', ' '),
-    value: parseInt(s.count),
-    color: STATUS_COLORS[s.status] || '#94a3b8'
-  })) || []
+  const critUnattended    = (critical?.unattended         || []).length
+  const critMissed        = (critical?.missed_followups   || []).length
+  const hasCritical       = critUnattended > 0 || critMissed > 0
 
   return (
-    <div className="space-y-8 pb-8">
-
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Analytics Dashboard</h1>
-          <p className="text-slate-400 text-sm mt-1">
-            {format(new Date(), 'EEEE, dd MMMM yyyy')} · Welcome back, <span className="text-blue-600 font-semibold">{user?.name}</span>
+          <h1 className="text-2xl font-bold text-slate-800">
+            {isAdmin ? '🏢 Admin Dashboard' : `👋 Welcome, ${user?.name?.split(' ')[0]}`}
+          </h1>
+          <p className="text-slate-500 text-sm">
+            {format(new Date(), 'EEEE, dd MMMM yyyy')}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <select
-            value={dateRange}
-            onChange={e => setDateRange(e.target.value)}
-            className="input w-36 text-sm"
-          >
-            <option value="7">Last 7 days</option>
-            <option value="14">Last 14 days</option>
-            <option value="30">Last 30 days</option>
-          </select>
-          <button onClick={fetchDashboard} className="btn-secondary text-sm">
-            🔄 Refresh
+        <div className="flex items-center gap-2">
+          {hasCritical && (
+            <button onClick={() => setShowCritical(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors animate-pulse">
+              🚨 {critUnattended + critMissed} Critical Alerts
+            </button>
+          )}
+          <button onClick={fetchAll} className="btn-secondary text-sm">🔄 Refresh</button>
+        </div>
+      </div>
+
+      {/* Critical alert banner */}
+      {hasCritical && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-4">
+          <span className="text-2xl">🚨</span>
+          <div className="flex-1">
+            <p className="font-bold text-red-800">Action Required</p>
+            <div className="flex flex-wrap gap-4 mt-1">
+              {critUnattended > 0 && (
+                <button onClick={() => setShowCritical(true)} className="text-sm text-red-700 hover:underline">
+                  🔴 {critUnattended} leads unattended for &gt;5 days
+                </button>
+              )}
+              {critMissed > 0 && (
+                <button onClick={() => setShowCritical(true)} className="text-sm text-red-700 hover:underline">
+                  ⏰ {critMissed} follow-ups missed for &gt;3 days
+                </button>
+              )}
+            </div>
+          </div>
+          <button onClick={() => setShowCritical(true)}
+            className="px-3 py-1 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700">
+            View All
           </button>
         </div>
+      )}
+
+      {/* Call stats */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="card p-4 text-center border-l-4 border-blue-500">
+          <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Calls Today</p>
+          <p className="text-3xl font-black text-blue-600">{t.today_calls || 0}</p>
+        </div>
+        <div className="card p-4 text-center border-l-4 border-purple-500">
+          <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Calls This Week</p>
+          <p className="text-3xl font-black text-purple-600">{t.week_calls || 0}</p>
+        </div>
+        <div className="card p-4 text-center border-l-4 border-indigo-500">
+          <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Calls This Month</p>
+          <p className="text-3xl font-black text-indigo-600">{t.month_calls || 0}</p>
+        </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* Main KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {CARD_CONFIGS.map(c => (
-          <KPICard
-            key={c.key}
-            label={c.label}
-            value={totals?.[c.key]}
-            icon={c.icon}
-            bg={c.bg}
-            text={c.text}
-          />
-        ))}
+        <KPICard label="Total Leads"   value={totalLeads}    icon="👥"  color="#2563eb"
+          onClick={() => openDrill('All Leads', {})} />
+        <KPICard label="Converted"     value={converted}     icon="✅"  color="#16a34a"
+          sub={`${convRate}% conversion rate`}
+          onClick={() => openDrill('Converted Leads', { status: 'converted' })} />
+        <KPICard label="Hot Leads"     value={hot}           icon="🔥"  color="#dc2626"
+          onClick={() => openDrill('Hot Leads', { status: 'hot' })} />
+        <KPICard label="Unattended"    value={unattended}    icon="🔴"  color="#ea580c"
+          sub=">5 days no activity"
+          onClick={() => openDrill('Unattended Leads', { unattended: 'true' })} />
       </div>
 
-      {/* Quick Stats Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="card p-4 text-center">
-          <p className="text-3xl font-black text-blue-600">{today_calls ?? 0}</p>
-          <p className="text-sm text-slate-500 mt-1 font-medium">Today's Calls</p>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-3xl font-black text-red-500">{pending_followups ?? 0}</p>
-          <p className="text-sm text-slate-500 mt-1 font-medium">Pending Follow-ups</p>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-3xl font-black text-green-600">{conversionRate}%</p>
-          <p className="text-sm text-slate-500 mt-1 font-medium">Conversion Rate</p>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-3xl font-black text-purple-600">{attendanceRate}%</p>
-          <p className="text-sm text-slate-500 mt-1 font-medium">Attendance Rate</p>
-        </div>
-      </div>
-
-      {/* Call Trend + Status Pie */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="card p-5 lg:col-span-2">
-          <SectionHeader title="📞 Call Activity Trend" subtitle={`Last ${dateRange} days`} />
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={callTrend}>
-              <defs>
-                <linearGradient id="callGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <Tooltip content={<CustomTooltip />} />
-              <Area type="monotone" dataKey="calls" name="Calls" stroke="#3b82f6" strokeWidth={3} fill="url(#callGrad)" dot={{ fill: '#3b82f6', r: 4 }} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="card p-5">
-          <SectionHeader title="🎯 Lead Status Mix" />
-          <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
-              <Pie data={pieData} dataKey="value" cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={3}>
-                {pieData.map((entry, i) => (
-                  <Cell key={i} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(val, name) => [val, name]} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="space-y-1.5 mt-2">
-            {pieData.slice(0, 4).map((item, i) => (
-              <div key={i} className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
-                  <span className="text-slate-600 capitalize font-medium">{item.name}</span>
-                </div>
-                <span className="font-bold text-slate-700">{item.value}</span>
+      {/* Status breakdown */}
+      <div className="card p-5">
+        <h3 className="font-bold text-slate-800 mb-4">📊 Lead Status Breakdown</h3>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { label: 'New',           val: newLeads,      key: 'new',            color: '#1e40af', bg: '#dbeafe' },
+            { label: 'Warm',          val: warm,          key: 'warm',           color: '#92400e', bg: '#fef3c7' },
+            { label: 'Cold',          val: cold,          key: 'cold',           color: '#475569', bg: '#e2e8f0' },
+            { label: 'Call Back',     val: callBack,      key: 'call_back',      color: '#5b21b6', bg: '#ede9fe' },
+            { label: 'Not Interested',val: notInterested, key: 'not_interested', color: '#64748b', bg: '#f1f5f9' },
+            { label: 'Converted',     val: converted,     key: 'converted',      color: '#14532d', bg: '#dcfce7' },
+            { label: 'Hot',           val: hot,           key: 'hot',            color: '#991b1b', bg: '#fee2e2' },
+            { label: 'Unattended',    val: unattended,    key: null,             color: '#ea580c', bg: '#ffedd5' },
+          ].map(item => (
+            <div key={item.label}
+              className="p-4 rounded-xl cursor-pointer hover:shadow-md transition-all border border-transparent hover:border-blue-200"
+              style={{ backgroundColor: item.bg }}
+              onClick={() => item.key ? openDrill(`${item.label} Leads`, { status: item.key }) : openDrill('Unattended Leads', { unattended: 'true' })}>
+              <p className="text-2xl font-black" style={{ color: item.color }}>{item.val}</p>
+              <p className="text-xs font-semibold mt-1" style={{ color: item.color }}>{item.label}</p>
+              <div className="mt-2 h-1.5 bg-white/50 rounded-full overflow-hidden">
+                <div className="h-full rounded-full" style={{
+                  width: `${totalLeads > 0 ? Math.max((item.val/totalLeads)*100, 2) : 0}%`,
+                  backgroundColor: item.color
+                }} />
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Conversion Funnel + Agent Leaderboard */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card p-5">
-          <SectionHeader title="🔽 Conversion Funnel" subtitle="Lead journey from assignment to close" />
-          <div className="space-y-3 mt-2">
-            {conversionFunnel.map((item, i) => {
-              const max = conversionFunnel[0]?.value || 1
-              const pct = Math.round((item.value / max) * 100)
+      {/* Agent Leaderboard (admin only) */}
+      {isAdmin && agentData.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100">
+            <h3 className="font-bold text-slate-800">🏅 Agent Leaderboard</h3>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                {['Agent','Leads','Calls','Hot','Warm','Converted','Conv %'].map(h=>(
+                  <th key={h} className="text-left px-4 py-3 text-xs text-slate-500 font-semibold uppercase">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {agentData.slice(0, 5).map((a, i) => {
+                const rate = a.total_leads > 0 ? ((a.converted/a.total_leads)*100).toFixed(1) : 0
+                const medals = ['🥇','🥈','🥉']
+                return (
+                  <tr key={a.agent_id} className="hover:bg-slate-50 cursor-pointer"
+                    onClick={() => openDrill(`${a.agent_name}'s Leads`, { agent_id: a.agent_id })}>
+                    <td className="px-4 py-3 font-semibold">{medals[i] || ''} {a.agent_name}</td>
+                    <td className="px-4 py-3 font-bold text-blue-600">{a.total_leads}</td>
+                    <td className="px-4 py-3">{a.total_calls}</td>
+                    <td className="px-4 py-3 font-bold text-red-500">{a.hot}</td>
+                    <td className="px-4 py-3 font-bold text-amber-500">{a.warm}</td>
+                    <td className="px-4 py-3 font-bold text-green-600">{a.converted}</td>
+                    <td className="px-4 py-3">
+                      <span className={`font-bold ${parseFloat(rate)>=20?'text-green-600':parseFloat(rate)>=10?'text-amber-500':'text-red-400'}`}>
+                        {rate}%
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Upcoming follow-ups */}
+      {followups.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="font-bold text-slate-800">📅 Upcoming Follow-ups</h3>
+            <a href="/followups" className="text-sm text-blue-600 hover:underline">View all →</a>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {followups.map(f => {
+              const dateVal = f.next_followup_date || f.follow_up_date
+              const isOverdue = dateVal && new Date(dateVal) < new Date()
               return (
-                <div key={i}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-semibold text-slate-700">{item.name}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-black text-slate-800">{item.value}</span>
-                      <span className="text-xs text-slate-400">{pct}%</span>
-                    </div>
+                <div key={f.id} className={`px-5 py-3 flex items-center gap-4 ${isOverdue?'bg-red-50':''}`}>
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isOverdue?'bg-red-500':'bg-green-500'}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{f.school_name||f.contact_name||'—'}</p>
+                    <p className="text-xs text-slate-400">{f.agent_name} · {f.phone}</p>
                   </div>
-                  <div className="h-8 bg-slate-100 rounded-lg overflow-hidden">
-                    <div
-                      className="h-full rounded-lg flex items-center px-3 transition-all duration-700"
-                      style={{ width: `${pct}%`, background: item.fill }}
-                    >
-                      {pct > 15 && <span className="text-white text-xs font-bold">{pct}%</span>}
-                    </div>
-                  </div>
+                  <StatusBadge status={f.lead_status||f.status} />
+                  <span className={`text-xs font-semibold flex-shrink-0 ${isOverdue?'text-red-600':'text-slate-600'}`}>
+                    {dateVal ? (() => { try { return format(new Date(dateVal), 'dd MMM') } catch { return '—' } })() : '—'}
+                    {isOverdue ? ' ⚠️' : ''}
+                  </span>
                 </div>
               )
             })}
           </div>
-          <div className="mt-4 p-3 bg-green-50 rounded-xl border border-green-100">
-            <p className="text-sm font-semibold text-green-700">
-              🏆 Overall Conversion Rate: <span className="text-2xl font-black">{conversionRate}%</span>
-            </p>
-          </div>
         </div>
+      )}
 
-        {isAdmin && agent_performance?.length > 0 && (
-          <div className="card p-5">
-            <SectionHeader title="🏅 Agent Leaderboard" subtitle="Performance this period" />
-            <div className="space-y-3">
-              {agent_performance.map((agent, i) => {
-                const convRate = agent.total_leads > 0
-                  ? ((agent.converted / agent.total_leads) * 100).toFixed(0)
-                  : 0
-                const medals = ['🥇', '🥈', '🥉']
-                return (
-                  <div key={agent.agent_id} className={`flex items-center gap-3 p-3 rounded-xl ${i === 0 ? 'bg-amber-50 border border-amber-200' : 'bg-slate-50'}`}>
-                    <span className="text-xl flex-shrink-0">{medals[i] || `${i + 1}`}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="text-sm font-bold text-slate-800 truncate">{agent.name}</p>
-                        <span className="text-xs font-bold text-green-600">{convRate}% conv.</span>
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-slate-500">
-                        <span>👥 {agent.total_leads} leads</span>
-                        <span>📞 {agent.total_calls} calls</span>
-                        <span>✅ {agent.converted} converted</span>
-                      </div>
-                      <div className="mt-1.5 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-blue-500 rounded-full"
-                          style={{ width: `${Math.min(100, convRate)}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+      {/* ── CRITICAL ALERTS MODAL ── */}
+      {showCritical && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowCritical(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <div>
+                <h2 className="text-lg font-bold text-red-700">🚨 Critical Alerts</h2>
+                <p className="text-sm text-slate-400">Requires immediate attention</p>
+              </div>
+              <button onClick={() => setShowCritical(false)} className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center hover:bg-slate-200 text-slate-500">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {/* Unattended leads */}
+              {(critical?.unattended || []).length > 0 && (
+                <div className="p-5">
+                  <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500" />
+                    Leads Unattended &gt;5 Days ({critical.unattended.length})
+                  </h3>
+                  <table className="w-full text-sm">
+                    <thead className="bg-red-50">
+                      <tr>{['Name','Phone','Agent','Status','Idle Days'].map(h=>(
+                        <th key={h} className="text-left px-3 py-2 text-xs text-slate-500 font-semibold">{h}</th>
+                      ))}</tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {critical.unattended.map(l => (
+                        <tr key={l.id} className="hover:bg-red-50">
+                          <td className="px-3 py-2 font-medium">{l.name||'—'}</td>
+                          <td className="px-3 py-2 text-blue-600">{l.phone}</td>
+                          <td className="px-3 py-2 text-slate-500">{l.agent_name||'—'}</td>
+                          <td className="px-3 py-2"><StatusBadge status={l.status} /></td>
+                          <td className="px-3 py-2 font-bold text-red-600">{l.days_idle} days</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {/* Missed follow-ups */}
+              {(critical?.missed_followups || []).length > 0 && (
+                <div className="p-5 border-t border-slate-100">
+                  <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-orange-500" />
+                    Follow-ups Missed &gt;3 Days ({critical.missed_followups.length})
+                  </h3>
+                  <table className="w-full text-sm">
+                    <thead className="bg-orange-50">
+                      <tr>{['Name','Phone','Agent','Status','Days Overdue','Scheduled Date'].map(h=>(
+                        <th key={h} className="text-left px-3 py-2 text-xs text-slate-500 font-semibold">{h}</th>
+                      ))}</tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {critical.missed_followups.map(f => (
+                        <tr key={f.id} className="hover:bg-orange-50">
+                          <td className="px-3 py-2 font-medium">{f.lead_name||'—'}</td>
+                          <td className="px-3 py-2 text-blue-600">{f.phone}</td>
+                          <td className="px-3 py-2 text-slate-500">{f.agent_name||'—'}</td>
+                          <td className="px-3 py-2"><StatusBadge status={f.lead_status} /></td>
+                          <td className="px-3 py-2 font-bold text-orange-600">{f.days_overdue} days</td>
+                          <td className="px-3 py-2 text-slate-500">
+                            {f.follow_up_date ? (() => { try { return format(new Date(f.follow_up_date), 'dd MMM yyyy') } catch { return '—' } })() : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t border-slate-100 flex justify-end">
+              <button onClick={() => setShowCritical(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-sm">Close</button>
             </div>
           </div>
-        )}
-      </div>
-
-      {/* Status Bar Chart */}
-      <div className="card p-5">
-        <SectionHeader title="📊 Lead Status Breakdown" subtitle="Total leads by current status" />
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={status_breakdown?.map(s => ({ ...s, count: parseInt(s.count) })) || []} layout="vertical">
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-            <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-            <YAxis type="category" dataKey="status" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={90}
-              tickFormatter={v => v.replace('_', ' ')} />
-            <Tooltip content={<CustomTooltip />} />
-            <Bar dataKey="count" name="Leads" radius={[0, 6, 6, 0]}>
-              {status_breakdown?.map((entry, i) => (
-                <Cell key={i} fill={STATUS_COLORS[entry.status] || '#94a3b8'} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Recent Activity */}
-      <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="font-bold text-slate-800">⚡ Live Activity Feed</h3>
-          <span className="text-xs bg-green-100 text-green-700 font-bold px-2 py-1 rounded-full">
-            {recent_activity?.length || 0} recent
-          </span>
         </div>
-        <div className="divide-y divide-slate-50 max-h-80 overflow-y-auto">
-          {!recent_activity?.length ? (
-            <p className="text-center text-slate-400 py-10 text-sm">No activity yet today</p>
-          ) : (
-            recent_activity.map((act, i) => (
-              <div key={i} className="px-5 py-3 flex items-center gap-4 hover:bg-slate-50 transition-colors">
-                <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-black flex-shrink-0">
-                  {act.agent_name?.[0]?.toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-slate-700">
-                    <span className="font-bold">{act.agent_name}</span> called{' '}
-                    <span className="font-bold text-blue-600">{act.school_name || act.contact_name || 'a lead'}</span>
-                  </p>
-                  {act.discussion && (
-                    <p className="text-xs text-slate-400 truncate mt-0.5 italic">"{act.discussion}"</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className={`badge-${act.status} text-xs`}>{act.status?.replace('_', ' ')}</span>
-                  <span className="text-xs text-slate-300">{format(new Date(act.called_at), 'hh:mm a')}</span>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
+      )}
 
+      {drillDown && <DrillModal title={drillDown.title} leads={drillDown.leads} onClose={() => setDrillDown(null)} />}
     </div>
   )
 }
