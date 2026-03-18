@@ -1,177 +1,221 @@
-import React, { useState } from 'react'
+// mobile-app/src/screens/leads/PostCallScreen.js
+import React, { useState, useEffect } from 'react'
 import {
-  View, Text, StyleSheet, TouchableOpacity, TextInput,
-  ScrollView, Alert, ActivityIndicator, Platform
+  View, Text, ScrollView, TouchableOpacity,
+  TextInput, StyleSheet, Alert, ActivityIndicator
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { Colors } from '../../utils/colors'
+import { Ionicons } from '@expo/vector-icons'
 import api from '../../api/client'
+import COLORS from '../../utils/colors'
 
-const STATUSES = [
-  { value: 'hot', label: '🔥 Hot Lead' },
-  { value: 'warm', label: '☀️ Warm Lead' },
-  { value: 'cold', label: '❄️ Cold Lead' },
-  { value: 'converted', label: '✅ Converted' },
-  { value: 'not_interested', label: '🚫 Not Interested' },
-  { value: 'call_back', label: '🔄 Call Back' },
-]
+const ALL_STATUSES = ['new','hot','warm','cold','converted','not_interested','call_back']
+const STATUS_COLORS = {
+  new:            { bg: '#DBEAFE', text: '#1E40AF' },
+  hot:            { bg: '#FEE2E2', text: '#991B1B' },
+  warm:           { bg: '#FFEDD5', text: '#9A3412' },
+  cold:           { bg: '#F3F4F6', text: '#374151' },
+  converted:      { bg: '#DCFCE7', text: '#166534' },
+  not_interested: { bg: '#F3F4F6', text: '#6B7280' },
+  call_back:      { bg: '#EDE9FE', text: '#5B21B6' },
+}
 
 export default function PostCallScreen({ route, navigation }) {
-  const { lead } = route.params
-  const [status, setStatus] = useState('')
-  const [discussion, setDiscussion] = useState('')
-  const [followupDate, setFollowupDate] = useState('')
-  const [saving, setSaving] = useState(false)
+  const { lead } = route.params || {}
+
+  const [status, setStatus]           = useState(lead?.status || 'new')
+  const [discussion, setDiscussion]   = useState('')
+  const [followUpDate, setFollowUpDate] = useState('')
+  const [productId, setProductId]     = useState(String(lead?.product_id || ''))
+  const [productDetail, setProductDetail] = useState(lead?.product_detail || '')
+  const [products, setProducts]       = useState([])
+  const [saving, setSaving]           = useState(false)
+
+  useEffect(() => {
+    api.get('/products/active').then(r => setProducts(r.data?.data || r.data || [])).catch(() => {})
+  }, [])
 
   const handleSave = async () => {
-    if (!status) return Alert.alert('Required', 'Please select a call status')
+    if (!discussion.trim()) return Alert.alert('Required', 'Please add call discussion notes')
     setSaving(true)
     try {
-      await api.post('/followups', {
-        lead_id: lead.id,
-        status,
-        discussion: discussion.trim(),
-        next_followup_date: followupDate || null,
+      // 1. Log the call with discussion
+      await api.post(`/leads/${lead.id}/communications`, {
+        type: 'call', direction: 'outbound', note: discussion
       })
-      Alert.alert('Saved!', 'Call log saved successfully', [
+
+      // 2. Update status
+      await api.patch(`/leads/${lead.id}/status`, { status })
+
+      // 3. Update product if changed
+      if (productId !== String(lead?.product_id || '') || productDetail !== (lead?.product_detail || '')) {
+        await api.patch(`/leads/${lead.id}/product`, { product_id: productId || null, product_detail: productDetail || null })
+      }
+
+      // 4. Schedule follow-up if date provided
+      if (followUpDate.trim()) {
+        await api.post('/followups', {
+          lead_id:      lead.id,
+          follow_up_date: followUpDate,
+          notes:        discussion,
+        }).catch(() => {}) // non-blocking
+      }
+
+      Alert.alert('✅ Saved', 'Call logged and lead updated', [
         { text: 'OK', onPress: () => navigation.goBack() }
       ])
-    } catch (err) {
-      Alert.alert('Error', err.message)
-    } finally {
-      setSaving(false)
-    }
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Failed to save')
+    } finally { setSaving(false) }
   }
 
-  return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      {/* Handle bar */}
-      <View style={styles.handle} />
+  if (!lead) return (
+    <View style={s.center}><Text>No lead data</Text></View>
+  )
 
+  const currentProduct = products.find(p => String(p.id) === productId)
+
+  return (
+    <View style={s.container}>
       {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Post-Call Update</Text>
-          <Text style={styles.leadName} numberOfLines={1}>
-            {lead.school_name || lead.contact_name || lead.phone}
-          </Text>
-          <Text style={styles.phone}>{lead.phone}</Text>
-        </View>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeBtn}>
-          <Text style={styles.closeBtnText}>✕</Text>
+      <View style={s.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 4 }}>
+          <Ionicons name="arrow-back" size={22} color="#111827" />
         </TouchableOpacity>
+        <View style={{ flex: 1 }}>
+          <Text style={s.headerTitle}>Post-Call Update</Text>
+          <Text style={s.headerSub}>{lead.name || lead.contact_name} · {lead.phone}</Text>
+        </View>
       </View>
 
-      <ScrollView style={styles.body} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-        {/* Status Selection */}
-        <Text style={styles.sectionLabel}>Call Status *</Text>
-        <View style={styles.statusGrid}>
-          {STATUSES.map(s => (
-            <TouchableOpacity
-              key={s.value}
-              style={[styles.statusChip, status === s.value && styles.statusChipActive]}
-              onPress={() => setStatus(s.value)}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.statusChipText, status === s.value && styles.statusChipTextActive]}>
-                {s.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 16 }}>
+
+        {/* Discussion */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>📝 Call Discussion *</Text>
+          <TextInput
+            value={discussion} onChangeText={setDiscussion}
+            placeholder="What was discussed on the call? Any key points…"
+            style={s.textArea} multiline numberOfLines={4}
+            placeholderTextColor="#9CA3AF" textAlignVertical="top" />
         </View>
 
-        {/* Discussion Notes */}
-        <Text style={styles.sectionLabel}>Discussion Notes</Text>
-        <TextInput
-          style={styles.textarea}
-          placeholder="What was discussed during the call? Key points, objections, interest level..."
-          placeholderTextColor={Colors.textLight}
-          value={discussion}
-          onChangeText={setDiscussion}
-          multiline
-          numberOfLines={4}
-          textAlignVertical="top"
-        />
+        {/* Status */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>📊 Update Lead Status</Text>
+          <View style={s.statusGrid}>
+            {ALL_STATUSES.map(st => {
+              const c = STATUS_COLORS[st]
+              const active = status === st
+              return (
+                <TouchableOpacity key={st} onPress={() => setStatus(st)}
+                  style={[s.statusChip, { backgroundColor: active ? c.text : c.bg }]}>
+                  <Text style={[s.statusChipText, { color: active ? '#fff' : c.text }]}>
+                    {st.replace(/_/g, ' ')}
+                  </Text>
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+        </View>
 
-        {/* Next Follow-up Date */}
-        <Text style={styles.sectionLabel}>Next Follow-up Date</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="YYYY-MM-DD (e.g. 2025-03-20)"
-          placeholderTextColor={Colors.textLight}
-          value={followupDate}
-          onChangeText={setFollowupDate}
-          keyboardType="numbers-and-punctuation"
-        />
-        <Text style={styles.dateHint}>Leave empty if no follow-up needed</Text>
+        {/* Product */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>📦 Product Interest</Text>
+          <Text style={s.hint}>Update or assign product discussed on call</Text>
 
-        {/* Save Button */}
-        <TouchableOpacity
-          style={[styles.saveBtn, !status && styles.saveBtnDisabled]}
-          onPress={handleSave}
-          disabled={saving || !status}
-          activeOpacity={0.85}
-        >
-          {saving ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.saveBtnText}>Save Call Log</Text>
-          )}
+          <View style={s.productList}>
+            <TouchableOpacity
+              style={[s.productChip, !productId && s.productChipActive]}
+              onPress={() => setProductId('')}>
+              <Text style={[s.productChipText, !productId && s.productChipTextActive]}>No product</Text>
+            </TouchableOpacity>
+            {products.map(p => (
+              <TouchableOpacity key={p.id}
+                style={[s.productChip, productId === String(p.id) && s.productChipActive]}
+                onPress={() => setProductId(String(p.id))}>
+                <Text style={[s.productChipText, productId === String(p.id) && s.productChipTextActive]}>
+                  {p.name}
+                </Text>
+                <Text style={s.productType}>{p.type}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {productId ? (
+            <TextInput
+              value={productDetail} onChangeText={setProductDetail}
+              placeholder="Product notes, plan, pricing discussed…"
+              style={[s.textArea, { marginTop: 8, minHeight: 60 }]}
+              multiline placeholderTextColor="#9CA3AF" textAlignVertical="top" />
+          ) : null}
+        </View>
+
+        {/* Follow-up date */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>🗓️ Schedule Follow-up</Text>
+          <TextInput
+            value={followUpDate} onChangeText={setFollowUpDate}
+            placeholder="YYYY-MM-DD HH:MM  (leave blank to skip)"
+            style={s.input} placeholderTextColor="#9CA3AF" />
+        </View>
+
+        {/* Summary */}
+        <View style={s.summary}>
+          <Text style={s.summaryTitle}>Summary</Text>
+          <Text style={s.summaryRow}>Status: <Text style={s.summaryVal}>{status.replace(/_/g,' ')}</Text></Text>
+          {currentProduct && <Text style={s.summaryRow}>Product: <Text style={s.summaryVal}>{currentProduct.name}</Text></Text>}
+          {followUpDate ? <Text style={s.summaryRow}>Follow-up: <Text style={s.summaryVal}>{followUpDate}</Text></Text> : null}
+        </View>
+
+        {/* Save button */}
+        <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving}>
+          {saving
+            ? <ActivityIndicator color="#fff" />
+            : <><Ionicons name="checkmark-circle" size={20} color="#fff" /><Text style={s.saveBtnText}>Save Post-Call Update</Text></>
+          }
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.skipBtn}>
-          <Text style={styles.skipBtnText}>Skip for now</Text>
-        </TouchableOpacity>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.white },
-  handle: {
-    width: 40, height: 4, borderRadius: 2,
-    backgroundColor: Colors.border, alignSelf: 'center', marginTop: 10,
-  },
-  header: {
-    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
-    padding: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: Colors.border,
-  },
-  title: { fontSize: 18, fontWeight: '700', color: Colors.text },
-  leadName: { fontSize: 13, fontWeight: '600', color: Colors.primaryLight, marginTop: 4, maxWidth: 260 },
-  phone: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
-  closeBtn: {
-    width: 30, height: 30, borderRadius: 15,
-    backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center',
-  },
-  closeBtnText: { color: Colors.textMuted, fontSize: 14 },
-  body: { flex: 1, padding: 16 },
-  sectionLabel: { fontSize: 12, fontWeight: '700', color: Colors.textMuted, marginBottom: 10, marginTop: 18, textTransform: 'uppercase', letterSpacing: 0.5 },
-  statusGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  statusChip: {
-    borderWidth: 1.5, borderColor: Colors.border, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 10, backgroundColor: Colors.white,
-  },
-  statusChipActive: { borderColor: Colors.primaryLight, backgroundColor: Colors.primaryBg },
-  statusChipText: { fontSize: 13, fontWeight: '600', color: Colors.textMuted },
-  statusChipTextActive: { color: Colors.primaryLight },
-  textarea: {
-    borderWidth: 1, borderColor: Colors.border, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: Colors.text,
-    minHeight: 100, backgroundColor: Colors.white,
-  },
-  input: {
-    borderWidth: 1, borderColor: Colors.border, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: Colors.text,
-    backgroundColor: Colors.white,
-  },
-  dateHint: { fontSize: 11, color: Colors.textLight, marginTop: 5 },
-  saveBtn: {
-    backgroundColor: Colors.primaryLight, borderRadius: 12,
-    paddingVertical: 15, alignItems: 'center', marginTop: 28,
-  },
-  saveBtnDisabled: { opacity: 0.5 },
-  saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  skipBtn: { alignItems: 'center', paddingVertical: 14 },
-  skipBtnText: { color: Colors.textLight, fontSize: 14 },
+const s = StyleSheet.create({
+  container:    { flex: 1, backgroundColor: '#F9FAFB' },
+  center:       { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  header:       { flexDirection: 'row', alignItems: 'center', gap: 10,
+                  paddingHorizontal: 12, paddingTop: 52, paddingBottom: 12,
+                  backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  headerTitle:  { fontSize: 16, fontWeight: '700', color: '#111827' },
+  headerSub:    { fontSize: 12, color: '#6B7280' },
+
+  section:      { backgroundColor: '#fff', borderRadius: 14, padding: 14,
+                  shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 3, elevation: 1 },
+  sectionTitle: { fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 10 },
+  hint:         { fontSize: 12, color: '#6B7280', marginBottom: 8, marginTop: -6 },
+
+  textArea:     { backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB',
+                  borderRadius: 10, padding: 12, fontSize: 14, color: '#111827', minHeight: 100 },
+  input:        { backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB',
+                  borderRadius: 10, padding: 12, fontSize: 14, color: '#111827' },
+
+  statusGrid:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  statusChip:   { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20 },
+  statusChipText: { fontSize: 12, fontWeight: '600', textTransform: 'capitalize' },
+
+  productList:  { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  productChip:  { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: '#F3F4F6', alignItems: 'center' },
+  productChipActive: { backgroundColor: '#4F46E5' },
+  productChipText: { fontSize: 13, fontWeight: '600', color: '#374151' },
+  productChipTextActive: { color: '#fff' },
+  productType:  { fontSize: 10, color: '#9CA3AF', marginTop: 1 },
+
+  summary:      { backgroundColor: '#EEF2FF', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#C7D2FE' },
+  summaryTitle: { fontSize: 13, fontWeight: '700', color: '#4338CA', marginBottom: 6 },
+  summaryRow:   { fontSize: 13, color: '#374151', marginBottom: 3 },
+  summaryVal:   { fontWeight: '700', color: '#111827' },
+
+  saveBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                  gap: 8, backgroundColor: '#4F46E5', padding: 16, borderRadius: 14 },
+  saveBtnText:  { fontSize: 16, fontWeight: '700', color: '#fff' },
 })
