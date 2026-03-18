@@ -297,11 +297,11 @@ export default function SettingsPage() {
 
   // ── Email SMTP config state ───────────────────────────────
   const [smtpForm, setSmtpForm] = useState({
-    SMTP_HOST: 'smtp.zoho.in',
+    SMTP_HOST: 'smtp.gmail.com',
     SMTP_PORT: '587',
-    SMTP_USER: 'sales@thynksuccess.in',
+    SMTP_USER: 'thynksuccess01@gmail.com',
     SMTP_PASS: '',
-    SMTP_FROM: 'ThynkFlow Sales <sales@thynksuccess.in>',
+    SMTP_FROM: 'ThynkFlow Sales <thynksuccess01@gmail.com>',
   })
   const [smtpLoading, setSmtpLoading]   = useState(false)
   const [smtpTesting, setSmtpTesting]   = useState(false)
@@ -426,14 +426,14 @@ export default function SettingsPage() {
                   <input value={smtpForm.SMTP_HOST}
                     onChange={e => setSmtpForm(f => ({ ...f, SMTP_HOST: e.target.value }))}
                     className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                    placeholder="smtp.zoho.in" />
+                    placeholder="smtp.gmail.com" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">SMTP Port</label>
                   <input value={smtpForm.SMTP_PORT}
                     onChange={e => setSmtpForm(f => ({ ...f, SMTP_PORT: e.target.value }))}
                     className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                    placeholder="587" />
+                    placeholder="465" />
                 </div>
               </div>
 
@@ -442,7 +442,7 @@ export default function SettingsPage() {
                 <input value={smtpForm.SMTP_USER}
                   onChange={e => setSmtpForm(f => ({ ...f, SMTP_USER: e.target.value }))}
                   className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  placeholder="sales@thynksuccess.in" />
+                  placeholder="thynksuccess01@gmail.com" />
               </div>
 
               <div>
@@ -450,8 +450,8 @@ export default function SettingsPage() {
                 <input type="password" value={smtpForm.SMTP_PASS}
                   onChange={e => setSmtpForm(f => ({ ...f, SMTP_PASS: e.target.value }))}
                   className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  placeholder="Your Zoho app-specific password" />
-                <p className="text-xs text-slate-400 mt-1">Generate from Zoho Account → Security → App-Specific Passwords</p>
+                  placeholder="Gmail app password (16 chars, no spaces)" />
+                <p className="text-xs text-slate-400 mt-1">Generate from myaccount.google.com → Security → App passwords</p>
               </div>
 
               <div>
@@ -505,7 +505,7 @@ export default function SettingsPage() {
             </ol>
             <div className="mt-3 bg-slate-800 rounded-xl p-4 font-mono text-xs text-green-400 space-y-1">
               <p>SMTP_HOST = smtp.zoho.in</p>
-              <p>SMTP_PORT = 587</p>
+              <p>SMTP_PORT = 465</p>
               <p>SMTP_USER = sales@thynksuccess.in</p>
               <p>SMTP_PASS = PWehM8CNdBC2</p>
               <p>SMTP_FROM = ThynkFlow Sales &lt;sales@thynksuccess.in&gt;</p>
@@ -522,7 +522,7 @@ export default function SettingsPage() {
                 ['Provider', 'Zoho Mail'],
                 ['From Email', 'sales@thynksuccess.in'],
                 ['From Name', 'ThynkFlow Sales'],
-                ['Encryption', 'SSL (Port 587)'],
+                ['Encryption', 'SSL (Port 465)'],
                 ['Status', '⏳ Test to verify'],
               ].map(([label, val]) => (
                 <div key={label} className="bg-slate-50 rounded-xl p-3">
