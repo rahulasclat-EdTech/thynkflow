@@ -298,7 +298,7 @@ export default function SettingsPage() {
   // ── Email SMTP config state ───────────────────────────────
   const [smtpForm, setSmtpForm] = useState({
     SMTP_HOST: 'smtp.zoho.in',
-    SMTP_PORT: '465',
+    SMTP_PORT: '587',
     SMTP_USER: 'sales@thynksuccess.in',
     SMTP_PASS: '',
     SMTP_FROM: 'ThynkFlow Sales <sales@thynksuccess.in>',
@@ -433,7 +433,7 @@ export default function SettingsPage() {
                   <input value={smtpForm.SMTP_PORT}
                     onChange={e => setSmtpForm(f => ({ ...f, SMTP_PORT: e.target.value }))}
                     className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                    placeholder="465" />
+                    placeholder="587" />
                 </div>
               </div>
 
@@ -505,7 +505,7 @@ export default function SettingsPage() {
             </ol>
             <div className="mt-3 bg-slate-800 rounded-xl p-4 font-mono text-xs text-green-400 space-y-1">
               <p>SMTP_HOST = smtp.zoho.in</p>
-              <p>SMTP_PORT = 465</p>
+              <p>SMTP_PORT = 587</p>
               <p>SMTP_USER = sales@thynksuccess.in</p>
               <p>SMTP_PASS = PWehM8CNdBC2</p>
               <p>SMTP_FROM = ThynkFlow Sales &lt;sales@thynksuccess.in&gt;</p>
@@ -522,7 +522,7 @@ export default function SettingsPage() {
                 ['Provider', 'Zoho Mail'],
                 ['From Email', 'sales@thynksuccess.in'],
                 ['From Name', 'ThynkFlow Sales'],
-                ['Encryption', 'SSL (Port 465)'],
+                ['Encryption', 'SSL (Port 587)'],
                 ['Status', '⏳ Test to verify'],
               ].map(([label, val]) => (
                 <div key={label} className="bg-slate-50 rounded-xl p-3">
