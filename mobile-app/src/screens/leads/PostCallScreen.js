@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons'
 import api from '../../api/client'
 import COLORS from '../../utils/colors'
 import CalendarPicker from '../../components/CalendarPicker'
+import VoiceInput from '../../components/VoiceInput'
 
 const ALL_STATUSES = ['new','hot','warm','cold','converted','not_interested','call_back']
 const STATUS_COLORS = {
@@ -185,9 +186,9 @@ const s = StyleSheet.create({
   secTitle:    {fontSize:14,fontWeight:'700',color:'#111827',marginBottom:10},
   input:       {backgroundColor:'#F9FAFB',borderWidth:1,borderColor:'#E5E7EB',borderRadius:10,padding:12,fontSize:14,color:'#111827'},
   textarea:    {minHeight:120},
-  stChip:      {paddingHorizontal:14,paddingVertical:8,borderRadius:20,marginRight:6},
-  stChipText:  {fontSize:12,fontWeight:'600',textTransform:'capitalize'},
-  chip:        {paddingHorizontal:12,paddingVertical:8,borderRadius:10,backgroundColor:'#F3F4F6'},
+  stChip:      {paddingHorizontal:10,paddingVertical:4,borderRadius:20,marginRight:5},
+  stChipText:  {fontSize:11,fontWeight:'600',textTransform:'capitalize'},
+  chip:        {paddingHorizontal:10,paddingVertical:4,borderRadius:20,backgroundColor:'#F3F4F6'},
   chipActive:  {backgroundColor:'#4F46E5'},
   chipTxt:     {fontSize:13,fontWeight:'600',color:'#374151'},
   chipTxtActive:{color:'#fff'},
@@ -198,5 +199,4 @@ const s = StyleSheet.create({
   summaryVal:  {fontWeight:'700',color:'#111827'},
   saveBtn:     {flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8,backgroundColor:'#4F46E5',padding:16,borderRadius:14},
   saveBtnText: {fontSize:16,fontWeight:'700',color:'#fff'},
-  micHint:     {fontSize:11,color:'#9CA3AF',marginTop:6,fontStyle:'italic'},
 })
