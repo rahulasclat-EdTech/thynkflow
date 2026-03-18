@@ -81,7 +81,8 @@ const router = express.Router()
 
 // ── Nodemailer transporter ────────────────────────────────────
 function createTransporter() {
-  return nodemailer.createTransporter({
+  const nm = require('nodemailer')
+  return nm.createTransport({
     host:   process.env.SMTP_HOST || 'smtp.zoho.in',
     port:   parseInt(process.env.SMTP_PORT || '465'),
     secure: true,
