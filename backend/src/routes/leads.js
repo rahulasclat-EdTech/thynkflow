@@ -231,4 +231,45 @@ router.post('/lookup-products', auth, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+// PUT /api/leads/:id - update lead details
+router.put('/:id', auth, async (req, res) => {
+  try {
+    const { name, phone, email, city, source, status, assigned_to, admin_remark } = req.body;
+    const { rows } = await db.query(
+      `UPDATE leads 
+       SET contact_name  = COALESCE($1, contact_name),
+           school_name   = COALESCE($1, school_name),
+           phone         = COALESCE($2, phone),
+           email         = COALESCE($3, email),
+           city          = COALESCE($4, city),
+           source        = COALESCE($5, source),
+           status        = COALESCE($6, status),
+           assigned_to   = $7,
+           admin_remark  = $8,
+           updated_at    = NOW()
+       WHERE id = $9
+       RETURNING *`,
+      [name, phone, email, city, source, status, assigned_to || null, admin_remark || null, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ success: false, message: 'Lead not found' });
+    res.json({ success: true, data: rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// PATCH /api/leads/:id/status - update status only
+router.patch('/:id/status', auth, async (req, res) => {
+  try {
+    const { status } = req.body;
+    const { rows } = await db.query(
+      `UPDATE leads SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [status, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ success: false, message: 'Lead not found' });
+    res.json({ success: true, data: rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
 module.exports = router;
