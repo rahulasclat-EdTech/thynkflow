@@ -11,6 +11,7 @@ import { useAuth } from '../../context/AuthContext'
 import api from '../../api/client'
 import COLORS from '../../utils/colors'
 import CalendarPicker from '../../components/CalendarPicker'
+import VoiceInput from '../../components/VoiceInput'
 
 const STATUS_COLORS = {
   new:            { bg:'#DBEAFE', text:'#1E40AF' },
@@ -41,6 +42,7 @@ export default function FollowUpScreen({ navigation }) {
   const [loading, setLoading]       = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [filter, setFilter]         = useState('pending') // pending | done | all
+  const [statusFilter, setStatusFilter] = useState('') // lead status filter
   const [selectedFU, setSelectedFU] = useState(null)
   const [showUpdate, setShowUpdate] = useState(false)
 
@@ -64,7 +66,8 @@ export default function FollowUpScreen({ navigation }) {
 
   const fetchFollowups = useCallback(async () => {
     try {
-      const params = filter !== 'all' ? `?status=${filter}&per_page=100` : '?per_page=100'
+      const statusParam = statusFilter ? `&lead_status=${statusFilter}` : ''
+      const params = filter !== 'all' ? `?status=${filter}&per_page=100${statusParam}` : `?per_page=100${statusParam}`
       const [fuRes, uRes] = await Promise.all([
         api.get(`/followups${params}`),
         api.get('/users'),
@@ -77,7 +80,7 @@ export default function FollowUpScreen({ navigation }) {
     finally { setLoading(false); setRefreshing(false) }
   }, [filter])
 
-  useEffect(() => { setLoading(true); fetchFollowups() }, [fetchFollowups])
+  useEffect(() => { setLoading(true); fetchFollowups() }, [fetchFollowups, statusFilter])
 
   const handleCall = (fu) => {
     const phone = (fu.phone || fu.lead_phone || '').replace(/\s+/g,'')
@@ -148,12 +151,22 @@ export default function FollowUpScreen({ navigation }) {
         <Text style={s.count}>{followups.length}</Text>
       </View>
 
-      {/* Filter tabs */}
+      {/* Filter tabs - Pending/Done/All */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filterBar}>
         {[['pending','⏳ Pending'],['done','✅ Done'],['all','All']].map(([val,label])=>(
           <TouchableOpacity key={val} onPress={()=>setFilter(val)}
             style={[s.chip, filter===val && s.chipActive]}>
             <Text style={[s.chipTxt, filter===val && s.chipTxtActive]}>{label}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* Lead status filter - compact horizontal chips */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[s.filterBar, {paddingBottom:4}]}>
+        {[{label:'All Status',value:''}, ...Object.keys(STATUS_COLORS).map(k=>({label:k.replace(/_/g,' '),value:k}))].map(item=>(
+          <TouchableOpacity key={item.value} onPress={()=>setStatusFilter(item.value)}
+            style={[s.chip, statusFilter===item.value && s.chipActive]}>
+            <Text style={[s.chipTxt, statusFilter===item.value && s.chipTxtActive]}>{item.label}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -252,7 +265,9 @@ function UpdateFollowUpModal({ visible, followup, agents, onClose, onSave }) {
               placeholder="What was discussed on the call?"
               multiline numberOfLines={4} style={[s.input,{minHeight:100,textAlignVertical:'top'}]}
               placeholderTextColor="#9CA3AF" />
-          <Text style={{fontSize:11,color:'#9CA3AF',marginTop:6,fontStyle:'italic'}}>🎤 Tap mic on your keyboard for voice input</Text>
+          <VoiceInput
+            onResult={text => setDiscussion(prev => prev ? prev + ' ' + text : text)}
+            style={{ marginTop: 8 }} />
           </View>
 
           {/* Status - horizontal tabs */}
@@ -315,10 +330,10 @@ const s = StyleSheet.create({
   header:      {flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:16,paddingTop:52,paddingBottom:12,backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#E5E7EB'},
   title:       {fontSize:22,fontWeight:'800',color:'#111827'},
   count:       {fontSize:16,fontWeight:'700',color:'#6B7280'},
-  filterBar:   {paddingVertical:8,paddingHorizontal:12,backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#F3F4F6'},
-  chip:        {paddingHorizontal:14,paddingVertical:7,borderRadius:20,backgroundColor:'#F3F4F6',marginRight:6},
-  chipActive:  {backgroundColor:'#4F46E5'},
-  chipTxt:     {fontSize:13,color:'#374151',fontWeight:'500'},
+  filterBar:   {paddingVertical:4,paddingHorizontal:12,backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#F3F4F6'},
+  chip:        {paddingHorizontal:10,paddingVertical:4,borderRadius:20,backgroundColor:'#F3F4F6',marginRight:5},
+  chipActive:  {backgroundColor:'#4F46E5',shadowColor:'#4F46E5',shadowOpacity:0.3,shadowRadius:4,elevation:3},
+  chipTxt:     {fontSize:11,color:'#374151',fontWeight:'500'},
   chipTxtActive:{color:'#fff',fontWeight:'700'},
   card:        {backgroundColor:'#fff',borderRadius:14,padding:14,marginBottom:10,shadowColor:'#000',shadowOffset:{width:0,height:1},shadowOpacity:0.06,shadowRadius:4,elevation:2},
   cardOverdue: {borderWidth:1.5,borderColor:'#FCA5A5',backgroundColor:'#FFF5F5'},
@@ -339,8 +354,8 @@ const s = StyleSheet.create({
   section:     {backgroundColor:'#F9FAFB',borderRadius:12,padding:14,borderWidth:1,borderColor:'#E5E7EB'},
   secTitle:    {fontSize:14,fontWeight:'700',color:'#111827',marginBottom:10},
   input:       {backgroundColor:'#fff',borderWidth:1,borderColor:'#E5E7EB',borderRadius:10,padding:12,fontSize:14,color:'#111827'},
-  stChip:      {paddingHorizontal:14,paddingVertical:8,borderRadius:20},
-  stChipText:  {fontSize:12,fontWeight:'600',textTransform:'capitalize'},
+  stChip:      {paddingHorizontal:10,paddingVertical:4,borderRadius:20},
+  stChipText:  {fontSize:11,fontWeight:'600',textTransform:'capitalize'},
   dateBtn:     {flexDirection:'row',alignItems:'center',gap:10,padding:14,backgroundColor:'#EEF2FF',borderRadius:12,borderWidth:1,borderColor:'#C7D2FE'},
   popupOverlay:{flex:1,backgroundColor:'rgba(0,0,0,0.5)',alignItems:'center',justifyContent:'flex-end'},
   popupCard:   {backgroundColor:'#fff',borderTopLeftRadius:24,borderTopRightRadius:24,padding:24,width:'100%',paddingBottom:40},
