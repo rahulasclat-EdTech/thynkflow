@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import api from '../../utils/api'
 import toast from 'react-hot-toast'
+import NotificationBell from '../NotificationBell'
 
 const navItems = [
   { to: '/dashboard',  label: 'Dashboard',   icon: '▦',  adminOnly: false },
@@ -182,6 +183,8 @@ export default function Layout() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between flex-shrink-0">
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-slate-400 hover:text-slate-600 text-xl">☰</button>
+          <div className="flex items-center gap-3">
+            <NotificationBell />
           <div className="relative" ref={menuRef}>
             <button onClick={() => setMenuOpen(!menuOpen)}
               className="flex items-center gap-2.5 hover:bg-slate-50 px-3 py-1.5 rounded-xl transition-colors">
@@ -227,6 +230,7 @@ export default function Layout() {
                 </div>
               </div>
             )}
+          </div>
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-6 bg-slate-50">
