@@ -41,13 +41,11 @@ export default function LeadDetailScreen({ route, navigation }) {
 
   // Post-call detection
   const appStateRef = useRef(AppState.currentState)
-  const didCall     = useRef(false)
-
+  const didCall = useRef(false)
   useEffect(() => {
     const sub = AppState.addEventListener('change', next => {
       if (appStateRef.current.match(/inactive|background/) && next === 'active' && didCall.current) {
-        didCall.current = false
-        setTab('comms')
+        didCall.current = false; setTab('comms')
       }
       appStateRef.current = next
     })
@@ -81,11 +79,12 @@ export default function LeadDetailScreen({ route, navigation }) {
   }
 
   const saveProduct = async () => {
+    if (!productForm.product_id) return Alert.alert('Select a product first')
     setSavingProduct(true)
     try {
       await api.patch(`/leads/${lead.id}/product`, productForm)
       setLead(p=>({...p,...productForm})); setEditingProduct(false)
-      Alert.alert('✅','Product updated')
+      Alert.alert('✅','Product updated successfully')
     } catch(e) { Alert.alert('Error',e.message) }
     finally { setSavingProduct(false) }
   }
@@ -105,7 +104,7 @@ export default function LeadDetailScreen({ route, navigation }) {
 
   const handleCall = () => {
     const phone=(lead?.phone||'').replace(/\s+/g,'')
-    if (!phone) return Alert.alert('No phone')
+    if (!phone) return Alert.alert('No phone number')
     didCall.current = true
     Linking.openURL(`tel:${phone}`)
     logComm('call', commNote||'Call from lead detail')
@@ -113,13 +112,13 @@ export default function LeadDetailScreen({ route, navigation }) {
 
   const handleWhatsApp = () => {
     const p=(lead?.phone||'').replace(/[^0-9]/g,'')
-    if (!p) return Alert.alert('No phone')
+    if (!p) return Alert.alert('No phone number')
     Linking.openURL(`https://wa.me/${p.startsWith('91')?p:'91'+p}`)
     logComm('whatsapp', commNote||'WhatsApp from lead detail')
   }
 
   const handleEmail = () => {
-    if (!lead?.email) return Alert.alert('No email')
+    if (!lead?.email) return Alert.alert('No email address')
     Linking.openURL(`mailto:${lead.email}`)
     logComm('email', commNote||'Email from lead detail')
   }
@@ -128,7 +127,7 @@ export default function LeadDetailScreen({ route, navigation }) {
     try {
       await api.put(`/leads/${lead.id}`,{...lead,assigned_to:agentId})
       setLead(p=>({...p,assigned_to:agentId}))
-      Alert.alert('✅',`Lead reassigned to ${agents.find(a=>a.id===agentId)?.name||'agent'}`)
+      Alert.alert('✅',`Lead assigned to ${agents.find(a=>a.id===agentId)?.name||'agent'}`)
     } catch(e) { Alert.alert('Error',e.message) }
   }
 
@@ -139,6 +138,7 @@ export default function LeadDetailScreen({ route, navigation }) {
 
   return (
     <View style={s.container}>
+      {/* Header */}
       <View style={s.header}>
         <TouchableOpacity onPress={()=>navigation.goBack()} style={{padding:4}}>
           <Ionicons name="arrow-back" size={22} color="#111827" />
@@ -155,22 +155,22 @@ export default function LeadDetailScreen({ route, navigation }) {
       {/* Quick actions */}
       <View style={s.quickBar}>
         <TouchableOpacity style={s.qBtn} onPress={handleCall}>
-          <Ionicons name="call" size={19} color="#16A34A"/><Text style={[s.qTxt,{color:'#16A34A'}]}>Call</Text>
+          <Ionicons name="call" size={18} color="#16A34A"/><Text style={[s.qTxt,{color:'#16A34A'}]}>Call</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.qBtn} onPress={handleWhatsApp}>
-          <Ionicons name="logo-whatsapp" size={19} color="#15803D"/><Text style={[s.qTxt,{color:'#15803D'}]}>WhatsApp</Text>
+          <Ionicons name="logo-whatsapp" size={18} color="#15803D"/><Text style={[s.qTxt,{color:'#15803D'}]}>WhatsApp</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.qBtn} onPress={handleEmail}>
-          <Ionicons name="mail" size={19} color="#1D4ED8"/><Text style={[s.qTxt,{color:'#1D4ED8'}]}>Email</Text>
+          <Ionicons name="mail" size={18} color="#1D4ED8"/><Text style={[s.qTxt,{color:'#1D4ED8'}]}>Email</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.qBtn} onPress={()=>navigation.navigate('PostCall',{lead})}>
-          <Ionicons name="create-outline" size={19} color="#7C3AED"/><Text style={[s.qTxt,{color:'#7C3AED'}]}>Post-call</Text>
+          <Ionicons name="create-outline" size={18} color="#7C3AED"/><Text style={[s.qTxt,{color:'#7C3AED'}]}>Post-call</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Tabs - horizontal compact */}
+      {/* Tabs - compact horizontal */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabBar}>
-        {[['info','Info'],['product','Product'],['comms','Comms & Log'],['assign','Assign']].map(([key,label])=>(
+        {[['info','ℹ️ Info'],['product','📦 Product'],['comms','💬 Comms'],['assign','👤 Assign']].map(([key,label])=>(
           <TouchableOpacity key={key} onPress={()=>setTab(key)}
             style={[s.tab, tab===key && s.tabActive]}>
             <Text style={[s.tabTxt, tab===key && s.tabTxtActive]}>{label}</Text>
@@ -180,11 +180,14 @@ export default function LeadDetailScreen({ route, navigation }) {
 
       <ScrollView style={{flex:1}} contentContainerStyle={{padding:14,paddingBottom:40}}>
 
-        {/* INFO */}
+        {/* ── INFO TAB ─────────────────────────────── */}
         {tab==='info' && <View style={{gap:8}}>
           {[['Email',lead.email||'—'],['City',lead.city||'—'],['Source',lead.source||'—'],
-            ['Agent',lead.agent_name||'—'],['Remark',lead.admin_remark||'—']].map(([l,v])=>(
-            <View key={l} style={s.infoCard}><Text style={s.infoLbl}>{l}</Text><Text style={s.infoVal}>{v}</Text></View>
+            ['Assigned To',lead.agent_name||'—'],['Remark',lead.admin_remark||'—']].map(([l,v])=>(
+            <View key={l} style={s.infoCard}>
+              <Text style={s.infoLbl}>{l}</Text>
+              <Text style={s.infoVal}>{v}</Text>
+            </View>
           ))}
           <View style={s.section}>
             <Text style={s.secTitle}>Update Status</Text>
@@ -192,7 +195,7 @@ export default function LeadDetailScreen({ route, navigation }) {
               {ALL_STATUSES.map(st=>{
                 const c=STATUS_COLORS[st];const active=lead.status===st
                 return <TouchableOpacity key={st} onPress={()=>updateStatus(st)}
-                  style={[s.stChip,{backgroundColor:active?c.text:c.bg,marginRight:6}]}>
+                  style={[s.stChip,{backgroundColor:active?c.text:c.bg}]}>
                   <Text style={[s.stChipText,{color:active?'#fff':c.text}]}>{st.replace(/_/g,' ')}</Text>
                 </TouchableOpacity>
               })}
@@ -200,48 +203,58 @@ export default function LeadDetailScreen({ route, navigation }) {
           </View>
         </View>}
 
-        {/* PRODUCT */}
-        {tab==='product' && <View>
-          {!editingProduct ? (
-            <View style={s.prodDisplay}>
-              <View style={{flex:1}}>
-                <Text style={s.prodLabel}>Assigned Product</Text>
-                {productName ? <>
-                  <Text style={s.prodName}>{productName}</Text>
-                  {lead.product_detail ? <Text style={s.prodDetail}>{lead.product_detail}</Text> : null}
-                </> : <Text style={{color:'#9CA3AF',fontStyle:'italic'}}>No product assigned</Text>}
-              </View>
-              <TouchableOpacity style={s.editProdBtn} onPress={()=>setEditingProduct(true)}>
-                <Ionicons name="create-outline" size={16} color="#4F46E5" />
-                <Text style={{fontSize:13,color:'#4F46E5',fontWeight:'600'}}>{productName?'Update':'Assign'}</Text>
+        {/* ── PRODUCT TAB ───────────────────────────── */}
+        {tab==='product' && <View style={{gap:10}}>
+          {/* Current product display */}
+          <View style={s.prodDisplay}>
+            <View style={{flex:1}}>
+              <Text style={s.prodLabel}>Currently Assigned</Text>
+              {productName
+                ? <><Text style={s.prodName}>{productName}</Text>
+                    {lead.product_detail ? <Text style={s.prodDetail}>{lead.product_detail}</Text> : null}</>
+                : <Text style={{color:'#9CA3AF',fontStyle:'italic',fontSize:14}}>No product assigned yet</Text>
+              }
+            </View>
+          </View>
+
+          {/* Product selection dropdown */}
+          <View style={s.section}>
+            <Text style={s.secTitle}>{productName ? '✏️ Change Product' : '➕ Assign Product'}</Text>
+            <Text style={s.secHint}>Select from the list below</Text>
+            <View style={s.dropdownWrap}>
+              <TouchableOpacity style={[s.dropdownItem, !productForm.product_id && s.dropdownItemActive]}
+                onPress={() => setProductForm(f=>({...f,product_id:''}))}>
+                <Text style={[s.dropdownText, !productForm.product_id && s.dropdownTextActive]}>— Remove product —</Text>
+                {!productForm.product_id && <Ionicons name="checkmark" size={16} color="#4F46E5" />}
               </TouchableOpacity>
+              {products.map(p => {
+                const sel = productForm.product_id === String(p.id)
+                return (
+                  <TouchableOpacity key={p.id} style={[s.dropdownItem, sel && s.dropdownItemActive]}
+                    onPress={() => setProductForm(f=>({...f,product_id:String(p.id)}))}>
+                    <View style={{flex:1}}>
+                      <Text style={[s.dropdownText, sel && s.dropdownTextActive]}>{p.name}</Text>
+                      <Text style={s.dropdownSub}>{p.type} · ₹{p.per_closure_earning} per closure</Text>
+                    </View>
+                    {sel && <Ionicons name="checkmark" size={16} color="#4F46E5" />}
+                  </TouchableOpacity>
+                )
+              })}
             </View>
-          ) : (
-            <View style={s.section}>
-              <Text style={s.secTitle}>{productName?'Update':'Assign'} Product</Text>
-              {products.map(p=>(
-                <TouchableOpacity key={p.id}
-                  style={[s.prodOption, String(productForm.product_id)===String(p.id) && s.prodOptionActive]}
-                  onPress={()=>setProductForm(f=>({...f,product_id:String(p.id)}))}>
-                  <Text style={[{fontSize:14,fontWeight:'600',color:'#374151'},String(productForm.product_id)===String(p.id)&&{color:'#fff'}]}>{p.name}</Text>
-                  <Text style={{fontSize:11,color:'#9CA3AF'}}>{p.type}</Text>
-                </TouchableOpacity>
-              ))}
-              <TextInput value={productForm.product_detail} onChangeText={t=>setProductForm(f=>({...f,product_detail:t}))}
-                placeholder="Product notes…" style={[s.input,{marginTop:8}]} multiline placeholderTextColor="#9CA3AF" />
-              <View style={{flexDirection:'row',gap:8,marginTop:8}}>
-                <TouchableOpacity style={[s.saveBtn,{flex:1}]} onPress={saveProduct} disabled={savingProduct}>
-                  <Text style={s.saveBtnText}>{savingProduct?'Saving…':'Save'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={s.cancelBtn} onPress={()=>setEditingProduct(false)}>
-                  <Text style={{fontSize:14,color:'#374151',fontWeight:'600'}}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
+            {productForm.product_id && (
+              <TextInput value={productForm.product_detail}
+                onChangeText={t=>setProductForm(f=>({...f,product_detail:t}))}
+                placeholder="Product notes e.g. 6-month plan, April batch…"
+                style={[s.input,{marginTop:10}]} multiline placeholderTextColor="#9CA3AF" />
+            )}
+            <TouchableOpacity style={[s.saveBtn,{marginTop:10},savingProduct&&{opacity:0.5}]}
+              onPress={saveProduct} disabled={savingProduct}>
+              <Text style={s.saveBtnText}>{savingProduct?'Saving…':'Save Product'}</Text>
+            </TouchableOpacity>
+          </View>
         </View>}
 
-        {/* COMMS */}
+        {/* ── COMMS TAB ─────────────────────────────── */}
         {tab==='comms' && <View style={{gap:12}}>
           <View style={s.section}>
             <Text style={s.secTitle}>Add Note</Text>
@@ -249,7 +262,6 @@ export default function LeadDetailScreen({ route, navigation }) {
               placeholder="Discussion notes…"
               style={[s.input,{minHeight:80,textAlignVertical:'top',marginBottom:8}]}
               multiline placeholderTextColor="#9CA3AF" />
-            {/* Follow-up date with calendar */}
             <TouchableOpacity onPress={()=>setShowCal(true)} style={s.dateBtn}>
               <Ionicons name="calendar-outline" size={16} color="#4F46E5" />
               <Text style={[{flex:1,fontSize:13,color:'#9CA3AF'},followUpDate&&{color:'#111827',fontWeight:'600'}]}>
@@ -257,27 +269,23 @@ export default function LeadDetailScreen({ route, navigation }) {
               </Text>
             </TouchableOpacity>
           </View>
-
-          {/* Action buttons */}
           <View style={s.commBtns}>
             <TouchableOpacity style={[s.cBtn,{backgroundColor:'#DCFCE7',borderColor:'#86EFAC'}]} onPress={handleCall}>
               <Ionicons name="call" size={22} color="#16A34A" />
-              <Text style={[s.cBtnTxt,{color:'#16A34A'}]}>Call Now</Text>
-              <Text style={s.cBtnSub}>Opens dialer + logs</Text>
+              <Text style={[s.cBtnTxt,{color:'#16A34A'}]}>Call</Text>
+              <Text style={s.cBtnSub}>Logs auto</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[s.cBtn,{backgroundColor:'#DCFCE7',borderColor:'#6EE7B7'}]} onPress={handleWhatsApp}>
               <Ionicons name="logo-whatsapp" size={22} color="#15803D" />
               <Text style={[s.cBtnTxt,{color:'#15803D'}]}>WhatsApp</Text>
-              <Text style={s.cBtnSub}>Opens wa.me + logs</Text>
+              <Text style={s.cBtnSub}>Logs auto</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[s.cBtn,{backgroundColor:'#DBEAFE',borderColor:'#93C5FD'}]} onPress={handleEmail}>
               <Ionicons name="mail" size={22} color="#1D4ED8" />
               <Text style={[s.cBtnTxt,{color:'#1D4ED8'}]}>Email</Text>
-              <Text style={s.cBtnSub}>Opens mail + logs</Text>
+              <Text style={s.cBtnSub}>Logs auto</Text>
             </TouchableOpacity>
           </View>
-
-          {/* Manual log */}
           <View style={s.section}>
             <Text style={s.secTitle}>Manual Log</Text>
             <View style={{flexDirection:'row',gap:8,marginBottom:8}}>
@@ -294,12 +302,12 @@ export default function LeadDetailScreen({ route, navigation }) {
               <Text style={s.saveBtnText}>{savingComm?'Logging…':'Log This'}</Text>
             </TouchableOpacity>
           </View>
-
-          {/* Activity log */}
           <Text style={[s.secTitle,{marginTop:4}]}>Activity Log</Text>
           {commLoading ? <ActivityIndicator color={COLORS.primary} style={{padding:20}} />
             : commLogs.length===0
-              ? <View style={{alignItems:'center',padding:24}}><Text style={{color:'#9CA3AF'}}>No logs yet</Text></View>
+              ? <View style={{alignItems:'center',padding:24,backgroundColor:'#fff',borderRadius:12}}>
+                  <Text style={{color:'#9CA3AF'}}>No communications logged yet</Text>
+                </View>
               : commLogs.map(log=>{
                   const color=COMM_COLORS[log.type]||'#374151'
                   return (
@@ -320,28 +328,39 @@ export default function LeadDetailScreen({ route, navigation }) {
                 })}
         </View>}
 
-        {/* ASSIGN */}
-        {tab==='assign' && <View style={{gap:8}}>
-          <Text style={[s.secTitle,{marginBottom:4}]}>Reassign this lead</Text>
-          {agents.map(agent=>{
-            const isCurrent=lead.assigned_to===agent.id
-            return (
-              <TouchableOpacity key={agent.id}
-                style={[s.agentRow,isCurrent&&{borderColor:'#4F46E5',borderWidth:2,backgroundColor:'#EEF2FF'}]}
-                onPress={()=>!isCurrent&&assignToAgent(agent.id)}>
-                <View style={[s.agentAvatar,isCurrent&&{backgroundColor:'#4F46E5'}]}>
-                  <Text style={{color:'#fff',fontWeight:'700',fontSize:13}}>{agent.name?.charAt(0)?.toUpperCase()}</Text>
-                </View>
-                <View style={{flex:1}}>
-                  <Text style={{fontSize:14,fontWeight:'600',color:'#111827'}}>{agent.name}</Text>
-                  <Text style={{fontSize:12,color:'#6B7280'}}>{agent.role_name}</Text>
-                </View>
-                {isCurrent
-                  ? <><Ionicons name="checkmark-circle" size={22} color="#4F46E5" /><Text style={{fontSize:11,color:'#4F46E5',marginLeft:4}}>Current</Text></>
-                  : <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />}
-              </TouchableOpacity>
-            )
-          })}
+        {/* ── ASSIGN TAB ────────────────────────────── */}
+        {tab==='assign' && <View style={{gap:10}}>
+          <Text style={s.secTitle}>Reassign this lead to another team member</Text>
+          <Text style={{fontSize:12,color:'#9CA3AF',marginTop:-4,marginBottom:4}}>
+            Full lead history will be preserved after reassignment
+          </Text>
+          <View style={s.dropdownWrap}>
+            {agents.map(agent => {
+              const isCurrent = lead.assigned_to === agent.id
+              return (
+                <TouchableOpacity key={agent.id}
+                  style={[s.dropdownItem, isCurrent && s.dropdownItemActive]}
+                  onPress={() => !isCurrent && assignToAgent(agent.id)}>
+                  <View style={[s.agentDot, {backgroundColor: isCurrent ? '#4F46E5' : '#9CA3AF'}]}>
+                    <Text style={{color:'#fff',fontSize:12,fontWeight:'700'}}>{agent.name?.charAt(0)?.toUpperCase()}</Text>
+                  </View>
+                  <View style={{flex:1}}>
+                    <Text style={[s.dropdownText, isCurrent && s.dropdownTextActive]}>
+                      {agent.name}
+                    </Text>
+                    <Text style={s.dropdownSub}>{agent.role_name || 'agent'} · {agent.email}</Text>
+                  </View>
+                  {isCurrent
+                    ? <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
+                        <Ionicons name="checkmark-circle" size={18} color="#4F46E5" />
+                        <Text style={{fontSize:11,color:'#4F46E5',fontWeight:'600'}}>Current</Text>
+                      </View>
+                    : <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                  }
+                </TouchableOpacity>
+              )
+            })}
+          </View>
         </View>}
       </ScrollView>
 
@@ -365,8 +384,8 @@ const s = StyleSheet.create({
   quickBar:    {flexDirection:'row',backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#E5E7EB'},
   qBtn:        {flex:1,alignItems:'center',paddingVertical:10,gap:2},
   qTxt:        {fontSize:10,fontWeight:'600'},
-  tabBar:      {backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#E5E7EB',paddingHorizontal:8,paddingVertical:4},
-  tab:         {paddingHorizontal:14,paddingVertical:8,borderRadius:20,marginRight:4},
+  tabBar:      {backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#E5E7EB',paddingHorizontal:8,paddingVertical:4,maxHeight:44},
+  tab:         {paddingHorizontal:14,paddingVertical:6,borderRadius:20,marginRight:4,height:32,alignItems:'center',justifyContent:'center'},
   tabActive:   {backgroundColor:'#4F46E5'},
   tabTxt:      {fontSize:13,color:'#6B7280',fontWeight:'500'},
   tabTxtActive:{color:'#fff',fontWeight:'700'},
@@ -374,20 +393,24 @@ const s = StyleSheet.create({
   infoLbl:     {fontSize:11,color:'#9CA3AF'},
   infoVal:     {fontSize:14,fontWeight:'600',color:'#111827',marginTop:1},
   section:     {backgroundColor:'#fff',borderRadius:12,padding:14},
-  secTitle:    {fontSize:13,fontWeight:'700',color:'#374151',marginBottom:8},
-  stChip:      {paddingHorizontal:12,paddingVertical:7,borderRadius:20},
+  secTitle:    {fontSize:13,fontWeight:'700',color:'#374151',marginBottom:4},
+  secHint:     {fontSize:12,color:'#9CA3AF',marginBottom:8},
+  stChip:      {paddingHorizontal:12,paddingVertical:0,borderRadius:20,marginRight:6,height:30,alignItems:'center',justifyContent:'center'},
   stChipText:  {fontSize:12,fontWeight:'600',textTransform:'capitalize'},
-  prodDisplay: {flexDirection:'row',alignItems:'flex-start',backgroundColor:'#EEF2FF',borderRadius:14,padding:14,borderWidth:1,borderColor:'#C7D2FE'},
+  prodDisplay: {backgroundColor:'#EEF2FF',borderRadius:14,padding:14,borderWidth:1,borderColor:'#C7D2FE'},
   prodLabel:   {fontSize:10,color:'#6366F1',fontWeight:'700',textTransform:'uppercase',marginBottom:4},
   prodName:    {fontSize:17,fontWeight:'800',color:'#312E81'},
   prodDetail:  {fontSize:13,color:'#4338CA',marginTop:3},
-  editProdBtn: {flexDirection:'row',alignItems:'center',gap:4,backgroundColor:'#fff',paddingHorizontal:10,paddingVertical:6,borderRadius:8,borderWidth:1,borderColor:'#C7D2FE'},
-  prodOption:  {padding:12,borderRadius:10,backgroundColor:'#F3F4F6',flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:6},
-  prodOptionActive:{backgroundColor:'#4F46E5'},
+  dropdownWrap:{borderWidth:1,borderColor:'#E5E7EB',borderRadius:12,overflow:'hidden'},
+  dropdownItem:{flexDirection:'row',alignItems:'center',gap:10,padding:14,borderBottomWidth:1,borderBottomColor:'#F3F4F6',backgroundColor:'#fff'},
+  dropdownItemActive:{backgroundColor:'#EEF2FF'},
+  dropdownText:{fontSize:14,color:'#374151',fontWeight:'500',flex:1},
+  dropdownTextActive:{color:'#4F46E5',fontWeight:'700'},
+  dropdownSub: {fontSize:11,color:'#9CA3AF',marginTop:1},
+  agentDot:    {width:32,height:32,borderRadius:16,alignItems:'center',justifyContent:'center'},
   input:       {backgroundColor:'#F9FAFB',borderWidth:1,borderColor:'#E5E7EB',borderRadius:10,padding:12,fontSize:14,color:'#111827'},
   saveBtn:     {backgroundColor:'#4F46E5',padding:12,borderRadius:10,alignItems:'center'},
   saveBtnText: {fontSize:14,color:'#fff',fontWeight:'700'},
-  cancelBtn:   {padding:12,borderRadius:10,borderWidth:1,borderColor:'#E5E7EB',alignItems:'center',paddingHorizontal:20},
   dateBtn:     {flexDirection:'row',alignItems:'center',gap:8,padding:10,backgroundColor:'#EEF2FF',borderRadius:10,borderWidth:1,borderColor:'#C7D2FE'},
   commBtns:    {flexDirection:'row',gap:8},
   cBtn:        {flex:1,alignItems:'center',padding:10,borderRadius:14,borderWidth:1.5,gap:3},
@@ -395,6 +418,4 @@ const s = StyleSheet.create({
   cBtnSub:     {fontSize:9,color:'#9CA3AF',textAlign:'center'},
   tChip:       {flex:1,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:4,padding:8,borderRadius:8,backgroundColor:'#F3F4F6'},
   logItem:     {backgroundColor:'#fff',borderRadius:10,padding:12,marginBottom:8,borderLeftWidth:4},
-  agentRow:    {flexDirection:'row',alignItems:'center',gap:12,backgroundColor:'#fff',borderRadius:14,padding:14,borderWidth:1,borderColor:'#E5E7EB'},
-  agentAvatar: {width:38,height:38,borderRadius:19,backgroundColor:'#6B7280',alignItems:'center',justifyContent:'center'},
 })
