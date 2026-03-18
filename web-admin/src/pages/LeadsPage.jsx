@@ -97,7 +97,7 @@ export default function LeadsPage() {
   // ── create form ───────────────────────────────────────────────
   const emptyForm = {
     name: '', phone: '', email: '', source: '', city: '',
-    status: 'new', assigned_to: '', product_id: '',
+    status: 'new', assigned_to: '', product_id: '', // assigned_to set to user.id on open
     product_detail: '', admin_remark: '', follow_up_date: '',
     notes: ''
   }
@@ -709,10 +709,10 @@ export default function LeadsPage() {
                         {isAdmin && (
                           <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">Assign To</label>
-                            <select value={editForm.assigned_to} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))}
+                            <select value={editForm.assigned_to || user?.id || ''} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))}
                               className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-                              <option value="">— Unassigned —</option>
-                              {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                              <option value={user?.id}>{user?.name} (me)</option>
+                              {agents.filter(a => a.id !== user?.id).map(a => <option key={a.id} value={a.id}>{a.name} — {a.role_name}</option>)}
                             </select>
                           </div>
                         )}
@@ -1051,19 +1051,17 @@ export default function LeadsPage() {
                 </div>
               </div>
 
-              {/* Admin only: assign to agent */}
-              {isAdmin && (
-                <div>
-                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Assignment</h3>
-                  <select
-                    value={form.assigned_to}
-                    onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent">
-                    <option value="">— Unassigned —</option>
-                    {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </select>
-                </div>
-              )}
+              {/* Assign to user - default is logged-in user, can change */}
+              <div>
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Assign To</h3>
+                <select
+                  value={form.assigned_to || user?.id || ''}
+                  onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent">
+                  <option value={user?.id}>{user?.name} (me)</option>
+                  {agents.filter(a => a.id !== user?.id).map(a => <option key={a.id} value={a.id}>{a.name} — {a.role_name}</option>)}
+                </select>
+              </div>
 
               {/* Lead preview card */}
               {(form.name || form.phone) && (
