@@ -13,6 +13,7 @@ const navItems = [
   { to: '/reports', label: 'Reports', icon: '📊', adminOnly: false },
   { to: '/users', label: 'Users', icon: '👤', adminOnly: true },
   { to: '/settings', label: 'Settings', icon: '⚙️', adminOnly: true },
+  { name: 'Email', path: '/email', icon: '📧' }
 ]
 
 function ChangePasswordModal({ onClose }) {
