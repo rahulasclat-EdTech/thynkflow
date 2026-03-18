@@ -13,6 +13,8 @@ const settingsRoutes  = require('./routes/settings');
 const productRoutes   = require('./routes/products');
 const emailRoutes     = require('./routes/emails');
 const activityRoutes  = require('./routes/activities');
+const chatRoutes = require('./routes/chat')
+app.use('/api/chat', chatRoutes)
 
 const app = express();
 
