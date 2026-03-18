@@ -10,6 +10,8 @@ import FollowUpsPage from './pages/FollowUpsPage'
 import ReportsPage from './pages/ReportsPage'
 import UsersPage from './pages/UsersPage'
 import SettingsPage from './pages/SettingsPage'
+import EmailPage from './pages/EmailPage'
+<Route path="email" element={<EmailPage />} />
 
 function PrivateRoute({ children }) {
   const { user } = useAuth()
