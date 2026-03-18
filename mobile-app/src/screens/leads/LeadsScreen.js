@@ -24,35 +24,33 @@ const ALL_STATUSES = Object.keys(STATUS_COLORS)
 
 export default function LeadsScreen({ navigation }) {
   const { user } = useAuth()
-  const [leads, setLeads]           = useState([])
-  const [products, setProducts]     = useState([])
-  const [agents, setAgents]         = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [search, setSearch]         = useState('')
+  const [leads, setLeads]             = useState([])
+  const [products, setProducts]       = useState([])
+  const [agents, setAgents]           = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [refreshing, setRefreshing]   = useState(false)
+  const [search, setSearch]           = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterProduct, setFilterProduct] = useState('')
-  const [page, setPage]             = useState(1)
-  const [hasMore, setHasMore]       = useState(true)
+  const [page, setPage]               = useState(1)
+  const [hasMore, setHasMore]         = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [showCreate, setShowCreate] = useState(false)
-  const [callLead, setCallLead]     = useState(null)
+  const [showCreate, setShowCreate]   = useState(false)
+  const [callLead, setCallLead]       = useState(null)
   const [showPostCallPrompt, setShowPostCallPrompt] = useState(false)
-  const appState = useRef(AppState.currentState)
+  const appStateRef  = useRef(AppState.currentState)
   const calledLeadRef = useRef(null)
   const PER_PAGE = 20
 
   // Detect return from phone call
   useEffect(() => {
-    const sub = AppState.addEventListener('change', nextState => {
-      if (appState.current.match(/inactive|background/) && nextState === 'active') {
-        if (calledLeadRef.current) {
-          setCallLead(calledLeadRef.current)
-          setShowPostCallPrompt(true)
-          calledLeadRef.current = null
-        }
+    const sub = AppState.addEventListener('change', next => {
+      if (appStateRef.current.match(/inactive|background/) && next === 'active' && calledLeadRef.current) {
+        setCallLead(calledLeadRef.current)
+        setShowPostCallPrompt(true)
+        calledLeadRef.current = null
       }
-      appState.current = nextState
+      appStateRef.current = next
     })
     return () => sub.remove()
   }, [])
@@ -60,18 +58,14 @@ export default function LeadsScreen({ navigation }) {
   const fetchLeads = useCallback(async (pageNum = 1, append = false) => {
     if (pageNum === 1) setLoading(true); else setLoadingMore(true)
     try {
-      const params = new URLSearchParams({
-        page: pageNum, per_page: PER_PAGE,
-        ...(search && { search }),
-        ...(filterStatus && { status: filterStatus }),
-        ...(filterProduct && { product_id: filterProduct }),
-      })
-      const res   = await api.get(`/leads?${params}`)
-      const raw   = res.data
-      const rows  = Array.isArray(raw) ? raw : (raw.data || [])
+      const params = new URLSearchParams({ page: pageNum, per_page: PER_PAGE,
+        ...(search && { search }), ...(filterStatus && { status: filterStatus }),
+        ...(filterProduct && { product_id: filterProduct }) })
+      const res = await api.get(`/leads?${params}`)
+      const raw = res.data
+      const rows = Array.isArray(raw) ? raw : (raw.data || [])
       const total = raw.total || rows.length
-      if (append) setLeads(prev => [...prev, ...rows])
-      else setLeads(rows)
+      if (append) setLeads(p => [...p, ...rows]); else setLeads(rows)
       setHasMore(pageNum * PER_PAGE < total)
     } catch (e) { console.log(e.message) }
     finally { setLoading(false); setLoadingMore(false); setRefreshing(false) }
@@ -82,70 +76,51 @@ export default function LeadsScreen({ navigation }) {
   useEffect(() => {
     Promise.all([api.get('/products/active'), api.get('/users')]).then(([p, u]) => {
       setProducts(p.data?.data || p.data || [])
-      const all = Array.isArray(u.data) ? u.data : (u.data?.data || [])
-      setAgents(all)
+      setAgents(Array.isArray(u.data) ? u.data : (u.data?.data || []))
     }).catch(() => {})
   }, [])
-
-  const loadMore = () => {
-    if (!hasMore || loadingMore) return
-    const next = page + 1; setPage(next); fetchLeads(next, true)
-  }
 
   const handleCall = (lead) => {
     const phone = (lead.phone || '').replace(/\s+/g, '')
     if (!phone) return Alert.alert('No phone number')
     calledLeadRef.current = lead
     Linking.openURL(`tel:${phone}`)
-    api.post(`/leads/${lead.id}/communications`, { type: 'call', direction: 'outbound', note: 'Call from app' }).catch(() => {})
+    api.post(`/leads/${lead.id}/communications`, { type:'call', direction:'outbound', note:'Call from app' }).catch(()=>{})
   }
 
   const handleWhatsApp = (lead) => {
-    const p = (lead.phone || '').replace(/[^0-9]/g, '')
-    if (!p) return Alert.alert('No phone number')
-    Linking.openURL(`https://wa.me/${p.startsWith('91') ? p : '91' + p}`)
+    const p = (lead.phone||'').replace(/[^0-9]/g,'')
+    if (!p) return Alert.alert('No phone')
+    Linking.openURL(`https://wa.me/${p.startsWith('91')?p:'91'+p}`)
   }
 
-  const productName = (id) => products.find(p => p.id === parseInt(id))?.name
-
   const renderLead = ({ item }) => {
-    const sc    = STATUS_COLORS[item.status] || STATUS_COLORS.new
-    const pname = item.product_id ? productName(item.product_id) : null
+    const sc = STATUS_COLORS[item.status] || STATUS_COLORS.new
+    const pname = products.find(p => p.id === parseInt(item.product_id))?.name
     return (
       <TouchableOpacity style={s.card} onPress={() => navigation.navigate('LeadDetail', { lead: item })}>
         <View style={s.cardTop}>
           <View style={{ flex: 1 }}>
             <Text style={s.leadName}>{item.name || item.contact_name || item.school_name}</Text>
             <Text style={s.leadPhone}>{item.phone}</Text>
-            {pname && (
-              <View style={s.productBadge}>
-                <Ionicons name="cube-outline" size={11} color="#4F46E5" />
-                <Text style={s.productBadgeText}>{pname}</Text>
-              </View>
-            )}
+            {pname && <View style={s.pBadge}><Ionicons name="cube-outline" size={10} color="#4F46E5" /><Text style={s.pBadgeText}>{pname}</Text></View>}
           </View>
-          <View style={[s.statusBadge, { backgroundColor: sc.bg }]}>
-            <Text style={[s.statusText, { color: sc.text }]}>{item.status?.replace(/_/g, ' ')}</Text>
+          <View style={[s.sBadge, { backgroundColor: sc.bg }]}>
+            <Text style={[s.sBadgeText, { color: sc.text }]}>{item.status?.replace(/_/g,' ')}</Text>
           </View>
         </View>
-        <View style={s.cardActions}>
-          <TouchableOpacity style={[s.actionBtn, { backgroundColor: '#DCFCE7' }]} onPress={() => handleCall(item)}>
-            <Ionicons name="call" size={15} color="#16A34A" />
-            <Text style={[s.actionText, { color: '#16A34A' }]}>Call</Text>
+        <View style={s.actions}>
+          <TouchableOpacity style={[s.aBtn, { backgroundColor:'#DCFCE7' }]} onPress={() => handleCall(item)}>
+            <Ionicons name="call" size={14} color="#16A34A" /><Text style={[s.aTxt,{color:'#16A34A'}]}>Call</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[s.actionBtn, { backgroundColor: '#DCFCE7' }]} onPress={() => handleWhatsApp(item)}>
-            <Ionicons name="logo-whatsapp" size={15} color="#15803D" />
-            <Text style={[s.actionText, { color: '#15803D' }]}>WhatsApp</Text>
+          <TouchableOpacity style={[s.aBtn, { backgroundColor:'#DCFCE7' }]} onPress={() => handleWhatsApp(item)}>
+            <Ionicons name="logo-whatsapp" size={14} color="#15803D" /><Text style={[s.aTxt,{color:'#15803D'}]}>WhatsApp</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[s.actionBtn, { backgroundColor: '#EDE9FE' }]}
-            onPress={() => navigation.navigate('LeadDetail', { lead: item })}>
-            <Ionicons name="open-outline" size={15} color="#5B21B6" />
-            <Text style={[s.actionText, { color: '#5B21B6' }]}>Detail</Text>
+          <TouchableOpacity style={[s.aBtn, { backgroundColor:'#EDE9FE' }]} onPress={() => navigation.navigate('LeadDetail', { lead: item })}>
+            <Ionicons name="open-outline" size={14} color="#5B21B6" /><Text style={[s.aTxt,{color:'#5B21B6'}]}>Detail</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[s.actionBtn, { backgroundColor: '#DBEAFE' }]}
-            onPress={() => navigation.navigate('PostCall', { lead: item })}>
-            <Ionicons name="create-outline" size={15} color="#1E40AF" />
-            <Text style={[s.actionText, { color: '#1E40AF' }]}>Update</Text>
+          <TouchableOpacity style={[s.aBtn, { backgroundColor:'#DBEAFE' }]} onPress={() => navigation.navigate('PostCall', { lead: item })}>
+            <Ionicons name="create-outline" size={14} color="#1E40AF" /><Text style={[s.aTxt,{color:'#1E40AF'}]}>Update</Text>
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
@@ -161,65 +136,60 @@ export default function LeadsScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      <View style={s.searchRow}>
+      <View style={{ backgroundColor:'#fff', paddingHorizontal:12, paddingVertical:8 }}>
         <View style={s.searchBox}>
-          <Ionicons name="search-outline" size={16} color="#9CA3AF" style={{ marginRight: 6 }} />
-          <TextInput value={search} onChangeText={t => { setSearch(t); setPage(1) }}
+          <Ionicons name="search-outline" size={16} color="#9CA3AF" style={{marginRight:6}} />
+          <TextInput value={search} onChangeText={t=>{setSearch(t);setPage(1)}}
             placeholder="Search name, phone…" placeholderTextColor="#9CA3AF" style={s.searchInput} />
         </View>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filterRow}>
-        {[{ label: 'All', value: '' }, ...ALL_STATUSES.map(s2 => ({ label: s2.replace(/_/g,' '), value: s2 }))].map(item => (
-          <TouchableOpacity key={item.value} onPress={() => { setFilterStatus(item.value); setPage(1) }}
-            style={[s.chip, filterStatus === item.value && s.chipActive]}>
-            <Text style={[s.chipText, filterStatus === item.value && s.chipTextActive]}>{item.label}</Text>
+      {/* Status chips - horizontal scrollable tabs */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filterBar}>
+        {[{label:'All',value:''}, ...ALL_STATUSES.map(s2=>({label:s2.replace(/_/g,' '),value:s2}))].map(item=>(
+          <TouchableOpacity key={item.value} onPress={()=>{setFilterStatus(item.value);setPage(1)}}
+            style={[s.chip, filterStatus===item.value && s.chipActive]}>
+            <Text style={[s.chipTxt, filterStatus===item.value && s.chipTxtActive]}>{item.label}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
-      {products.length > 0 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[s.filterRow, { paddingBottom: 4 }]}>
-          {[{ name: 'All Products', id: '' }, ...products].map(p => (
-            <TouchableOpacity key={String(p.id)} onPress={() => { setFilterProduct(p.id ? String(p.id) : ''); setPage(1) }}
-              style={[s.chip, filterProduct === (p.id ? String(p.id) : '') && s.chipActive]}>
-              <Text style={[s.chipText, filterProduct === (p.id ? String(p.id) : '') && s.chipTextActive]}>{p.name}</Text>
+      {products.length>0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[s.filterBar,{paddingBottom:4}]}>
+          {[{name:'All Products',id:''}, ...products].map(p=>(
+            <TouchableOpacity key={String(p.id)} onPress={()=>{setFilterProduct(p.id?String(p.id):'');setPage(1)}}
+              style={[s.chip, filterProduct===(p.id?String(p.id):'') && s.chipActive]}>
+              <Text style={[s.chipTxt, filterProduct===(p.id?String(p.id):'') && s.chipTxtActive]}>{p.name}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       )}
 
-      {loading ? (
-        <View style={s.center}><ActivityIndicator size="large" color={COLORS.primary} /></View>
-      ) : (
-        <FlatList data={leads} keyExtractor={item => String(item.id)} renderItem={renderLead}
-          contentContainerStyle={{ padding: 12, paddingBottom: 80 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); setPage(1); fetchLeads(1) }} tintColor={COLORS.primary} />}
-          onEndReached={loadMore} onEndReachedThreshold={0.3}
-          ListFooterComponent={loadingMore ? <ActivityIndicator color={COLORS.primary} style={{ padding: 16 }} /> : null}
-          ListEmptyComponent={<View style={s.center}><Text style={{ color: '#9CA3AF' }}>No leads found</Text></View>} />
+      {loading ? <View style={s.center}><ActivityIndicator size="large" color={COLORS.primary} /></View> : (
+        <FlatList data={leads} keyExtractor={item=>String(item.id)} renderItem={renderLead}
+          contentContainerStyle={{padding:12, paddingBottom:80}}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={()=>{setRefreshing(true);setPage(1);fetchLeads(1)}} tintColor={COLORS.primary} />}
+          onEndReached={()=>{if(!hasMore||loadingMore)return;const n=page+1;setPage(n);fetchLeads(n,true)}}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={loadingMore?<ActivityIndicator color={COLORS.primary} style={{padding:16}}/>:null}
+          ListEmptyComponent={<View style={s.center}><Text style={{color:'#9CA3AF'}}>No leads found</Text></View>} />
       )}
 
-      {/* Create Lead Modal */}
-      <CreateLeadModal visible={showCreate} onClose={() => setShowCreate(false)}
-        onSave={() => { setPage(1); fetchLeads(1) }} products={products} agents={agents} />
+      <CreateLeadModal visible={showCreate} onClose={()=>setShowCreate(false)}
+        onSave={()=>{setPage(1);fetchLeads(1)}} products={products} agents={agents} />
 
-      {/* Post-call popup */}
       <Modal visible={showPostCallPrompt} transparent animationType="slide">
         <View style={s.popupOverlay}>
           <View style={s.popupCard}>
             <Text style={s.popupTitle}>📞 Call Ended</Text>
-            <Text style={s.popupSub}>{callLead?.name || callLead?.contact_name} · {callLead?.phone}</Text>
-            <Text style={s.popupPrompt}>Update call notes?</Text>
-            <View style={s.popupBtns}>
-              <TouchableOpacity style={s.popupSkip} onPress={() => setShowPostCallPrompt(false)}>
-                <Text style={s.popupSkipText}>Skip</Text>
+            <Text style={s.popupSub}>{callLead?.name||callLead?.contact_name} · {callLead?.phone}</Text>
+            <Text style={{fontSize:14,color:'#374151',textAlign:'center',marginTop:10,marginBottom:18}}>Update call notes?</Text>
+            <View style={{flexDirection:'row',gap:12}}>
+              <TouchableOpacity style={s.popupSkip} onPress={()=>setShowPostCallPrompt(false)}>
+                <Text style={{fontSize:14,fontWeight:'600',color:'#6B7280'}}>Skip</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={s.popupUpdate} onPress={() => {
-                setShowPostCallPrompt(false)
-                if (callLead) navigation.navigate('PostCall', { lead: callLead })
-              }}>
-                <Text style={s.popupUpdateText}>Update Call →</Text>
+              <TouchableOpacity style={s.popupUpdate} onPress={()=>{setShowPostCallPrompt(false);if(callLead)navigation.navigate('PostCall',{lead:callLead})}}>
+                <Text style={{fontSize:14,fontWeight:'700',color:'#fff'}}>Update Call →</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -229,143 +199,124 @@ export default function LeadsScreen({ navigation }) {
   )
 }
 
-// ── Create Lead Modal ─────────────────────────────────────
 function CreateLeadModal({ visible, onClose, onSave, products, agents }) {
-  const { user } = useAuth()
-  const empty = { name:'', phone:'', email:'', city:'', source:'', status:'new',
-                  product_id:'', notes:'', follow_up_date:'', assigned_to:'' }
-  const [form, setForm]         = useState(empty)
-  const [saving, setSaving]     = useState(false)
-  const [showCal, setShowCal]   = useState(false)
+  const empty = {name:'',phone:'',email:'',city:'',source:'',status:'new',product_id:'',notes:'',follow_up_date:'',assigned_to:''}
+  const [form, setForm]       = useState(empty)
+  const [saving, setSaving]   = useState(false)
+  const [showCal, setShowCal] = useState(false)
+  const f = (key) => (val) => setForm(p=>({...p,[key]:val}))
 
   const handleSave = async () => {
-    if (!form.name.trim()) return Alert.alert('Required', 'Enter lead name')
-    if (!form.phone.trim()) return Alert.alert('Required', 'Enter phone number')
+    if (!form.name.trim()) return Alert.alert('Required','Enter lead name')
+    if (!form.phone.trim()) return Alert.alert('Required','Enter phone number')
     setSaving(true)
     try {
       const res = await api.post('/leads', {
-        name: form.name.trim(), contact_name: form.name.trim(),
-        phone: form.phone.trim(), email: form.email || null,
-        city: form.city || null, source: form.source || null,
-        status: form.status, product_id: form.product_id || null,
-        admin_remark: form.notes || null,
-        assigned_to: form.assigned_to || null,
+        name:form.name.trim(), contact_name:form.name.trim(),
+        phone:form.phone.trim(), email:form.email||null, city:form.city||null,
+        source:form.source||null, status:form.status,
+        product_id:form.product_id||null, admin_remark:form.notes||null,
+        assigned_to:form.assigned_to||null,
       })
       if (form.follow_up_date) {
         const lead = res.data?.data || res.data
-        if (lead?.id) {
-          await api.post('/followups', { lead_id: lead.id, follow_up_date: form.follow_up_date, notes: form.notes || '' }).catch(() => {})
-        }
+        if (lead?.id) await api.post('/followups',{lead_id:lead.id,follow_up_date:form.follow_up_date,notes:form.notes||''}).catch(()=>{})
       }
       setForm(empty); onSave(); onClose()
-    } catch (err) { Alert.alert('Error', err.message || 'Failed to create lead') }
+    } catch(err) { Alert.alert('Error',err.message||'Failed to create lead') }
     finally { setSaving(false) }
   }
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: '#fff' }}>
-        <View style={s.modalHeader}>
+      <View style={{flex:1,backgroundColor:'#fff'}}>
+        <View style={s.mHeader}>
           <TouchableOpacity onPress={onClose}><Ionicons name="close" size={24} color="#374151" /></TouchableOpacity>
-          <Text style={s.modalTitle}>Add New Lead</Text>
-          <TouchableOpacity onPress={handleSave} disabled={saving} style={s.saveBtn}>
-            <Text style={s.saveBtnText}>{saving ? '…' : 'Save'}</Text>
+          <Text style={s.mTitle}>Add New Lead</Text>
+          <TouchableOpacity onPress={handleSave} disabled={saving} style={s.mSave}>
+            <Text style={{color:'#fff',fontWeight:'700',fontSize:14}}>{saving?'…':'Save'}</Text>
           </TouchableOpacity>
         </View>
-
-        <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.label}>Full Name *</Text>
-              <TextInput value={form.name} onChangeText={t => setForm(f => ({...f,name:t}))}
-                placeholder="Rahul Sharma" style={s.input} placeholderTextColor="#9CA3AF" />
+        <ScrollView contentContainerStyle={{padding:16,paddingBottom:40}}>
+          {/* Name & Phone */}
+          <View style={{flexDirection:'row',gap:10,marginBottom:14}}>
+            <View style={{flex:1}}>
+              <Text style={s.lbl}>Full Name *</Text>
+              <TextInput value={form.name} onChangeText={f('name')} placeholder="Rahul Sharma" style={s.inp} placeholderTextColor="#9CA3AF" />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.label}>Phone *</Text>
-              <TextInput value={form.phone} onChangeText={t => setForm(f => ({...f,phone:t}))}
-                placeholder="9876543210" keyboardType="phone-pad" style={s.input} placeholderTextColor="#9CA3AF" />
+            <View style={{flex:1}}>
+              <Text style={s.lbl}>Phone *</Text>
+              <TextInput value={form.phone} onChangeText={f('phone')} placeholder="9876543210" keyboardType="phone-pad" style={s.inp} placeholderTextColor="#9CA3AF" />
             </View>
           </View>
-
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.label}>Email</Text>
-              <TextInput value={form.email} onChangeText={t => setForm(f => ({...f,email:t}))}
-                placeholder="email@example.com" keyboardType="email-address" style={s.input} placeholderTextColor="#9CA3AF" />
+          {/* Email & City */}
+          <View style={{flexDirection:'row',gap:10,marginBottom:14}}>
+            <View style={{flex:1}}>
+              <Text style={s.lbl}>Email</Text>
+              <TextInput value={form.email} onChangeText={f('email')} placeholder="email@example.com" keyboardType="email-address" style={s.inp} placeholderTextColor="#9CA3AF" />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.label}>City</Text>
-              <TextInput value={form.city} onChangeText={t => setForm(f => ({...f,city:t}))}
-                placeholder="Delhi" style={s.input} placeholderTextColor="#9CA3AF" />
+            <View style={{flex:1}}>
+              <Text style={s.lbl}>City</Text>
+              <TextInput value={form.city} onChangeText={f('city')} placeholder="Delhi" style={s.inp} placeholderTextColor="#9CA3AF" />
             </View>
           </View>
-
-          <View>
-            <Text style={s.label}>Status</Text>
+          {/* Status - horizontal tab chips */}
+          <View style={{marginBottom:14}}>
+            <Text style={s.lbl}>Status</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {ALL_STATUSES.map(st => {
-                const c = STATUS_COLORS[st]; const sel = form.status === st
-                return (
-                  <TouchableOpacity key={st} onPress={() => setForm(f => ({...f,status:st}))}
-                    style={[s.chip, sel && s.chipActive, { marginRight: 6 }]}>
-                    <Text style={[s.chipText, sel && s.chipTextActive]}>{st.replace(/_/g,' ')}</Text>
-                  </TouchableOpacity>
-                )
+              {ALL_STATUSES.map(st=>{
+                const c=STATUS_COLORS[st];const sel=form.status===st
+                return <TouchableOpacity key={st} onPress={()=>f('status')(st)} style={[s.chip,sel&&s.chipActive,{marginRight:6}]}>
+                  <Text style={[s.chipTxt,sel&&s.chipTxtActive]}>{st.replace(/_/g,' ')}</Text>
+                </TouchableOpacity>
               })}
             </ScrollView>
           </View>
-
-          {products.length > 0 && (
-            <View>
-              <Text style={s.label}>Product</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {[{id:'', name:'None'}, ...products].map(p => (
-                  <TouchableOpacity key={String(p.id)} onPress={() => setForm(f => ({...f,product_id:String(p.id)}))}
-                    style={[s.chip, form.product_id === String(p.id) && s.chipActive, { marginRight: 6 }]}>
-                    <Text style={[s.chipText, form.product_id === String(p.id) && s.chipTextActive]}>{p.name}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-
-          {agents.length > 0 && (
-            <View>
-              <Text style={s.label}>Assign To</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {[{id:'', name:'Me (self)'}, ...agents].map(a => (
-                  <TouchableOpacity key={String(a.id)} onPress={() => setForm(f => ({...f,assigned_to:a.id}))}
-                    style={[s.chip, form.assigned_to === a.id && s.chipActive, { marginRight: 6 }]}>
-                    <Text style={[s.chipText, form.assigned_to === a.id && s.chipTextActive]}>{a.name}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-
-          <View>
-            <Text style={s.label}>Notes</Text>
-            <TextInput value={form.notes} onChangeText={t => setForm(f => ({...f,notes:t}))}
-              placeholder="Initial notes…" multiline numberOfLines={3}
-              style={[s.input, { minHeight: 80, textAlignVertical: 'top' }]} placeholderTextColor="#9CA3AF" />
+          {/* Product */}
+          {products.length>0 && <View style={{marginBottom:14}}>
+            <Text style={s.lbl}>Product</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {[{id:'',name:'None'}, ...products].map(p=>{
+                const sel=form.product_id===String(p.id)
+                return <TouchableOpacity key={String(p.id)} onPress={()=>f('product_id')(String(p.id))} style={[s.chip,sel&&s.chipActive,{marginRight:6}]}>
+                  <Text style={[s.chipTxt,sel&&s.chipTxtActive]}>{p.name}</Text>
+                </TouchableOpacity>
+              })}
+            </ScrollView>
+          </View>}
+          {/* Assign To */}
+          {agents.length>0 && <View style={{marginBottom:14}}>
+            <Text style={s.lbl}>Assign To</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {[{id:'',name:'Me (self)'}, ...agents].map(a=>{
+                const sel=form.assigned_to===a.id
+                return <TouchableOpacity key={String(a.id)} onPress={()=>f('assigned_to')(a.id)} style={[s.chip,sel&&s.chipActive,{marginRight:6}]}>
+                  <Text style={[s.chipTxt,sel&&s.chipTxtActive]}>{a.name}</Text>
+                </TouchableOpacity>
+              })}
+            </ScrollView>
+          </View>}
+          {/* Notes */}
+          <View style={{marginBottom:14}}>
+            <Text style={s.lbl}>Notes</Text>
+            <TextInput value={form.notes} onChangeText={f('notes')} placeholder="Initial notes…"
+              multiline numberOfLines={3} style={[s.inp,{minHeight:80,textAlignVertical:'top'}]} placeholderTextColor="#9CA3AF" />
           </View>
-
-          <View>
-            <Text style={s.label}>Schedule Follow-up</Text>
-            <TouchableOpacity onPress={() => setShowCal(true)} style={s.dateBtn}>
+          {/* Follow-up with calendar */}
+          <View style={{marginBottom:14}}>
+            <Text style={s.lbl}>Schedule Follow-up</Text>
+            <TouchableOpacity onPress={()=>setShowCal(true)} style={s.dateBtn}>
               <Ionicons name="calendar-outline" size={18} color="#4F46E5" />
-              <Text style={[s.dateBtnText, form.follow_up_date && { color: '#111827' }]}>
-                {form.follow_up_date || 'Select date'}
+              <Text style={[{flex:1,fontSize:14,color:'#9CA3AF'},form.follow_up_date&&{color:'#111827',fontWeight:'600'}]}>
+                {form.follow_up_date||'Select date'}
               </Text>
+              {form.follow_up_date && <TouchableOpacity onPress={()=>f('follow_up_date')('')}><Ionicons name="close-circle" size={18} color="#9CA3AF" /></TouchableOpacity>}
             </TouchableOpacity>
           </View>
         </ScrollView>
-
         <Modal visible={showCal} transparent animationType="fade">
-          <View style={s.calOverlay}>
-            <CalendarPicker value={form.follow_up_date}
-              onChange={d => { setForm(f => ({...f,follow_up_date:d})); setShowCal(false) }}
-              onClose={() => setShowCal(false)} />
+          <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.5)',alignItems:'center',justifyContent:'center'}}>
+            <CalendarPicker value={form.follow_up_date} onChange={d=>f('follow_up_date')(d)} onClose={()=>setShowCal(false)} />
           </View>
         </Modal>
       </View>
@@ -374,54 +325,39 @@ function CreateLeadModal({ visible, onClose, onSave, products, agents }) {
 }
 
 const s = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#F9FAFB' },
-  center:       { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                  paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12,
-                  backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
-  title:        { fontSize: 22, fontWeight: '800', color: '#111827' },
-  addBtn:       { width: 38, height: 38, borderRadius: 19, backgroundColor: '#4F46E5',
-                  alignItems: 'center', justifyContent: 'center' },
-  searchRow:    { backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8 },
-  searchBox:    { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
-  searchInput:  { flex: 1, fontSize: 14, color: '#111827' },
-  filterRow:    { paddingVertical: 6, paddingHorizontal: 12 },
-  chip:         { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: '#F3F4F6', marginRight: 6 },
-  chipActive:   { backgroundColor: '#4F46E5' },
-  chipText:     { fontSize: 12, color: '#374151', textTransform: 'capitalize' },
-  chipTextActive: { color: '#fff', fontWeight: '600' },
-  card:         { backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 10,
-                  shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
-  cardTop:      { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
-  leadName:     { fontSize: 15, fontWeight: '700', color: '#111827' },
-  leadPhone:    { fontSize: 13, color: '#6B7280', marginTop: 2 },
-  productBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4,
-                  backgroundColor: '#EEF2FF', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, alignSelf: 'flex-start' },
-  productBadgeText: { fontSize: 11, color: '#4F46E5', fontWeight: '600' },
-  statusBadge:  { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
-  statusText:   { fontSize: 11, fontWeight: '600', textTransform: 'capitalize' },
-  cardActions:  { flexDirection: 'row', gap: 6 },
-  actionBtn:    { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 7, borderRadius: 8 },
-  actionText:   { fontSize: 11, fontWeight: '600' },
-  modalHeader:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                  paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12,
-                  borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
-  modalTitle:   { fontSize: 17, fontWeight: '700', color: '#111827' },
-  saveBtn:      { backgroundColor: '#4F46E5', paddingHorizontal: 16, paddingVertical: 7, borderRadius: 10 },
-  saveBtnText:  { color: '#fff', fontWeight: '700', fontSize: 14 },
-  label:        { fontSize: 12, fontWeight: '600', color: '#6B7280', marginBottom: 6 },
-  input:        { backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: '#111827' },
-  dateBtn:      { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 },
-  dateBtnText:  { flex: 1, fontSize: 14, color: '#9CA3AF' },
-  calOverlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' },
-  popupOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'flex-end' },
-  popupCard:    { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, width: '100%', paddingBottom: 40 },
-  popupTitle:   { fontSize: 20, fontWeight: '800', color: '#111827', textAlign: 'center' },
-  popupSub:     { fontSize: 14, color: '#6B7280', textAlign: 'center', marginTop: 4 },
-  popupPrompt:  { fontSize: 15, color: '#374151', textAlign: 'center', marginTop: 12, marginBottom: 20 },
-  popupBtns:    { flexDirection: 'row', gap: 12 },
-  popupSkip:    { flex: 1, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center' },
-  popupSkipText:{ fontSize: 15, fontWeight: '600', color: '#6B7280' },
-  popupUpdate:  { flex: 2, padding: 14, borderRadius: 14, backgroundColor: '#4F46E5', alignItems: 'center' },
-  popupUpdateText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  container: {flex:1,backgroundColor:'#F9FAFB'},
+  center:    {flex:1,alignItems:'center',justifyContent:'center',padding:32},
+  header:    {flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:16,paddingTop:52,paddingBottom:12,backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#E5E7EB'},
+  title:     {fontSize:22,fontWeight:'800',color:'#111827'},
+  addBtn:    {width:38,height:38,borderRadius:19,backgroundColor:'#4F46E5',alignItems:'center',justifyContent:'center'},
+  searchBox: {flexDirection:'row',alignItems:'center',backgroundColor:'#F3F4F6',borderRadius:10,paddingHorizontal:12,paddingVertical:8},
+  searchInput:{flex:1,fontSize:14,color:'#111827'},
+  filterBar: {paddingVertical:6,paddingHorizontal:12},
+  chip:      {paddingHorizontal:12,paddingVertical:6,borderRadius:20,backgroundColor:'#F3F4F6',marginRight:6},
+  chipActive:{backgroundColor:'#4F46E5'},
+  chipTxt:   {fontSize:12,color:'#374151',textTransform:'capitalize'},
+  chipTxtActive:{color:'#fff',fontWeight:'600'},
+  card:      {backgroundColor:'#fff',borderRadius:14,padding:14,marginBottom:10,shadowColor:'#000',shadowOffset:{width:0,height:1},shadowOpacity:0.06,shadowRadius:4,elevation:2},
+  cardTop:   {flexDirection:'row',alignItems:'flex-start',marginBottom:10},
+  leadName:  {fontSize:15,fontWeight:'700',color:'#111827'},
+  leadPhone: {fontSize:13,color:'#6B7280',marginTop:2},
+  pBadge:    {flexDirection:'row',alignItems:'center',gap:3,marginTop:4,backgroundColor:'#EEF2FF',paddingHorizontal:6,paddingVertical:2,borderRadius:6,alignSelf:'flex-start'},
+  pBadgeText:{fontSize:11,color:'#4F46E5',fontWeight:'600'},
+  sBadge:    {paddingHorizontal:8,paddingVertical:3,borderRadius:20},
+  sBadgeText:{fontSize:11,fontWeight:'600',textTransform:'capitalize'},
+  actions:   {flexDirection:'row',gap:6},
+  aBtn:      {flex:1,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:3,paddingVertical:7,borderRadius:8},
+  aTxt:      {fontSize:11,fontWeight:'600'},
+  mHeader:   {flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:16,paddingTop:52,paddingBottom:12,borderBottomWidth:1,borderBottomColor:'#E5E7EB'},
+  mTitle:    {fontSize:17,fontWeight:'700',color:'#111827'},
+  mSave:     {backgroundColor:'#4F46E5',paddingHorizontal:16,paddingVertical:7,borderRadius:10},
+  lbl:       {fontSize:12,fontWeight:'600',color:'#6B7280',marginBottom:6},
+  inp:       {backgroundColor:'#F9FAFB',borderWidth:1,borderColor:'#E5E7EB',borderRadius:10,paddingHorizontal:12,paddingVertical:10,fontSize:14,color:'#111827'},
+  dateBtn:   {flexDirection:'row',alignItems:'center',gap:8,backgroundColor:'#F9FAFB',borderWidth:1,borderColor:'#E5E7EB',borderRadius:10,paddingHorizontal:12,paddingVertical:10},
+  popupOverlay:{flex:1,backgroundColor:'rgba(0,0,0,0.5)',alignItems:'center',justifyContent:'flex-end'},
+  popupCard: {backgroundColor:'#fff',borderTopLeftRadius:24,borderTopRightRadius:24,padding:24,width:'100%',paddingBottom:40},
+  popupTitle:{fontSize:20,fontWeight:'800',color:'#111827',textAlign:'center'},
+  popupSub:  {fontSize:14,color:'#6B7280',textAlign:'center',marginTop:4},
+  popupSkip: {flex:1,padding:14,borderRadius:14,borderWidth:1,borderColor:'#E5E7EB',alignItems:'center'},
+  popupUpdate:{flex:2,padding:14,borderRadius:14,backgroundColor:'#4F46E5',alignItems:'center'},
 })
