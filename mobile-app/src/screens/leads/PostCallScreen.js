@@ -1,8 +1,8 @@
 // mobile-app/src/screens/leads/PostCallScreen.js
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, Alert, ActivityIndicator, Modal, AppState
+  StyleSheet, Alert, ActivityIndicator, Modal, Picker
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import api from '../../api/client'
@@ -63,6 +63,9 @@ export default function PostCallScreen({ route, navigation }) {
 
   if (!lead) return <View style={s.center}><Text>No lead data</Text></View>
 
+  const currentProduct = products.find(p => String(p.id) === productId)
+  const currentAgent   = agents.find(a => a.id === assignedTo)
+
   return (
     <View style={s.container}>
       <View style={s.header}>
@@ -77,90 +80,121 @@ export default function PostCallScreen({ route, navigation }) {
 
       <ScrollView style={{flex:1}} contentContainerStyle={{padding:16,paddingBottom:40,gap:14}}>
 
-        {/* Discussion */}
+        {/* ── Discussion + Voice ──────────────────── */}
         <View style={s.section}>
           <Text style={s.secTitle}>📝 Call Discussion *</Text>
           <TextInput value={discussion} onChangeText={setDiscussion}
             placeholder="What was discussed? Key points, objections, next steps…"
             multiline numberOfLines={5} style={[s.input,s.textarea]}
             placeholderTextColor="#9CA3AF" textAlignVertical="top" />
+          <VoiceInput
+            onResult={text => setDiscussion(prev => prev ? prev + ' ' + text : text)}
+            style={{marginTop:10}} />
         </View>
 
-        {/* Status - compact horizontal tabs */}
+        {/* ── Status chips ────────────────────────── */}
         <View style={s.section}>
           <Text style={s.secTitle}>📊 Update Status</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {ALL_STATUSES.map(st => {
               const c=STATUS_COLORS[st]; const active=status===st
-              return <TouchableOpacity key={st} onPress={()=>setStatus(st)}
-                style={[s.stChip,{backgroundColor:active?c.text:c.bg},active&&{shadowColor:c.text,shadowOpacity:0.4,elevation:3}]}>
-                <Text style={[s.stChipText,{color:active?'#fff':c.text}]}>{st.replace(/_/g,' ')}</Text>
-              </TouchableOpacity>
+              return (
+                <TouchableOpacity key={st} onPress={()=>setStatus(st)}
+                  style={[s.stChip,{backgroundColor:active?c.text:c.bg}]}>
+                  <Text style={[s.stChipText,{color:active?'#fff':c.text}]}>{st.replace(/_/g,' ')}</Text>
+                </TouchableOpacity>
+              )
             })}
           </ScrollView>
         </View>
 
-        {/* Product */}
+        {/* ── Product Dropdown ────────────────────── */}
         <View style={s.section}>
           <Text style={s.secTitle}>📦 Product Interest</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:8}}>
-            {[{id:'',name:'None'}, ...products].map(p => {
-              const sel=productId===String(p.id)
-              return <TouchableOpacity key={String(p.id)} onPress={()=>setProductId(String(p.id))}
-                style={[s.chip,sel&&s.chipActive,{marginRight:6}]}>
-                <Text style={[s.chipTxt,sel&&s.chipTxtActive]}>{p.name}</Text>
-              </TouchableOpacity>
+          <Text style={s.secHint}>Select the product discussed on this call</Text>
+          <View style={s.dropdownWrap}>
+            <TouchableOpacity style={[s.dropdownItem, !productId && s.dropdownItemActive]}
+              onPress={() => setProductId('')}>
+              <Text style={[s.dropdownText, !productId && s.dropdownTextActive]}>— No product —</Text>
+              {!productId && <Ionicons name="checkmark" size={16} color="#4F46E5" />}
+            </TouchableOpacity>
+            {products.map(p => {
+              const sel = productId === String(p.id)
+              return (
+                <TouchableOpacity key={p.id} style={[s.dropdownItem, sel && s.dropdownItemActive]}
+                  onPress={() => setProductId(String(p.id))}>
+                  <View style={{flex:1}}>
+                    <Text style={[s.dropdownText, sel && s.dropdownTextActive]}>{p.name}</Text>
+                    <Text style={s.dropdownSub}>{p.type}</Text>
+                  </View>
+                  {sel && <Ionicons name="checkmark" size={16} color="#4F46E5" />}
+                </TouchableOpacity>
+              )
             })}
-          </ScrollView>
-          {productId && <TextInput value={productDetail} onChangeText={setProductDetail}
-            placeholder="Product notes…" style={[s.input,{minHeight:60,textAlignVertical:'top'}]}
-            multiline placeholderTextColor="#9CA3AF" />}
+          </View>
+          {productId && (
+            <TextInput value={productDetail} onChangeText={setProductDetail}
+              placeholder="Product notes, plan, pricing discussed…"
+              style={[s.input,{marginTop:8,minHeight:60,textAlignVertical:'top'}]}
+              multiline placeholderTextColor="#9CA3AF" />
+          )}
         </View>
 
-        {/* Assign To - shows all agents */}
-        {agents.length>0 && <View style={s.section}>
+        {/* ── Assign To Dropdown ──────────────────── */}
+        <View style={s.section}>
           <Text style={s.secTitle}>👤 Assign To</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <Text style={s.secHint}>Reassign this lead to another team member</Text>
+          <View style={s.dropdownWrap}>
             {agents.map(a => {
-              const sel=assignedTo===a.id
-              return <TouchableOpacity key={String(a.id)} onPress={()=>setAssignedTo(a.id)}
-                style={[s.chip,sel&&s.chipActive,{marginRight:6}]}>
-                <Text style={[s.chipTxt,sel&&s.chipTxtActive]}>{a.name}</Text>
-              </TouchableOpacity>
+              const sel = assignedTo === a.id
+              const isCurrent = lead?.assigned_to === a.id
+              return (
+                <TouchableOpacity key={String(a.id)} style={[s.dropdownItem, sel && s.dropdownItemActive]}
+                  onPress={() => setAssignedTo(a.id)}>
+                  <View style={[s.agentDot, {backgroundColor: sel ? '#4F46E5' : '#9CA3AF'}]}>
+                    <Text style={{color:'#fff',fontSize:11,fontWeight:'700'}}>{a.name?.charAt(0)?.toUpperCase()}</Text>
+                  </View>
+                  <View style={{flex:1}}>
+                    <Text style={[s.dropdownText, sel && s.dropdownTextActive]}>
+                      {a.name} {isCurrent ? '(current)' : ''}
+                    </Text>
+                    <Text style={s.dropdownSub}>{a.role_name || 'agent'}</Text>
+                  </View>
+                  {sel && <Ionicons name="checkmark" size={16} color="#4F46E5" />}
+                </TouchableOpacity>
+              )
             })}
-          </ScrollView>
-        </View>}
+          </View>
+        </View>
 
-        {/* Follow-up with full calendar */}
+        {/* ── Follow-up Calendar ──────────────────── */}
         <View style={s.section}>
           <Text style={s.secTitle}>📅 Schedule Follow-up</Text>
           <TouchableOpacity onPress={()=>setShowCal(true)} style={s.dateBtn}>
             <Ionicons name="calendar" size={20} color="#4F46E5" />
-            <Text style={[{flex:1,fontSize:15,color:'#9CA3AF'},followUpDate&&{color:'#111827',fontWeight:'600'}]}>
+            <Text style={[{flex:1,fontSize:14,color:'#9CA3AF'},followUpDate&&{color:'#111827',fontWeight:'600'}]}>
               {followUpDate||'Tap to select date'}
             </Text>
-            {followUpDate && <TouchableOpacity onPress={()=>setFollowUpDate('')}>
-              <Ionicons name="close-circle" size={18} color="#9CA3AF" />
-            </TouchableOpacity>}
+            {followUpDate && (
+              <TouchableOpacity onPress={()=>setFollowUpDate('')}>
+                <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+            )}
           </TouchableOpacity>
-          {followUpDate && <Text style={{fontSize:12,color:'#4F46E5',marginTop:4}}>✅ Follow-up: {followUpDate}</Text>}
         </View>
 
-        {/* Summary */}
+        {/* ── Summary ─────────────────────────────── */}
         {discussion.trim() && (
           <View style={s.summary}>
-            <Text style={s.summaryTitle}>Summary</Text>
-            <Text style={s.summaryRow}>Status: <Text style={s.summaryVal}>{status.replace(/_/g,' ')}</Text></Text>
-            {productId && products.find(p=>String(p.id)===productId) && (
-              <Text style={s.summaryRow}>Product: <Text style={s.summaryVal}>{products.find(p=>String(p.id)===productId)?.name}</Text></Text>
-            )}
-            {assignedTo && agents.find(a=>a.id===assignedTo) && (
-              <Text style={s.summaryRow}>Assigned to: <Text style={s.summaryVal}>{agents.find(a=>a.id===assignedTo)?.name}</Text></Text>
-            )}
-            {followUpDate && <Text style={s.summaryRow}>Follow-up: <Text style={s.summaryVal}>{followUpDate}</Text></Text>}
+            <Text style={s.summaryTitle}>What will be saved</Text>
+            <Text style={s.summaryRow}>📊 Status: <Text style={s.summaryVal}>{status.replace(/_/g,' ')}</Text></Text>
+            {currentProduct && <Text style={s.summaryRow}>📦 Product: <Text style={s.summaryVal}>{currentProduct.name}</Text></Text>}
+            {currentAgent && <Text style={s.summaryRow}>👤 Assigned to: <Text style={s.summaryVal}>{currentAgent.name}</Text></Text>}
+            {followUpDate && <Text style={s.summaryRow}>📅 Follow-up: <Text style={s.summaryVal}>{followUpDate}</Text></Text>}
           </View>
         )}
 
+        {/* ── Save ────────────────────────────────── */}
         <TouchableOpacity style={[s.saveBtn,saving&&{opacity:0.6}]} onPress={handleSave} disabled={saving}>
           {saving ? <ActivityIndicator color="#fff" /> :
             <><Ionicons name="checkmark-circle" size={20} color="#fff" /><Text style={s.saveBtnText}>Save Post-Call Update</Text></>}
@@ -183,19 +217,23 @@ const s = StyleSheet.create({
   headerTitle: {fontSize:16,fontWeight:'700',color:'#111827'},
   headerSub:   {fontSize:12,color:'#6B7280'},
   section:     {backgroundColor:'#fff',borderRadius:14,padding:14,shadowColor:'#000',shadowOffset:{width:0,height:1},shadowOpacity:0.05,shadowRadius:3,elevation:1},
-  secTitle:    {fontSize:14,fontWeight:'700',color:'#111827',marginBottom:10},
+  secTitle:    {fontSize:14,fontWeight:'700',color:'#111827',marginBottom:4},
+  secHint:     {fontSize:12,color:'#9CA3AF',marginBottom:8},
   input:       {backgroundColor:'#F9FAFB',borderWidth:1,borderColor:'#E5E7EB',borderRadius:10,padding:12,fontSize:14,color:'#111827'},
   textarea:    {minHeight:120},
-  stChip:      {paddingHorizontal:10,paddingVertical:4,borderRadius:20,marginRight:5},
-  stChipText:  {fontSize:11,fontWeight:'600',textTransform:'capitalize'},
-  chip:        {paddingHorizontal:10,paddingVertical:4,borderRadius:20,backgroundColor:'#F3F4F6'},
-  chipActive:  {backgroundColor:'#4F46E5'},
-  chipTxt:     {fontSize:13,fontWeight:'600',color:'#374151'},
-  chipTxtActive:{color:'#fff'},
+  stChip:      {paddingHorizontal:14,paddingVertical:7,borderRadius:20,marginRight:6,height:34,alignItems:'center',justifyContent:'center'},
+  stChipText:  {fontSize:12,fontWeight:'600',textTransform:'capitalize'},
+  dropdownWrap:{borderWidth:1,borderColor:'#E5E7EB',borderRadius:12,overflow:'hidden',marginTop:4},
+  dropdownItem:{flexDirection:'row',alignItems:'center',gap:10,padding:14,borderBottomWidth:1,borderBottomColor:'#F3F4F6',backgroundColor:'#fff'},
+  dropdownItemActive:{backgroundColor:'#EEF2FF'},
+  dropdownText:{fontSize:14,color:'#374151',fontWeight:'500'},
+  dropdownTextActive:{color:'#4F46E5',fontWeight:'700'},
+  dropdownSub: {fontSize:11,color:'#9CA3AF',marginTop:1},
+  agentDot:    {width:30,height:30,borderRadius:15,alignItems:'center',justifyContent:'center'},
   dateBtn:     {flexDirection:'row',alignItems:'center',gap:10,padding:14,backgroundColor:'#EEF2FF',borderRadius:12,borderWidth:1,borderColor:'#C7D2FE'},
   summary:     {backgroundColor:'#EEF2FF',borderRadius:14,padding:14,borderWidth:1,borderColor:'#C7D2FE'},
-  summaryTitle:{fontSize:13,fontWeight:'700',color:'#4338CA',marginBottom:6},
-  summaryRow:  {fontSize:13,color:'#374151',marginBottom:3},
+  summaryTitle:{fontSize:12,fontWeight:'700',color:'#4338CA',marginBottom:8,textTransform:'uppercase',letterSpacing:0.5},
+  summaryRow:  {fontSize:13,color:'#374151',marginBottom:4},
   summaryVal:  {fontWeight:'700',color:'#111827'},
   saveBtn:     {flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8,backgroundColor:'#4F46E5',padding:16,borderRadius:14},
   saveBtnText: {fontSize:16,fontWeight:'700',color:'#fff'},
