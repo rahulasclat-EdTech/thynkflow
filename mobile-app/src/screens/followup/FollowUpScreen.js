@@ -148,7 +148,7 @@ export default function FollowUpScreen({ navigation }) {
     <View style={s.container}>
       <View style={s.header}>
         <Text style={s.title}>Follow-ups</Text>
-        <Text style={s.count}>{followups.length}</Text>
+        <Text style={s.count}>{followups.length} {filter === 'pending' ? 'pending' : filter === 'done' ? 'done' : 'total'}</Text>
       </View>
 
       {/* Filter tabs - Pending/Done/All */}
@@ -330,8 +330,8 @@ const s = StyleSheet.create({
   header:      {flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:16,paddingTop:52,paddingBottom:12,backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#E5E7EB'},
   title:       {fontSize:22,fontWeight:'800',color:'#111827'},
   count:       {fontSize:16,fontWeight:'700',color:'#6B7280'},
-  filterBar:   {paddingVertical:4,paddingHorizontal:12,backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#F3F4F6'},
-  chip:        {paddingHorizontal:10,paddingVertical:4,borderRadius:20,backgroundColor:'#F3F4F6',marginRight:5},
+  filterBar:   {paddingVertical:4,paddingHorizontal:12,backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#F3F4F6',maxHeight:42},
+  chip:        {paddingHorizontal:12,paddingVertical:0,borderRadius:20,backgroundColor:'#F3F4F6',marginRight:6,height:30,alignItems:'center',justifyContent:'center'},
   chipActive:  {backgroundColor:'#4F46E5',shadowColor:'#4F46E5',shadowOpacity:0.3,shadowRadius:4,elevation:3},
   chipTxt:     {fontSize:11,color:'#374151',fontWeight:'500'},
   chipTxtActive:{color:'#fff',fontWeight:'700'},
