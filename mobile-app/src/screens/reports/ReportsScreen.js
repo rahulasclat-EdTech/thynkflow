@@ -90,7 +90,7 @@ export default function ReportsScreen() {
   const agentData  = Array.isArray(data?.agents)  ? data.agents  : []
   const convData   = Array.isArray(data?.conversion) ? data.conversion : []
   const totalLeads = parseInt(ov.total_leads || 0)
-  const converted  = parseInt(ov.converted   || 0)
+  const converted  = parseInt(ov.converted_leads || ov.converted || 0)
   const convRate   = totalLeads > 0 ? ((converted / totalLeads) * 100).toFixed(1) : '0'
 
   return (
@@ -117,13 +117,13 @@ export default function ReportsScreen() {
           <View style={{ gap: 12 }}>
             <View style={s.kpiGrid}>
               <KPI label="Total Leads"    value={ov.total_leads    || 0} color="#4F46E5" />
-              <KPI label="Converted"      value={ov.converted      || 0} color="#16A34A" sub={`${convRate}% rate`} />
-              <KPI label="Hot Leads"      value={ov.hot_leads      || 0} color="#DC2626" />
-              <KPI label="Warm Leads"     value={ov.warm_leads     || 0} color="#D97706" />
-              <KPI label="Cold Leads"     value={ov.cold_leads     || 0} color="#6B7280" />
-              <KPI label="Call Back"      value={ov.call_back      || 0} color="#7C3AED" />
-              <KPI label="Not Interested" value={ov.not_interested || 0} color="#9CA3AF" />
-              <KPI label="New Leads"      value={ov.new_leads      || 0} color="#0891B2" />
+              <KPI label="Converted"      value={ov.converted_leads || ov.converted || 0} color="#16A34A" sub={`${convRate}% rate`} />
+              <KPI label="Hot Leads"      value={ov.hot_leads || 0} color="#DC2626" />
+              <KPI label="Warm Leads"     value={ov.warm_leads || 0} color="#D97706" />
+              <KPI label="Cold Leads"     value={ov.cold_leads || 0} color="#6B7280" />
+              <KPI label="Call Back"      value={ov.call_back_leads || ov.call_back || 0} color="#7C3AED" />
+              <KPI label="Not Interested" value={ov.not_interested_leads || ov.not_interested || 0} color="#9CA3AF" />
+              <KPI label="New Leads"      value={ov.new_leads || 0} color="#0891B2" />
             </View>
             {totalLeads > 0 && (
               <View style={s.card}>
@@ -241,12 +241,12 @@ export default function ReportsScreen() {
           <View style={{ gap: 8 }}>
             <Text style={s.sectionTitle}>Lead Pipeline</Text>
             {[
-              { stage: 'New Leads',      key: 'new_leads',      color: '#0891B2', icon: '🆕' },
-              { stage: 'Hot',            key: 'hot_leads',      color: '#DC2626', icon: '🔥' },
-              { stage: 'Warm',           key: 'warm_leads',     color: '#D97706', icon: '☀️' },
+              { stage: 'New Leads',      key: 'new_leads', color: '#0891B2', icon: '🆕' },
+              { stage: 'Hot',            key: 'hot_leads', color: '#DC2626', icon: '🔥' },
+              { stage: 'Warm',           key: 'warm_leads', color: '#D97706', icon: '☀️' },
               { stage: 'Cold',           key: 'cold_leads',     color: '#6B7280', icon: '❄️' },
-              { stage: 'Call Back',      key: 'call_back',      color: '#7C3AED', icon: '📞' },
-              { stage: 'Not Interested', key: 'not_interested', color: '#9CA3AF', icon: '🚫' },
+              { stage: 'Call Back',      key: 'call_back_leads',  color: '#7C3AED', icon: '📞' },
+              { stage: 'Not Interested', key: 'not_interested_leads', color: '#9CA3AF', icon: '🚫' },
               { stage: 'Converted',      key: 'converted',      color: '#16A34A', icon: '✅' },
             ].map((item, i) => {
               const count = parseInt(ov[item.key] || 0)
