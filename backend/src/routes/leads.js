@@ -237,16 +237,16 @@ router.put('/:id', auth, async (req, res) => {
     const { name, phone, email, city, source, status, assigned_to, admin_remark } = req.body;
     const { rows } = await db.query(
       `UPDATE leads 
-       SET contact_name  = COALESCE($1, contact_name),
-           school_name   = COALESCE($1, school_name),
-           phone         = COALESCE($2, phone),
-           email         = COALESCE($3, email),
-           city          = COALESCE($4, city),
-           source        = COALESCE($5, source),
-           status        = COALESCE($6, status),
-           assigned_to   = $7,
-           admin_remark  = $8,
-           updated_at    = NOW()
+       SET contact_name = $1,
+           school_name  = $1,
+           phone        = $2,
+           email        = $3,
+           city         = $4,
+           source       = $5,
+           status       = $6,
+           assigned_to  = $7,
+           admin_remark = $8,
+           updated_at   = NOW()
        WHERE id = $9
        RETURNING *`,
       [name, phone, email, city, source, status, assigned_to || null, admin_remark || null, req.params.id]
