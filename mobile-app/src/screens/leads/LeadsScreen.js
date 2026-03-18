@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext'
 import api from '../../api/client'
 import COLORS from '../../utils/colors'
 import CalendarPicker from '../../components/CalendarPicker'
+import VoiceInput from '../../components/VoiceInput'
 
 const STATUS_COLORS = {
   new:            { bg: '#DBEAFE', text: '#1E40AF' },
@@ -301,6 +302,9 @@ function CreateLeadModal({ visible, onClose, onSave, products, agents }) {
             <Text style={s.lbl}>Notes</Text>
             <TextInput value={form.notes} onChangeText={f('notes')} placeholder="Initial notes…"
               multiline numberOfLines={3} style={[s.inp,{minHeight:80,textAlignVertical:'top'}]} placeholderTextColor="#9CA3AF" />
+            <VoiceInput
+              onResult={text => setForm(p => ({...p, notes: p.notes ? p.notes + ' ' + text : text}))}
+              style={{marginTop:8}} />
           </View>
           {/* Follow-up with calendar */}
           <View style={{marginBottom:14}}>
@@ -332,10 +336,10 @@ const s = StyleSheet.create({
   addBtn:    {width:38,height:38,borderRadius:19,backgroundColor:'#4F46E5',alignItems:'center',justifyContent:'center'},
   searchBox: {flexDirection:'row',alignItems:'center',backgroundColor:'#F3F4F6',borderRadius:10,paddingHorizontal:12,paddingVertical:8},
   searchInput:{flex:1,fontSize:14,color:'#111827'},
-  filterBar: {paddingVertical:6,paddingHorizontal:12},
-  chip:      {paddingHorizontal:12,paddingVertical:6,borderRadius:20,backgroundColor:'#F3F4F6',marginRight:6},
-  chipActive:{backgroundColor:'#4F46E5'},
-  chipTxt:   {fontSize:12,color:'#374151',textTransform:'capitalize'},
+  filterBar: {paddingVertical:4,paddingHorizontal:12,backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#F3F4F6',maxHeight:42},
+  chip:      {paddingHorizontal:10,paddingVertical:0,borderRadius:20,backgroundColor:'#F3F4F6',marginRight:5,height:30,alignItems:'center',justifyContent:'center'},
+  chipActive:{backgroundColor:'#4F46E5',shadowColor:'#4F46E5',shadowOpacity:0.3,shadowRadius:4,elevation:3},
+  chipTxt:   {fontSize:11,color:'#374151',textTransform:'capitalize',fontWeight:'500'},
   chipTxtActive:{color:'#fff',fontWeight:'600'},
   card:      {backgroundColor:'#fff',borderRadius:14,padding:14,marginBottom:10,shadowColor:'#000',shadowOffset:{width:0,height:1},shadowOpacity:0.06,shadowRadius:4,elevation:2},
   cardTop:   {flexDirection:'row',alignItems:'flex-start',marginBottom:10},
@@ -353,6 +357,7 @@ const s = StyleSheet.create({
   mSave:     {backgroundColor:'#4F46E5',paddingHorizontal:16,paddingVertical:7,borderRadius:10},
   lbl:       {fontSize:12,fontWeight:'600',color:'#6B7280',marginBottom:6},
   inp:       {backgroundColor:'#F9FAFB',borderWidth:1,borderColor:'#E5E7EB',borderRadius:10,paddingHorizontal:12,paddingVertical:10,fontSize:14,color:'#111827'},
+  chipTxtActive:{color:'#fff',fontWeight:'600'},
   dateBtn:   {flexDirection:'row',alignItems:'center',gap:8,backgroundColor:'#F9FAFB',borderWidth:1,borderColor:'#E5E7EB',borderRadius:10,paddingHorizontal:12,paddingVertical:10},
   popupOverlay:{flex:1,backgroundColor:'rgba(0,0,0,0.5)',alignItems:'center',justifyContent:'flex-end'},
   popupCard: {backgroundColor:'#fff',borderTopLeftRadius:24,borderTopRightRadius:24,padding:24,width:'100%',paddingBottom:40},
