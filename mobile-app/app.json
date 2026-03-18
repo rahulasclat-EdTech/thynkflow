@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "ThynkFlow",
-    "slug": "thynkflow",
+    "slug": "thynk-flow",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -31,6 +31,9 @@
       ["expo-build-properties", {
         "android": { "compileSdkVersion": 34, "targetSdkVersion": 34 }
       }]
-    ]
+    ],
+    "cli": {
+      "appVersionSource": "remote"
+    }
   }
 }
