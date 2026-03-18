@@ -73,7 +73,7 @@
 // =============================================================
 
 const express    = require('express')
-const nodemailer = require('nodemailer')
+const nodemailer = require('nodemailer').default || require('nodemailer')
 const db         = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
 
