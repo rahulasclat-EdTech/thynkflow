@@ -7,9 +7,10 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../context/AuthContext'
 
+// Safe imports
 let LoginScreen, ProfileScreen, LeadsScreen, LeadDetailScreen,
     PostCallScreen, LeadHistoryScreen, FollowUpScreen,
-    ReportsScreen, DashboardScreen
+    ReportsScreen, DashboardScreen, ProductScreen, ChatNavigator
 
 const Placeholder = ({ name }) => (
   <View style={{ flex:1, alignItems:'center', justifyContent:'center', backgroundColor:'#F9FAFB' }}>
@@ -45,6 +46,12 @@ catch(e) { FollowUpScreen = () => <Placeholder name="Follow Ups" /> }
 try { ReportsScreen     = require('../screens/reports/ReportsScreen').default }
 catch(e) { ReportsScreen = () => <Placeholder name="Reports" /> }
 
+try { ProductScreen     = require('../screens/products/ProductScreen').default }
+catch(e) { ProductScreen = () => <Placeholder name="Products" /> }
+
+try { ChatNavigator     = require('../screens/chat/ChatScreen').default }
+catch(e) { ChatNavigator = () => <Placeholder name="Chat" /> }
+
 const Tab   = createBottomTabNavigator()
 const Stack = createNativeStackNavigator()
 
@@ -67,13 +74,16 @@ function MainTabs() {
         headerShown: false,
         tabBarActiveTintColor: INDIGO,
         tabBarInactiveTintColor: '#9CA3AF',
-        tabBarStyle: { paddingBottom: 6, paddingTop: 4, height: 60 },
+        tabBarStyle: { paddingBottom: 4, paddingTop: 4, height: 58 },
+        tabBarLabelStyle: { fontSize: 10 },
         tabBarIcon: ({ focused, color, size }) => {
           const icons = {
             Dashboard: focused ? 'grid'          : 'grid-outline',
             Leads:     focused ? 'people'        : 'people-outline',
+            Products:  focused ? 'cube'          : 'cube-outline',
             FollowUps: focused ? 'alarm'         : 'alarm-outline',
             Reports:   focused ? 'bar-chart'     : 'bar-chart-outline',
+            Chat:      focused ? 'chatbubbles'   : 'chatbubbles-outline',
             Profile:   focused ? 'person-circle' : 'person-circle-outline',
           }
           return <Ionicons name={icons[route.name] || 'ellipse-outline'} size={size} color={color} />
@@ -81,8 +91,10 @@ function MainTabs() {
       })}>
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Leads"     component={LeadsStack} />
+      <Tab.Screen name="Products"  component={ProductScreen} />
       <Tab.Screen name="FollowUps" component={FollowUpScreen} options={{ title: 'Follow-ups' }} />
       <Tab.Screen name="Reports"   component={ReportsScreen} />
+      <Tab.Screen name="Chat"      component={ChatNavigator} />
       <Tab.Screen name="Profile"   component={ProfileScreen} />
     </Tab.Navigator>
   )
