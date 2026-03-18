@@ -5,15 +5,16 @@ import api from '../../utils/api'
 import toast from 'react-hot-toast'
 
 const navItems = [
-  { to: '/dashboard', label: 'Dashboard', icon: '▦', adminOnly: false },
-  { to: '/leads', label: 'Leads', icon: '👥', adminOnly: false },
-  { to: '/followups', label: 'Follow Ups', icon: '📅', adminOnly: false },
-  { to: '/products', label: 'Products', icon: '📦', adminOnly: false },
-  { to: '/assign', label: 'Assign Leads', icon: '↗', adminOnly: true },
-  { to: '/reports', label: 'Reports', icon: '📊', adminOnly: false },
-  { to: '/users', label: 'Users', icon: '👤', adminOnly: true },
-  { to: '/settings', label: 'Settings', icon: '⚙️', adminOnly: true },
-  { name: 'Email', path: '/email', icon: '📧' }
+  { to: '/dashboard',  label: 'Dashboard',   icon: '▦',  adminOnly: false },
+  { to: '/leads',      label: 'Leads',        icon: '👥', adminOnly: false },
+  { to: '/activities', label: 'Activities',   icon: '✅', adminOnly: false },
+  { to: '/followups',  label: 'Follow Ups',   icon: '📅', adminOnly: false },
+  { to: '/products',   label: 'Products',     icon: '📦', adminOnly: false },
+  { to: '/email',      label: 'Email',        icon: '📧', adminOnly: false },
+  { to: '/assign',     label: 'Assign Leads', icon: '↗',  adminOnly: true },
+  { to: '/reports',    label: 'Reports',      icon: '📊', adminOnly: false },
+  { to: '/users',      label: 'Users',        icon: '👤', adminOnly: true },
+  { to: '/settings',   label: 'Settings',     icon: '⚙️', adminOnly: true },
 ]
 
 function ChangePasswordModal({ onClose }) {
