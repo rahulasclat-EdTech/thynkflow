@@ -1,96 +1,78 @@
+// mobile-app/src/navigation/AppNavigator.js
 import React from 'react'
 import { NavigationContainer } from '@react-navigation/native'
-import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
-import { View, Text, StyleSheet } from 'react-native'
+import { createNativeStackNavigator } from '@react-navigation/native-stack'
+import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../context/AuthContext'
-import { Colors } from '../utils/colors'
 
-import LoginScreen from '../screens/auth/LoginScreen'
-import LeadsScreen from '../screens/leads/LeadsScreen'
+import LoginScreen       from '../screens/auth/LoginScreen'
+import ProfileScreen     from '../screens/auth/ProfileScreen'
+import LeadsScreen       from '../screens/leads/LeadsScreen'
+import LeadDetailScreen  from '../screens/leads/LeadDetailScreen'
+import PostCallScreen    from '../screens/leads/PostCallScreen'
 import LeadHistoryScreen from '../screens/leads/LeadHistoryScreen'
-import FollowUpScreen from '../screens/followup/FollowUpScreen'
-import ReportsScreen from '../screens/reports/ReportsScreen'
-import ProfileScreen from '../screens/auth/ProfileScreen'
-import PostCallScreen from '../screens/leads/PostCallScreen'
+import FollowUpScreen    from '../screens/followup/FollowUpScreen'
+import ReportsScreen     from '../screens/reports/ReportsScreen'
+import DashboardScreen   from '../screens/dashboard/DashboardScreen'
 
+const Tab   = createBottomTabNavigator()
 const Stack = createNativeStackNavigator()
-const Tab = createBottomTabNavigator()
-
-function TabIcon({ name, focused }) {
-  const icons = { Leads: '👥', 'Follow Up': '📅', Reports: '📊' }
-  return (
-    <View style={[styles.tabIcon, focused && styles.tabIconActive]}>
-      <Text style={styles.tabEmoji}>{icons[name]}</Text>
-    </View>
-  )
-}
-
-function MainTabs() {
-  return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
-        tabBarLabel: ({ focused, color }) => (
-          <Text style={[styles.tabLabel, { color: focused ? Colors.primaryLight : Colors.textLight }]}>
-            {route.name}
-          </Text>
-        ),
-        tabBarStyle: styles.tabBar,
-        tabBarActiveTintColor: Colors.primaryLight,
-        tabBarInactiveTintColor: Colors.textLight,
-      })}
-    >
-      <Tab.Screen name="Leads" component={LeadsStack} />
-      <Tab.Screen name="Follow Up" component={FollowUpScreen} />
-      <Tab.Screen name="Reports" component={ReportsScreen} />
-    </Tab.Navigator>
-  )
-}
 
 function LeadsStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="LeadsList" component={LeadsScreen} />
-      <Stack.Screen name="PostCall" component={PostCallScreen} options={{ presentation: 'modal' }} />
-      <Stack.Screen name="LeadHistory" component={LeadHistoryScreen} />
+      <Stack.Screen name="LeadsList"    component={LeadsScreen} />
+      <Stack.Screen name="LeadDetail"   component={LeadDetailScreen} />
+      <Stack.Screen name="PostCall"     component={PostCallScreen} />
+      <Stack.Screen name="LeadHistory"  component={LeadHistoryScreen} />
     </Stack.Navigator>
   )
 }
 
+function MainTabs() {
+  const { user } = useAuth()
+  const isAdmin  = user?.role_name === 'admin'
+  const INDIGO   = '#4F46E5'
+
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarActiveTintColor: INDIGO,
+        tabBarInactiveTintColor: '#9CA3AF',
+        tabBarStyle: { paddingBottom: 6, paddingTop: 4, height: 60 },
+        tabBarIcon: ({ focused, color, size }) => {
+          const icons = {
+            Dashboard: focused ? 'grid'           : 'grid-outline',
+            Leads:     focused ? 'people'         : 'people-outline',
+            FollowUps: focused ? 'alarm'          : 'alarm-outline',
+            Reports:   focused ? 'bar-chart'      : 'bar-chart-outline',
+            Profile:   focused ? 'person-circle'  : 'person-circle-outline',
+          }
+          return <Ionicons name={icons[route.name] || 'ellipse'} size={size} color={color} />
+        },
+      })}>
+      <Tab.Screen name="Dashboard" component={DashboardScreen} />
+      <Tab.Screen name="Leads"     component={LeadsStack} />
+      <Tab.Screen name="FollowUps" component={FollowUpScreen} options={{ title: 'Follow-ups' }} />
+      <Tab.Screen name="Reports"   component={ReportsScreen} />
+      <Tab.Screen name="Profile"   component={ProfileScreen} />
+    </Tab.Navigator>
+  )
+}
+
 export default function AppNavigator() {
-  const { user, loading } = useAuth()
-
-  if (loading) return null
-
+  const { user } = useAuth()
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {!user ? (
-          <Stack.Screen name="Login" component={LoginScreen} />
+        {user ? (
+          <Stack.Screen name="Main" component={MainTabs} />
         ) : (
-          <>
-            <Stack.Screen name="Main" component={MainTabs} />
-            <Stack.Screen name="Profile" component={ProfileScreen} options={{ presentation: 'modal' }} />
-          </>
+          <Stack.Screen name="Login" component={LoginScreen} />
         )}
       </Stack.Navigator>
     </NavigationContainer>
   )
 }
-
-const styles = StyleSheet.create({
-  tabBar: {
-    backgroundColor: Colors.white,
-    borderTopColor: Colors.border,
-    borderTopWidth: 1,
-    height: 64,
-    paddingBottom: 8,
-    paddingTop: 4,
-  },
-  tabIcon: { alignItems: 'center', justifyContent: 'center', width: 32, height: 28 },
-  tabIconActive: {},
-  tabEmoji: { fontSize: 18 },
-  tabLabel: { fontSize: 10, fontWeight: '600', marginTop: 2 },
-})
