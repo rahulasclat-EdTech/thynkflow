@@ -152,7 +152,7 @@ export default function DashboardScreen({ navigation }) {
   const act  = actData  || {}
 
   const totalLeads   = parseInt(dash.total_leads || 0)
-  const converted    = parseInt(dash.converted   || 0)
+  const converted    = parseInt(dash.converted_leads || dash.converted || 0)
   const convRate     = totalLeads > 0 ? ((converted / totalLeads) * 100).toFixed(1) : '0'
   const todayCalls   = parseInt(dash.today_calls || 0)
   const weekCalls    = parseInt(dash.week_calls  || 0)
@@ -177,8 +177,8 @@ export default function DashboardScreen({ navigation }) {
     { key: 'warm',           label: 'Warm',          val: dash.warm_leads        || 0 },
     { key: 'cold',           label: 'Cold',          val: dash.cold_leads        || 0 },
     { key: 'converted',      label: 'Converted',     val: dash.converted         || 0 },
-    { key: 'call_back',      label: 'Call Back',     val: dash.call_back         || 0 },
-    { key: 'not_interested', label: 'Not Interested',val: dash.not_interested    || 0 },
+    { key: 'call_back',      label: 'Call Back',     val: dash.call_back_leads || dash.call_back || 0 },
+    { key: 'not_interested', label: 'Not Interested',val: dash.not_interested_leads || dash.not_interested || 0 },
   ]
 
   return (
