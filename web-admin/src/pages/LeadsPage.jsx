@@ -90,6 +90,9 @@ export default function LeadsPage() {
   const [showDetailModal, setShowDetailModal]     = useState(false)
   const [selectedLead, setSelectedLead]           = useState(null)
   const [detailTab, setDetailTab]                 = useState('info') // 'info' | 'product' | 'comms'
+  const [editingInfo, setEditingInfo]             = useState(false)
+  const [editForm, setEditForm]                   = useState({})
+  const [savingEdit, setSavingEdit]               = useState(false)
 
   // ── create form ───────────────────────────────────────────────
   const emptyForm = { name: '', phone: '', email: '', source: '', city: '', status: 'new',
@@ -166,13 +169,43 @@ export default function LeadsPage() {
   // ══════════════════════════════════════════════════════════════
   //  OPEN LEAD DETAIL
   // ══════════════════════════════════════════════════════════════
+  // helpers
+  const getPhone = (lead) => lead?.phone || lead?.mobile || ''
+  const getName  = (lead) => lead?.name || lead?.contact_name || lead?.school_name || ''
+
   const openDetail = async (lead) => {
     setSelectedLead(lead)
     setDetailTab('info')
+    setEditingInfo(false)
     setEditingProduct(false)
     setProductForm({ product_id: lead.product_id || '', product_detail: lead.product_detail || '' })
+    setEditForm({
+      name:         getName(lead),
+      phone:        getPhone(lead),
+      email:        lead.email || '',
+      city:         lead.city  || '',
+      source:       lead.source || '',
+      status:       lead.status || 'new',
+      assigned_to:  lead.assigned_to || '',
+      admin_remark: lead.admin_remark || '',
+    })
     setShowDetailModal(true)
     fetchCommLogs(lead.id)
+  }
+
+  const saveEditForm = async () => {
+    if (!selectedLead) return
+    setSavingEdit(true)
+    try {
+      await api.put(`/leads/${selectedLead.id}`, editForm)
+      const updated = { ...selectedLead, ...editForm }
+      setSelectedLead(updated)
+      setLeads(prev => prev.map(l => l.id === updated.id ? { ...l, ...editForm } : l))
+      setEditingInfo(false)
+      toast.success('Lead updated')
+    } catch (err) {
+      toast.error(err.message || 'Failed to update lead')
+    } finally { setSavingEdit(false) }
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -514,15 +547,16 @@ export default function LeadsPage() {
                       </button>
                       {/* Quick action buttons */}
                       <button onClick={() => {
-                        if (!lead.phone) return toast.error('No phone')
-                        window.open(`tel:${lead.phone}`, '_self')
+                        const p = lead.phone || lead.mobile || ''
+                        if (!p) return toast.error('No phone number')
+                        window.open(`tel:${p.replace(/\s+/g,'')}`, '_self')
                       }} className="p-1.5 rounded hover:bg-green-50 text-green-600" title="Call now">
                         <PhoneIcon />
                       </button>
                       <button onClick={() => {
-                        if (!lead.phone) return toast.error('No phone')
-                        const p = lead.phone.replace(/[^0-9]/g, '')
-                        window.open(`https://wa.me/${p.startsWith('91') ? p : '91' + p}`, '_blank')
+                        const phone = (lead.phone || lead.mobile || '').replace(/[^0-9]/g, '')
+                        if (!phone) return toast.error('No phone number')
+                        window.open(`https://wa.me/${phone.startsWith('91') ? phone : '91' + phone}`, '_blank')
                       }} className="p-1.5 rounded hover:bg-emerald-50 text-emerald-600" title="WhatsApp">
                         <WAIcon />
                       </button>
@@ -583,20 +617,98 @@ export default function LeadsPage() {
 
               {/* ─── TAB: INFO ──────────────────────────────── */}
               {detailTab === 'info' && (
-                <div className="grid grid-cols-2 gap-4">
-                  {[
-                    ['Status', <Badge status={selectedLead.status} />],
-                    ['Source', selectedLead.source || '—'],
-                    ['City', selectedLead.city || '—'],
-                    ['Assigned To', selectedLead.agent_name || '—'],
-                    ['Created', selectedLead.created_at ? format(parseISO(selectedLead.created_at), 'dd MMM yyyy HH:mm') : '—'],
-                    ['Admin Remark', selectedLead.admin_remark || '—'],
-                  ].map(([label, val]) => (
-                    <div key={label} className="bg-gray-50 rounded-xl p-3">
-                      <p className="text-xs text-gray-500 mb-1">{label}</p>
-                      <div className="font-medium text-gray-800 text-sm">{val}</div>
+                <div>
+                  {!editingInfo ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-3 mb-4">
+                        {[
+                          ['Name',         getName(selectedLead)],
+                          ['Phone',        getPhone(selectedLead) || '—'],
+                          ['Email',        selectedLead.email || '—'],
+                          ['Source',       selectedLead.source || '—'],
+                          ['City',         selectedLead.city || '—'],
+                          ['Assigned To',  selectedLead.agent_name || '—'],
+                          ['Created',      selectedLead.created_at ? format(parseISO(selectedLead.created_at), 'dd MMM yyyy HH:mm') : '—'],
+                          ['Admin Remark', selectedLead.admin_remark || '—'],
+                        ].map(([label, val]) => (
+                          <div key={label} className="bg-gray-50 rounded-xl p-3">
+                            <p className="text-xs text-gray-500 mb-1">{label}</p>
+                            <div className="font-medium text-gray-800 text-sm">{val}</div>
+                          </div>
+                        ))}
+                        <div className="bg-gray-50 rounded-xl p-3">
+                          <p className="text-xs text-gray-500 mb-1">Status</p>
+                          <div className="font-medium text-gray-800 text-sm"><Badge status={selectedLead.status} /></div>
+                        </div>
+                      </div>
+                      <button onClick={() => setEditingInfo(true)}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-indigo-300 text-indigo-600 rounded-xl hover:bg-indigo-50 text-sm font-medium">
+                        <EditIcon /> Edit Lead Info
+                      </button>
+                    </>
+                  ) : (
+                    <div className="space-y-3">
+                      <h3 className="font-semibold text-gray-800 mb-1">Edit Lead</h3>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Name</label>
+                          <input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Phone</label>
+                          <input value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Email</label>
+                          <input value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">City</label>
+                          <input value={editForm.city} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))}
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Source</label>
+                          <input value={editForm.source} onChange={e => setEditForm(f => ({ ...f, source: e.target.value }))}
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                          <select value={editForm.status} onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                            {Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
+                          </select>
+                        </div>
+                        {isAdmin && (
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Assign To</label>
+                            <select value={editForm.assigned_to} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))}
+                              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                              <option value="">— Unassigned —</option>
+                              {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                            </select>
+                          </div>
+                        )}
+                        <div className="col-span-2">
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Admin Remark</label>
+                          <textarea rows={2} value={editForm.admin_remark}
+                            onChange={e => setEditForm(f => ({ ...f, admin_remark: e.target.value }))}
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none" />
+                        </div>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button onClick={saveEditForm} disabled={savingEdit}
+                          className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+                          {savingEdit ? 'Saving…' : 'Save Changes'}
+                        </button>
+                        <button onClick={() => setEditingInfo(false)}
+                          className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancel</button>
+                      </div>
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
 
