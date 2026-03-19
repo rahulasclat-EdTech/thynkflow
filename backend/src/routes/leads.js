@@ -5,6 +5,7 @@ const XLSX    = require('xlsx');
 const path    = require('path');
 const db      = require('../config/db');
 const { auth, adminOnly } = require('../middleware/auth');
+const { createNotif } = require('./notifications');
 
 const router  = express.Router();
 const storage = multer.memoryStorage();
@@ -165,7 +166,14 @@ router.post('/', auth, async (req, res) => {
         creation_comment || null,
       ]
     )
-    res.status(201).json({ success: true, data: rows[0] })
+    const newLead = rows[0]
+    // Notify assigned agent
+    if (newLead.assigned_to && newLead.assigned_to !== req.user.id) {
+      const leadName = (contact_name || name || school_name || 'New Lead').trim()
+      createNotif(newLead.assigned_to, 'lead_assigned', '👤 New Lead Assigned',
+        `Lead "${leadName}" has been assigned to you`, newLead.id)
+    }
+    res.status(201).json({ success: true, data: newLead })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
   }
@@ -334,6 +342,19 @@ router.post('/assign', auth, async (req, res) => {
        WHERE id = ANY($3::uuid[])`,
       [assigned_to || null, req.user.id, lead_ids]
     )
+    // Notify the assigned agent about each lead
+    if (assigned_to) {
+      try {
+        const { rows: assignedLeads } = await db.query(
+          `SELECT id, COALESCE(contact_name, school_name, 'Lead') AS lead_name FROM leads WHERE id = ANY($1::uuid[])`,
+          [lead_ids]
+        )
+        for (const l of assignedLeads) {
+          createNotif(assigned_to, 'lead_assigned', '👤 Lead Assigned to You',
+            `Lead "${l.lead_name}" has been assigned to you`, l.id)
+        }
+      } catch {}
+    }
     res.json({ success: true, updated: lead_ids.length })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
