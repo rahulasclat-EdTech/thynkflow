@@ -1,15 +1,14 @@
-// backend/src/routes/followups.js — FIXED v3
-// Fixes vs v2:
-//   1. POST /followups now checks call_logs columns dynamically before inserting
-//   2. No more silent failures — all errors surface with real message
-//   3. /schema-check route added to inspect call_logs columns live
-//   4. DISTINCT ON now orders by cl.id DESC (safer than called_at which may not exist)
+// backend/src/routes/followups.js — FIXED v4
+// Key fix: next_followup_date is DATE type, not TIMESTAMP
+// Cannot use AT TIME ZONE on a DATE column — removed all timezone casting
+// Simple date comparison works correctly since dates have no time component
 
 const express = require('express')
 const db      = require('../config/db')
 const { auth } = require('../middleware/auth')
 const router  = express.Router()
 
+// IST date for today — cast NOW() to IST then to date
 const IST_TODAY = `(NOW() AT TIME ZONE 'Asia/Kolkata')::date`
 
 function agentScope(user, alias = 'l') {
@@ -17,14 +16,12 @@ function agentScope(user, alias = 'l') {
 }
 
 // ── Schema-aware call_logs insert ─────────────────────────
-// Detects actual columns so it works regardless of migration state
 async function insertCallLog(lead_id, user_id, discussion, next_followup_date) {
   const { rows: cols } = await db.query(`
     SELECT column_name FROM information_schema.columns
     WHERE table_name = 'call_logs' AND table_schema = 'public'
   `)
   const colNames = cols.map(c => c.column_name)
-  console.log('[followups] call_logs columns:', colNames.join(', '))
 
   const insertCols   = ['lead_id']
   const insertVals   = [lead_id]
@@ -34,7 +31,7 @@ async function insertCallLog(lead_id, user_id, discussion, next_followup_date) {
   if (colNames.includes('user_id')) {
     insertCols.push('user_id'); insertVals.push(user_id); placeholders.push(`$${i++}`)
   }
-  insertCols.push('discussion');        insertVals.push(discussion || '');       placeholders.push(`$${i++}`)
+  insertCols.push('discussion');         insertVals.push(discussion || '');        placeholders.push(`$${i++}`)
   insertCols.push('next_followup_date'); insertVals.push(next_followup_date || null); placeholders.push(`$${i++}`)
   if (colNames.includes('status')) {
     insertCols.push('status'); insertVals.push('call_back'); placeholders.push(`$${i++}`)
@@ -44,7 +41,6 @@ async function insertCallLog(lead_id, user_id, discussion, next_followup_date) {
   }
 
   const sql = `INSERT INTO call_logs (${insertCols.join(', ')}) VALUES (${placeholders.join(', ')})`
-  console.log('[followups] INSERT sql:', sql)
   await db.query(sql, insertVals)
 }
 
@@ -57,14 +53,16 @@ async function getFollowups(user, section = 'all', filters = {}) {
   if (product_id)  extraScope += ` AND l.product_id = ${parseInt(product_id)}`
   if (lead_status) extraScope += ` AND l.status = '${lead_status}'`
 
+  // next_followup_date is a DATE column — compare directly against IST date
+  // No AT TIME ZONE needed on the column itself (only on NOW())
   let dateFilter = ''
   if (section === 'today') {
-    dateFilter = `AND (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date = ${IST_TODAY}`
+    dateFilter = `AND latest.next_followup_date = ${IST_TODAY}`
   } else if (section === 'previous') {
-    dateFilter = `AND (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date < ${IST_TODAY}`
+    dateFilter = `AND latest.next_followup_date < ${IST_TODAY}`
   } else if (section === 'next_3_days') {
-    dateFilter = `AND (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date > ${IST_TODAY}
-                  AND (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date <= ${IST_TODAY} + INTERVAL '3 days'`
+    dateFilter = `AND latest.next_followup_date > ${IST_TODAY}
+                  AND latest.next_followup_date <= ${IST_TODAY} + INTERVAL '3 days'`
   }
 
   const { rows } = await db.query(`
@@ -84,11 +82,11 @@ async function getFollowups(user, section = 'all', filters = {}) {
       p.name                        AS product_name,
       u.name                        AS agent_name,
       CASE
-        WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date < ${IST_TODAY} THEN 'overdue'
-        WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date = ${IST_TODAY} THEN 'today'
+        WHEN latest.next_followup_date < ${IST_TODAY} THEN 'overdue'
+        WHEN latest.next_followup_date = ${IST_TODAY} THEN 'today'
         ELSE 'upcoming'
       END AS followup_type,
-      (${IST_TODAY} - (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date)::int AS days_overdue
+      (${IST_TODAY} - latest.next_followup_date)::int AS days_overdue
     FROM (
       SELECT DISTINCT ON (cl.lead_id)
         cl.lead_id, cl.next_followup_date, cl.discussion
@@ -100,7 +98,7 @@ async function getFollowups(user, section = 'all', filters = {}) {
     LEFT JOIN users    u ON u.id = l.assigned_to
     LEFT JOIN products p ON p.id = l.product_id
     WHERE 1=1 ${dateFilter} ${extraScope}
-    ORDER BY (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date ASC
+    ORDER BY latest.next_followup_date ASC
     LIMIT 500
   `)
   return rows
@@ -145,10 +143,10 @@ router.get('/summary', auth, async (req, res) => {
     const scope = agentScope(req.user)
     const { rows: [r] } = await db.query(`
       SELECT
-        COUNT(CASE WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date = ${IST_TODAY} THEN 1 END) AS today,
-        COUNT(CASE WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date < ${IST_TODAY} THEN 1 END) AS overdue,
-        COUNT(CASE WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date > ${IST_TODAY}
-                    AND  (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date <= ${IST_TODAY}+INTERVAL '3 days' THEN 1 END) AS next_3_days
+        COUNT(CASE WHEN latest.next_followup_date = ${IST_TODAY}                               THEN 1 END) AS today,
+        COUNT(CASE WHEN latest.next_followup_date < ${IST_TODAY}                               THEN 1 END) AS overdue,
+        COUNT(CASE WHEN latest.next_followup_date > ${IST_TODAY}
+                    AND latest.next_followup_date <= ${IST_TODAY} + INTERVAL '3 days'          THEN 1 END) AS next_3_days
       FROM (
         SELECT DISTINCT ON (cl.lead_id) cl.lead_id, cl.next_followup_date
         FROM call_logs cl
@@ -200,7 +198,7 @@ router.patch('/:leadId', auth, async (req, res) => {
   }
 })
 
-// ── GET /api/followups/schema-check — inspect call_logs ──
+// ── GET /api/followups/schema-check ──────────────────────
 router.get('/schema-check', auth, async (req, res) => {
   try {
     const { rows: cols }   = await db.query(`
@@ -224,9 +222,11 @@ router.get('/debug', auth, async (req, res) => {
     const { rows } = await db.query(`
       SELECT
         cl.lead_id, cl.next_followup_date, cl.discussion,
-        (cl.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date AS ist_date,
-        ${IST_TODAY}                                               AS server_ist_today,
-        CURRENT_DATE                                               AS server_utc_today,
+        cl.next_followup_date                AS date_value,
+        ${IST_TODAY}                         AS server_ist_today,
+        CURRENT_DATE                         AS server_utc_today,
+        cl.next_followup_date = ${IST_TODAY} AS is_today,
+        cl.next_followup_date < ${IST_TODAY} AS is_overdue,
         l.status AS lead_status, l.contact_name, l.school_name,
         u.name AS agent_name
       FROM call_logs cl
