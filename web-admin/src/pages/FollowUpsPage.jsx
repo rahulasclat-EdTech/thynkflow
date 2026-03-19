@@ -1,7 +1,4 @@
 // web-admin/src/pages/FollowUpsPage.jsx
-// 3 sections: Today / Previous Pending (Overdue) / Next 3 Days
-// Scoped by role — agent sees only own leads, admin sees all
-// Filters: agent (admin only), product, lead status
 import React, { useEffect, useState } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
@@ -39,7 +36,6 @@ function daysOverdue(d) {
   return Math.floor((new Date() - new Date(d)) / 86400000)
 }
 
-// ── Update Modal ──────────────────────────────────────────
 function UpdateModal({ followup, onClose, onSave }) {
   const [newStatus, setNewStatus]   = useState(followup.lead_status || 'new')
   const [discussion, setDiscussion] = useState('')
@@ -120,7 +116,6 @@ function UpdateModal({ followup, onClose, onSave }) {
   )
 }
 
-// ── Section component ─────────────────────────────────────
 function Section({ title, icon, color, items, onUpdate, isAdmin }) {
   const [expanded, setExpanded] = useState(true)
   if (!items) return null
@@ -212,7 +207,6 @@ function Section({ title, icon, color, items, onUpdate, isAdmin }) {
   )
 }
 
-// ── Main Page ─────────────────────────────────────────────
 export default function FollowUpsPage() {
   const { user } = useAuth()
   const isAdmin = user?.role_name === 'admin'
@@ -220,19 +214,14 @@ export default function FollowUpsPage() {
   const [data, setData]           = useState({ today: [], previous: [], next_3_days: [] })
   const [counts, setCounts]       = useState({ today: 0, previous: 0, next_3_days: 0, total: 0 })
   const [loading, setLoading]     = useState(true)
-  const [error, setError]         = useState(null)   // FIX: surface errors instead of swallowing
+  const [error, setError]         = useState(null)
   const [agents, setAgents]       = useState([])
   const [products, setProducts]   = useState([])
-
-  // Filters
   const [filterAgent, setFilterAgent]     = useState('')
   const [filterProduct, setFilterProduct] = useState('')
   const [filterStatus, setFilterStatus]   = useState('')
-
-  // Update modal
   const [selected, setSelected]   = useState(null)
 
-  // Load agents + products
   useEffect(() => {
     if (isAdmin) {
       api.get('/users').then(r => {
@@ -249,31 +238,32 @@ export default function FollowUpsPage() {
     }).catch(() => {})
   }, [isAdmin])
 
-  const fetchAll = async () => {
+  const fetchAll = async (agentF, productF, statusF) => {
     setLoading(true)
     setError(null)
     try {
       const params = new URLSearchParams({ section: 'all' })
-      if (isAdmin && filterAgent)  params.set('agent_id',    filterAgent)
-      if (filterProduct)           params.set('product_id',  filterProduct)
-      if (filterStatus)            params.set('lead_status', filterStatus)
+      if (isAdmin && agentF)   params.set('agent_id',    agentF)
+      if (productF)            params.set('product_id',  productF)
+      if (statusF)             params.set('lead_status', statusF)
 
-      const r = await api.get(`/followups?${params.toString()}`)
-      const d = r.data?.data || {}
+      const resp = await api.get(`/followups?${params.toString()}`)
+      const body = resp.data || {}
+      const d    = body.data  || {}
 
       let todayItems = [], prevItems = [], nextItems = []
-      if (Array.isArray(r.data?.data)) {
-        const all = r.data.data
-        todayItems = all.filter(x => x.followup_type === 'today')
-        prevItems  = all.filter(x => x.followup_type === 'overdue')
-        nextItems  = all.filter(x => x.followup_type === 'upcoming')
+      if (Array.isArray(body.data)) {
+        todayItems = body.data.filter(x => x.followup_type === 'today')
+        prevItems  = body.data.filter(x => x.followup_type === 'overdue')
+        nextItems  = body.data.filter(x => x.followup_type === 'upcoming')
       } else {
         todayItems = Array.isArray(d.today)       ? d.today       : []
         prevItems  = Array.isArray(d.previous)    ? d.previous    : []
         nextItems  = Array.isArray(d.next_3_days) ? d.next_3_days : []
       }
+
       setData({ today: todayItems, previous: prevItems, next_3_days: nextItems })
-      setCounts(r.data?.counts || {
+      setCounts(body.counts || {
         today:       todayItems.length,
         previous:    prevItems.length,
         next_3_days: nextItems.length,
@@ -286,65 +276,20 @@ export default function FollowUpsPage() {
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { fetchAll() }, [filterAgent, filterProduct, filterStatus])
+  useEffect(() => {
+    fetchAll(filterAgent, filterProduct, filterStatus)
+  }, [filterAgent, filterProduct, filterStatus])
 
   useEffect(() => {
-    const t = setInterval(fetchAll, 60000)
+    const t = setInterval(() => fetchAll(filterAgent, filterProduct, filterStatus), 60000)
     return () => clearInterval(t)
-  }, [])
-    setLoading(true)
-    setError(null)
-    try {
-      const params = new URLSearchParams({ section: 'all' })
-      if (isAdmin && filterAgent)  params.set('agent_id',    filterAgent)
-      if (filterProduct)           params.set('product_id',  filterProduct)
-      if (filterStatus)            params.set('lead_status', filterStatus)
-
-     const r = await api.get(`/followups?${params.toString()}`)
-      const d = r.data?.data || {}
-
-      // Handle both {today:[], previous:[], next_3_days:[]} and flat array response
-      let todayItems = [], prevItems = [], nextItems = []
-      if (Array.isArray(r.data?.data)) {
-        const all = r.data.data
-        todayItems = all.filter(x => x.followup_type === 'today')
-        prevItems  = all.filter(x => x.followup_type === 'overdue')
-        nextItems  = all.filter(x => x.followup_type === 'upcoming')
-      } else {
-        todayItems = Array.isArray(d.today)       ? d.today       : []
-        prevItems  = Array.isArray(d.previous)    ? d.previous    : []
-        nextItems  = Array.isArray(d.next_3_days) ? d.next_3_days : []
-      }
-console.log('SETTING DATA:', todayItems.length, prevItems.length, nextItems.length)
-setData({ today: todayItems, previous: prevItems, next_3_days: nextItems })
-      setCounts(r.data?.counts || {
-        today:       todayItems.length,
-        previous:    prevItems.length,
-        next_3_days: nextItems.length,
-        total:       todayItems.length + prevItems.length + nextItems.length,
-      })
-    } catch (err) {
-      const msg = err?.response?.data?.message || err.message || 'Failed to load follow-ups'
-      console.error('Followups error:', err)
-      setError(msg)
-      toast.error(msg)
-    } finally { setLoading(false) }
-  }, [isAdmin, filterAgent, filterProduct, filterStatus])
-
-  useEffect(() => { fetchAll() }, [fetchAll])
-
-  // Auto-refresh every 60 seconds
-  useEffect(() => {
-    const t = setInterval(fetchAll, 60000)
-    return () => clearInterval(t)
-  }, [fetchAll])
+  }, [filterAgent, filterProduct, filterStatus])
 
   const handleUpdate = (item) => setSelected(item)
-  const handleSaved  = () => { setSelected(null); fetchAll() }
+  const handleSaved  = () => { setSelected(null); fetchAll(filterAgent, filterProduct, filterStatus) }
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">📅 Follow-ups</h1>
@@ -352,12 +297,12 @@ setData({ today: todayItems, previous: prevItems, next_3_days: nextItems })
             {loading ? 'Loading…' : `${counts.total} total — ${counts.today} today, ${counts.previous} overdue, ${counts.next_3_days} upcoming`}
           </p>
         </div>
-        <button onClick={fetchAll} className="px-4 py-2 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 font-medium">
+        <button onClick={() => fetchAll(filterAgent, filterProduct, filterStatus)}
+          className="px-4 py-2 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 font-medium">
           🔄 Refresh
         </button>
       </div>
 
-      {/* Error banner — shows API errors clearly instead of silent empty state */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-3">
           <span className="text-red-500 text-lg">⚠️</span>
@@ -365,11 +310,11 @@ setData({ today: todayItems, previous: prevItems, next_3_days: nextItems })
             <p className="text-sm font-semibold text-red-700">Failed to load follow-ups</p>
             <p className="text-xs text-red-500">{error}</p>
           </div>
-          <button onClick={fetchAll} className="ml-auto text-xs text-red-600 underline">Retry</button>
+          <button onClick={() => fetchAll(filterAgent, filterProduct, filterStatus)}
+            className="ml-auto text-xs text-red-600 underline">Retry</button>
         </div>
       )}
 
-      {/* Summary KPI cards */}
       <div className="grid grid-cols-3 gap-4">
         <div className="card p-4 text-center border-l-4 border-amber-400">
           <p className="text-3xl font-black text-amber-500">{counts.today}</p>
@@ -388,7 +333,6 @@ setData({ today: todayItems, previous: prevItems, next_3_days: nextItems })
         </div>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 bg-white border border-slate-200 rounded-xl p-3">
         {isAdmin && agents.length > 0 && (
           <div className="flex items-center gap-2">
@@ -412,7 +356,7 @@ setData({ today: todayItems, previous: prevItems, next_3_days: nextItems })
           <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Status:</label>
           <select className="input w-40 text-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
             <option value="">All Statuses</option>
-          {ALL_STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)} 
+            {ALL_STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
           </select>
         </div>
         {(filterAgent || filterProduct || filterStatus) && (
@@ -430,24 +374,21 @@ setData({ today: todayItems, previous: prevItems, next_3_days: nextItems })
         <div className="space-y-4">
           <Section
             title={`Today's Follow-ups — ${format(new Date(), 'dd MMM yyyy')}`}
-            icon="⏰"
-            color="#d97706"
+            icon="⏰" color="#d97706"
             items={data.today}
             onUpdate={handleUpdate}
             isAdmin={isAdmin}
           />
           <Section
             title="Previous Pending (Overdue)"
-            icon="🔴"
-            color="#dc2626"
+            icon="🔴" color="#dc2626"
             items={data.previous}
             onUpdate={handleUpdate}
             isAdmin={isAdmin}
           />
           <Section
             title="Next 3 Days"
-            icon="📆"
-            color="#2563eb"
+            icon="📆" color="#2563eb"
             items={data.next_3_days}
             onUpdate={handleUpdate}
             isAdmin={isAdmin}
