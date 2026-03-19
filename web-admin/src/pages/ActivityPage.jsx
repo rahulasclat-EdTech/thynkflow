@@ -117,6 +117,12 @@ export default function ActivityPage() {
 
   useEffect(() => { fetchActivities() }, [fetchActivities])
 
+  // Auto-refresh every 45 seconds
+  useEffect(() => {
+    const t = setInterval(fetchActivities, 45000)
+    return () => clearInterval(t)
+  }, [fetchActivities])
+
   const fetchComments = async (activityId) => {
     setCommentsLoading(true)
     try {
