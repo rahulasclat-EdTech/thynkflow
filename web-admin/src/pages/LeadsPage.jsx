@@ -78,8 +78,10 @@ export default function LeadsPage() {
   // ── filters ───────────────────────────────────────────────────
   const [search, setSearch]           = useState('')
   const [filterStatus, setFilterStatus] = useState('')
-  const [filterAgent, setFilterAgent] = useState('')
+  const [filterAgent, setFilterAgent]   = useState('')
   const [filterProduct, setFilterProduct] = useState('')
+  const [filterSchool, setFilterSchool]   = useState('')
+  const [schools, setSchools]             = useState([]) // unique school names
   const [page, setPage]               = useState(1)
   const PER_PAGE = 25
 
@@ -140,9 +142,10 @@ export default function LeadsPage() {
       const params = new URLSearchParams({
         page, per_page: PER_PAGE,
         ...(search && { search }),
-        ...(filterStatus && { status: filterStatus }),
-        ...(filterAgent && { assigned_to: filterAgent }),
-        ...(filterProduct && { product_id: filterProduct }),
+        ...(filterStatus  && { status:     filterStatus }),
+        ...(filterAgent   && { assigned_to: filterAgent }),
+        ...(filterProduct && { product_id:  filterProduct }),
+        ...(filterSchool  && { school_name: filterSchool }),
       })
       const [leadsRes, prodRes, agentRes, settRes] = await Promise.all([
         api.get(`/leads?${params}`),
@@ -161,16 +164,22 @@ export default function LeadsPage() {
       setAgents(Array.isArray(agentRes.data?.data) ? agentRes.data.data : (Array.isArray(agentRes.data) ? agentRes.data : []))
       // settings returns { statuses, sources, cities } or similar
       const s = settRes.data?.data || settRes.data || {}
+      const schoolList = (s.school_name || s.schools || [])
+        .map(x => typeof x === 'string' ? x : (x.label || x.value || x))
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b))
+      setSchools(schoolList)
       setSettings({
         statuses:   s.lead_status || s.statuses || s.status || [],
         sources:    s.lead_source || s.sources  || s.source  || [],
         cities:     s.city        || s.cities   || [],
         lead_types: s.lead_type   || s.lead_types || [],
+        schools:    schoolList,
       })
     } catch (err) {
       toast.error('Failed to load leads')
     } finally { setLoading(false) }
-  }, [page, search, filterStatus, filterAgent, filterProduct, isAdmin])
+  }, [page, search, filterStatus, filterAgent, filterProduct, filterSchool, isAdmin])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -214,6 +223,14 @@ export default function LeadsPage() {
       setLeads(prev => prev.map(l => l.id === updated.id ? { ...l, ...editForm } : l))
       setEditingInfo(false)
       toast.success('Lead updated')
+      // Auto-add school name to settings if new
+      if (editForm.school_name?.trim()) {
+        const sn = editForm.school_name.trim()
+        if (!schools.includes(sn)) {
+          api.post('/settings', { category: 'school_name', label: sn, key: sn.toLowerCase().replace(/[^a-z0-9]/g,'_'), color: '#0891b2', sort_order: 0 }).catch(() => {})
+          setSchools(prev => [...new Set([...prev, sn])].sort((a,b) => a.localeCompare(b)))
+        }
+      }
     } catch (err) {
       toast.error(err.message || 'Failed to update lead')
     } finally { setSavingEdit(false) }
@@ -329,6 +346,14 @@ export default function LeadsPage() {
         }
       }
       toast.success('Lead created successfully!')
+      // Auto-add school name to settings if new
+      if (form.school_name?.trim()) {
+        const sn = form.school_name.trim()
+        if (!schools.includes(sn)) {
+          api.post('/settings', { category: 'school_name', label: sn, key: sn.toLowerCase().replace(/[^a-z0-9]/g,'_'), color: '#0891b2', sort_order: 0 }).catch(() => {})
+          setSchools(prev => [...new Set([...prev, sn])].sort((a,b) => a.localeCompare(b)))
+        }
+      }
       setShowCreateModal(false)
       setForm(emptyForm)
       fetchAll()
@@ -411,6 +436,13 @@ export default function LeadsPage() {
       }))
       await api.post('/leads/bulk', { leads: payload })
       toast.success(`${payload.length} leads imported`)
+      // Auto-add any new school names to settings
+      const newSchools = [...new Set(payload.map(r => r.school_name).filter(Boolean))]
+        .filter(s => !schools.includes(s))
+      for (const sn of newSchools) {
+        api.post('/settings', { category: 'school_name', label: sn, key: sn.toLowerCase().replace(/[^a-z0-9]/g,'_'), color: '#0891b2', sort_order: 0 }).catch(() => {})
+      }
+      if (newSchools.length) setSchools(prev => [...new Set([...prev, ...newSchools])].sort((a,b) => a.localeCompare(b)))
       setShowPasteModal(false)
       setPasteText(''); setPasteRows([]); setPasteStep(1); setPasteProduct('')
       fetchAll()
@@ -475,6 +507,13 @@ export default function LeadsPage() {
 
       await api.post('/leads/bulk', { leads: payload })
       toast.success(`${payload.length} leads imported from Excel`)
+      // Auto-add new school names to settings
+      const xlNewSchools = [...new Set(payload.map(r => r.school_name).filter(Boolean))]
+        .filter(s => !schools.includes(s))
+      for (const sn of xlNewSchools) {
+        api.post('/settings', { category: 'school_name', label: sn, key: sn.toLowerCase().replace(/[^a-z0-9]/g,'_'), color: '#0891b2', sort_order: 0 }).catch(() => {})
+      }
+      if (xlNewSchools.length) setSchools(prev => [...new Set([...prev, ...xlNewSchools])].sort((a,b) => a.localeCompare(b)))
       setShowImportModal(false)
       setImportFile(null); setImportRows([]); setImportStep(1)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -488,9 +527,9 @@ export default function LeadsPage() {
   const downloadTemplate = () => {
     const wb  = XLSX.utils.book_new()
     const ws  = XLSX.utils.aoa_to_sheet([
-      ['Name', 'Phone', 'Email', 'City', 'Source', 'Product'],
-      ['Rahul Sharma', '9876543210', 'rahul@example.com', 'Mumbai', 'Website', products[0]?.name || ''],
-      ['Priya Singh',  '9812345678', 'priya@example.com',  'Delhi',  'Referral', products[1]?.name || ''],
+      ['Name', 'Phone', 'Email', 'City', 'Source', 'Lead Type', 'School Name', 'Product', 'Creation Comment'],
+      ['Rahul Sharma', '9876543210', 'rahul@example.com', 'Mumbai', 'Website', 'B2C', 'Delhi Public School', products[0]?.name || '', 'April campaign'],
+      ['Priya Singh',  '9812345678', 'priya@example.com',  'Delhi',  'Referral', 'B2B', 'ABC Corp Pvt Ltd', products[1]?.name || '', 'Referral lead'],
     ])
     XLSX.utils.book_append_sheet(wb, ws, 'Leads')
     XLSX.writeFile(wb, 'thynkflow_leads_template.xlsx')
@@ -544,11 +583,16 @@ export default function LeadsPage() {
           <option value="">All Products</option>
           {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-        {isAdmin && (
-          <select value={filterAgent} onChange={e => { setFilterAgent(e.target.value); setPage(1) }}
+        <select value={filterAgent} onChange={e => { setFilterAgent(e.target.value); setPage(1) }}
+          className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+          <option value="">All Agents</option>
+          {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+        {schools.length > 0 && (
+          <select value={filterSchool} onChange={e => { setFilterSchool(e.target.value); setPage(1) }}
             className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-            <option value="">All Agents</option>
-            {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            <option value="">All Schools</option>
+            {schools.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         )}
       </div>
@@ -750,8 +794,12 @@ export default function LeadsPage() {
                         <div>
                           <label className="block text-xs font-medium text-gray-500 mb-1">School / Organisation</label>
                           <input value={editForm.school_name || ''} onChange={e => setEditForm(f => ({ ...f, school_name: e.target.value }))}
-                            placeholder="School or organisation name"
+                            placeholder="Type or select school name…"
+                            list="school-list-edit"
                             className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                          <datalist id="school-list-edit">
+                            {schools.map(s => <option key={s} value={s} />)}
+                          </datalist>
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-500 mb-1">Creation Comment</label>
@@ -775,28 +823,20 @@ export default function LeadsPage() {
                           </div>
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-gray-500 mb-1">School / Organisation</label>
-                          <input value={editForm.school_name || ''} onChange={e => setEditForm(f => ({ ...f, school_name: e.target.value }))}
-                            placeholder="School or company name"
-                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-                        </div>
-                        <div>
                           <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
                           <select value={editForm.status} onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
                             className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
                             {Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
                           </select>
                         </div>
-                        {isAdmin && (
-                          <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Assign To</label>
-                            <select value={editForm.assigned_to || user?.id || ''} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))}
-                              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-                              <option value={user?.id}>{user?.name} (me)</option>
-                              {agents.filter(a => a.id !== user?.id).map(a => <option key={a.id} value={a.id}>{a.name} — {a.role_name}</option>)}
-                            </select>
-                          </div>
-                        )}
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Assign To</label>
+                          <select value={editForm.assigned_to || user?.id || ''} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))}
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                            <option value={user?.id || ''}>{user?.name || 'Me'} (me — default)</option>
+                            {agents.filter(a => a.id !== user?.id).map(a => <option key={a.id} value={a.id}>{a.name} — {a.role_name}</option>)}
+                          </select>
+                        </div>
                         <div className="col-span-2">
                           <label className="block text-xs font-medium text-gray-500 mb-1">Admin Remark</label>
                           <textarea rows={2} value={editForm.admin_remark}
@@ -1082,59 +1122,20 @@ export default function LeadsPage() {
                     </select>
                   </div>
 
-                  {/* School Name */}
+                  {/* School Name - dropdown + free type */}
                   <div>
                     <label className="block text-xs font-semibold text-gray-600 mb-1.5">School / Organisation Name</label>
                     <input
                       value={form.school_name || ''}
                       onChange={e => setForm(f => ({ ...f, school_name: e.target.value }))}
-                      placeholder="e.g. Delhi Public School, Sunshine Academy"
+                      placeholder="Type or select school name…"
+                      list="school-list-create"
                       className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent" />
+                    <datalist id="school-list-create">
+                      {schools.map(s => <option key={s} value={s} />)}
+                    </datalist>
                   </div>
 
-                  {/* Lead Type */}
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Lead Type *</label>
-                    <div className="flex gap-2">
-                      {(settings.lead_types.length > 0
-                        ? settings.lead_types.map(t => typeof t === 'string' ? { label: t, value: t } : t)
-                        : [{ label: 'B2B', value: 'B2B' }, { label: 'B2C', value: 'B2C' }]
-                      ).map(lt => (
-                        <button key={lt.value || lt.label} type="button"
-                          onClick={() => setForm(f => ({ ...f, lead_type: lt.value || lt.label }))}
-                          className={`flex-1 py-2 rounded-xl text-sm font-bold border-2 transition-all ${
-                            form.lead_type === (lt.value || lt.label)
-                              ? 'border-indigo-600 bg-indigo-600 text-white'
-                              : 'border-slate-200 text-slate-600 hover:border-indigo-300'
-                          }`}>
-                          {lt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* School Name */}
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">School / Organisation Name</label>
-                    <input
-                      className="input"
-                      placeholder="e.g. Delhi Public School, ABC Corp"
-                      value={form.school_name}
-                      onChange={e => setForm(f => ({ ...f, school_name: e.target.value }))}
-                    />
-                  </div>
-
-                  {/* Creation Comment */}
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Creation Comment</label>
-                    <textarea
-                      className="input"
-                      rows={2}
-                      placeholder="Notes about how this lead was sourced or created…"
-                      value={form.creation_comment}
-                      onChange={e => setForm(f => ({ ...f, creation_comment: e.target.value }))}
-                    />
-                  </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-gray-600 mb-1.5">Initial Status</label>
@@ -1210,19 +1211,21 @@ export default function LeadsPage() {
                 </div>
               </div>
 
-              {/* Assign to user - default is logged-in user, can change */}
-              {agents.length > 0 && (
-                <div>
-                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Assign To</h3>
-                  <select
-                    value={form.assigned_to || user?.id || ''}
-                    onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent">
-                    <option value={user?.id}>{user?.name} (me)</option>
-                    {agents.filter(a => a.id !== user?.id).map(a => <option key={a.id} value={a.id}>{a.name} — {a.role_name}</option>)}
-                  </select>
-                </div>
-              )}
+              {/* Assign to user - default is logged-in user, option to change */}
+              <div>
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+                  Assign To <span className="text-gray-300 font-normal normal-case">(default: you)</span>
+                </h3>
+                <select
+                  value={form.assigned_to || user?.id || ''}
+                  onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent">
+                  <option value={user?.id || ''}>{user?.name || 'Me'} (me — default)</option>
+                  {agents.filter(a => a.id !== user?.id).map(a => (
+                    <option key={a.id} value={a.id}>{a.name} — {a.role_name}</option>
+                  ))}
+                </select>
+              </div>
 
               {/* Lead preview card */}
               {(form.name || form.phone) && (
