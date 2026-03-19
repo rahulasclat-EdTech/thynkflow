@@ -146,50 +146,52 @@ router.post('/bulk', auth, async (req, res) => {
       return res.status(400).json({ success: false, message: 'No leads provided' })
     }
 
-    const created = []
-    const errors  = []
+    // Filter out rows with no name and no phone
+    const valid = leads.filter(l => (l.name || l.contact_name || '').toString().trim() || (l.phone || '').toString().trim())
+    if (!valid.length) return res.json({ success: true, created: 0, skipped: leads.length })
 
-    for (const lead of leads) {
-      // Skip rows with no name AND no phone
-      if (!lead.name?.trim() && !lead.phone?.trim()) continue
+    // Build a single multi-row INSERT for speed (handles 100 rows at once)
+    const values = []
+    const params = []
+    let p = 1
 
-      try {
-        const { rows } = await db.query(
-          `INSERT INTO leads (
-            contact_name, school_name, phone, email, city, source,
-            status, product_id, admin_remark, assigned_to,
-            lead_type, creation_comment, created_at, updated_at
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
-          ON CONFLICT DO NOTHING
-          RETURNING id`,
-          [
-            (lead.contact_name || lead.name || '').trim(),
-            lead.school_name   || null,
-            (lead.phone        || '').toString().trim(),
-            lead.email         || null,
-            lead.city          || null,
-            lead.source        || null,
-            lead.status        || 'new',
-            lead.product_id    || null,
-            lead.admin_remark  || lead.creation_comment || null,
-            lead.assigned_to   || req.user.id,
-            lead.lead_type     || 'B2C',
-            lead.creation_comment || null,
-          ]
-        )
-        if (rows.length) created.push(rows[0].id)
-      } catch (rowErr) {
-        errors.push({ lead: lead.name || lead.phone, error: rowErr.message })
-      }
+    for (const lead of valid) {
+      values.push(`($${p},$${p+1},$${p+2},$${p+3},$${p+4},$${p+5},$${p+6},$${p+7},$${p+8},$${p+9},$${p+10},$${p+11},NOW(),NOW())`)
+      params.push(
+        (lead.contact_name || lead.name || '').toString().trim(),
+        lead.school_name?.toString().trim()      || null,
+        (lead.phone || '').toString().trim()      || null,
+        lead.email?.toString().trim()             || null,
+        lead.city?.toString().trim()              || null,
+        lead.source?.toString().trim()            || null,
+        lead.status                               || 'new',
+        lead.product_id                           || null,
+        lead.creation_comment?.toString().trim()  || null,
+        lead.assigned_to                          || req.user.id,
+        lead.lead_type?.toString().trim()         || 'B2C',
+        lead.creation_comment?.toString().trim()  || null
+      )
+      p += 12
     }
+
+    const sql = `
+      INSERT INTO leads (
+        contact_name, school_name, phone, email, city, source,
+        status, product_id, admin_remark, assigned_to,
+        lead_type, creation_comment, created_at, updated_at
+      ) VALUES ${values.join(',')}
+      RETURNING id
+    `
+    const { rows } = await db.query(sql, params)
 
     res.json({
       success: true,
-      created: created.length,
-      skipped: errors.length,
-      errors: errors.slice(0, 5), // return first 5 errors only
+      created: rows.length,
+      submitted: valid.length,
+      skipped: leads.length - valid.length,
     })
   } catch (err) {
+    console.error('Bulk import error:', err.message)
     res.status(500).json({ success: false, message: err.message })
   }
 })
