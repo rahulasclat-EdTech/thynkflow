@@ -109,8 +109,14 @@ export default function AssignPage() {
       await api.post('/leads/assign', { lead_ids: selected, assigned_to: assignTo })
       const name = agents.find(a => a.id === assignTo)?.name || 'agent'
       toast.success(`${selected.length} leads assigned to ${name}`)
+      // Update local state immediately so label changes instantly
+      setLeads(prev => prev.map(l =>
+        selected.includes(l.id)
+          ? { ...l, assigned_to: assignTo, agent_name: name }
+          : l
+      ))
       setSelected([])
-      fetchLeads()
+      fetchLeads() // also refetch to get fresh data
     } catch (err) { toast.error(err.message || 'Assignment failed') }
     finally { setSaving(false) }
   }
@@ -132,6 +138,12 @@ export default function AssignPage() {
       }
       const pname = products.find(p => String(p.id) === String(assignProduct))?.name || 'product'
       toast.success(`${done} leads assigned to ${pname}`)
+      // Update local state immediately
+      setLeads(prev => prev.map(l =>
+        selected.includes(l.id)
+          ? { ...l, product_id: assignProduct, product_name: pname }
+          : l
+      ))
       setSelected([])
       fetchLeads()
     } catch (err) { toast.error(err.message || 'Product assignment failed') }
@@ -146,6 +158,12 @@ export default function AssignPage() {
     try {
       await api.post('/leads/assign', { lead_ids: selected, assigned_to: null })
       toast.success(`${selected.length} leads unassigned`)
+      // Update local state immediately
+      setLeads(prev => prev.map(l =>
+        selected.includes(l.id)
+          ? { ...l, assigned_to: null, agent_name: null }
+          : l
+      ))
       setSelected([])
       fetchLeads()
     } catch (err) { toast.error(err.message || 'Unassign failed') }
