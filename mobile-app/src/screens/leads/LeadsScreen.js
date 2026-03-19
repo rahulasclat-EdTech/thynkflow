@@ -80,8 +80,6 @@ export default function LeadsScreen({ navigation }) {
       setProducts(p.data?.data || p.data || [])
       setAgents(Array.isArray(u.data?.data) ? u.data.data : (Array.isArray(u.data) ? u.data : []))
       const sData = s.data?.data || s.data || {}
-      setLeadTypes(sData.lead_type || sData.leadType || [])
-      const sData = s.data?.data || s.data || {}
       setLeadTypes(sData.lead_type || sData.lead_types || [{label:'B2B',key:'b2b'},{label:'B2C',key:'b2c'}])
     }).catch(() => {})
   }, [])
