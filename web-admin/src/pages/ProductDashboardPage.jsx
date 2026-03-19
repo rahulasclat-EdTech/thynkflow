@@ -46,12 +46,12 @@ export default function ProductDashboardPage() {
     if (isAdmin) {
       api.get('/users').then(r => {
         // interceptor returns body directly, so r = {success, data}
-        const list = r?.data || r || []
+        const list = r?.data?.data || r?.data || []
         setAgents(Array.isArray(list) ? list.filter(u => ['agent','admin'].includes(u.role_name)) : [])
       }).catch(() => {})
     }
     api.get('/products/active').then(r => {
-      const list = r?.data || r || []
+      const list = r?.data?.data || r?.data || []
       setProducts(Array.isArray(list) ? list : [])
     }).catch(() => {})
   }, [isAdmin])
@@ -64,7 +64,7 @@ export default function ProductDashboardPage() {
       if (productF)           params.set('product_id', productF)
       // interceptor returns body directly: {success, data: {product_stats, agent_breakdown, ...}}
       const body = await api.get(`/products/dashboard?${params}`)
-      setData(body?.data || body || {})
+      setData(body?.data?.data || body?.data || {})
     } catch (err) {
       console.error('Products dashboard error:', err)
     } finally { setLoading(false) }
