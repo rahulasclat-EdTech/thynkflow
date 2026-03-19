@@ -143,6 +143,12 @@ export default function DashboardPage() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
+  // Auto-refresh every 30 seconds so any agent activity reflects immediately
+  useEffect(() => {
+    const t = setInterval(fetchAll, 30000)
+    return () => clearInterval(t)
+  }, [fetchAll])
+
   const openDrill = async (title, params) => {
     try {
       const r = await api.get('/leads', { params: { ...params, per_page: 200 } })
