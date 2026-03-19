@@ -83,7 +83,7 @@ export default function LeadsPage() {
   const [filterSchool, setFilterSchool]   = useState('')
   const [schools, setSchools]             = useState([]) // unique school names
   const [page, setPage]               = useState(1)
-  const PER_PAGE = 50
+  const [PER_PAGE, setPER_PAGE] = useState(50)
 
   // ── modals ────────────────────────────────────────────────────
   const [showCreateModal, setShowCreateModal]     = useState(false)
@@ -163,9 +163,13 @@ export default function LeadsPage() {
       // Leads endpoint may return { data, total } or just array
       const raw = leadsRes.data
       if (Array.isArray(raw)) {
-        setLeads(raw); setTotalCount(raw.length)
+        setLeads(raw)
+        setTotalCount(raw.length)
       } else {
-        setLeads(raw.data || []); setTotalCount(raw.total || 0)
+        const rows = raw.data || raw.leads || []
+        setLeads(rows)
+        // Use total from backend if available, else use rows length
+        setTotalCount(raw.total || raw.count || rows.length)
       }
       setProducts(prodRes.data?.data || prodRes.data || [])
       const agentList = Array.isArray(agentRes.data?.data) ? agentRes.data.data : (Array.isArray(agentRes.data) ? agentRes.data : [])
@@ -236,9 +240,13 @@ export default function LeadsPage() {
     setSavingEdit(true)
     try {
       await api.put(`/leads/${selectedLead.id}`, { ...editForm, contact_name: editForm.name, school_name: editForm.school_name })
-      const updated = { ...selectedLead, ...editForm }
+      // Also resolve agent_name from agents list for display
+      const assignedAgent = agents.find(a => a.id === editForm.assigned_to)
+      const updated = { ...selectedLead, ...editForm,
+        agent_name: assignedAgent?.name || selectedLead.agent_name || ''
+      }
       setSelectedLead(updated)
-      setLeads(prev => prev.map(l => l.id === updated.id ? { ...l, ...editForm } : l))
+      setLeads(prev => prev.map(l => l.id === updated.id ? { ...l, ...updated } : l))
       setEditingInfo(false)
       toast.success('Lead updated')
       // Auto-add school name to settings if new
@@ -571,7 +579,14 @@ export default function LeadsPage() {
 
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-2 items-center justify-between mb-4">
-        <h1 className="text-xl font-bold text-gray-800">Leads <span className="text-gray-400 text-sm font-normal">({totalCount})</span></h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-bold text-gray-800">Leads <span className="text-gray-400 text-sm font-normal">({totalCount})</span></h1>
+          <select value={PER_PAGE} onChange={e => { setPER_PAGE(Number(e.target.value)); setPage(1) }}
+            className="border rounded-lg px-2 py-1 text-xs text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+            {[25,50,100,200,500].map(n => <option key={n} value={n}>{n} per page</option>)}
+          </select>
+          <span className="text-xs text-gray-400">Page {page} of {Math.ceil(totalCount/PER_PAGE) || 1}</span>
+        </div>
         <div className="flex gap-2 flex-wrap">
           <button onClick={downloadTemplate} className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
             <UploadIcon /> Template
@@ -699,15 +714,15 @@ export default function LeadsPage() {
       )}
 
       {/* ── Pagination ─────────────────────────────────────── */}
-      {totalPages > 1 && (
-        <div className="flex gap-2 justify-center mt-4">
-          <button disabled={page === 1} onClick={() => setPage(p => p-1)}
-            className="px-3 py-1.5 text-sm border rounded-lg disabled:opacity-40 hover:bg-gray-50">← Prev</button>
-          <span className="px-3 py-1.5 text-sm text-gray-600">{page} / {totalPages}</span>
-          <button disabled={page === totalPages} onClick={() => setPage(p => p+1)}
-            className="px-3 py-1.5 text-sm border rounded-lg disabled:opacity-40 hover:bg-gray-50">Next →</button>
-        </div>
-      )}
+      <div className="flex gap-2 justify-center items-center mt-4">
+        <button disabled={page === 1} onClick={() => setPage(p => p-1)}
+          className="px-3 py-1.5 text-sm border rounded-lg disabled:opacity-40 hover:bg-gray-50">← Prev</button>
+        <span className="px-3 py-1.5 text-sm text-gray-600">
+          Page {page} of {Math.ceil(totalCount/PER_PAGE) || 1} &nbsp;·&nbsp; {totalCount} total leads
+        </span>
+        <button disabled={page >= Math.ceil(totalCount/PER_PAGE)} onClick={() => setPage(p => p+1)}
+          className="px-3 py-1.5 text-sm border rounded-lg disabled:opacity-40 hover:bg-gray-50">Next →</button>
+      </div>
 
       {/* ══════════════════════════════════════════════════════
            LEAD DETAIL MODAL (tabbed: Info | Product | Comms)
