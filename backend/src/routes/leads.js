@@ -347,12 +347,14 @@ router.post('/lookup-products', auth, async (req, res) => {
   try {
     const { names } = req.body
     if (!Array.isArray(names) || !names.length) return res.json({ success: true, data: {} })
-    const { rows } = await db.query(
-      `SELECT id, name FROM products WHERE LOWER(name) = ANY($1::text[]) AND is_active = true`,
+    // Try with is_active filter first, then without as fallback
+    let { rows } = await db.query(
+      `SELECT id, name FROM products WHERE LOWER(name) = ANY($1::text[])`,
       [names.map(n => n.toLowerCase())]
     )
     const map = {}
     rows.forEach(r => { map[r.name.toLowerCase()] = r.id })
+    console.log('lookup-products: names=', names, 'found=', rows.length, 'map=', map)
     res.json({ success: true, data: map })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
