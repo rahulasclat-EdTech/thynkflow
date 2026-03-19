@@ -53,9 +53,9 @@ export default function LeadDetailScreen({ route, navigation }) {
   }, [])
 
   useEffect(() => {
-    Promise.all([api.get('/products/active'), api.get('/users')]).then(([p, u]) => {
+    Promise.all([api.get('/products/active'), api.get('/chat/users')]).then(([p, u]) => {
       setProducts(p.data?.data || p.data || [])
-      setAgents(Array.isArray(u.data) ? u.data : (u.data?.data || []))
+      setAgents(Array.isArray(u.data?.data) ? u.data.data : (Array.isArray(u.data) ? u.data : []))
     }).catch(()=>{})
   }, [])
 
@@ -71,6 +71,21 @@ export default function LeadDetailScreen({ route, navigation }) {
     setCommLoading(true)
     try { const r = await api.get(`/leads/${lead.id}/communications`); setCommLogs(r.data?.data||r.data||[]) }
     catch {} finally { setCommLoading(false) }
+  }
+
+  const updateLeadType = async (lt) => {
+    try {
+      await api.put(`/leads/${lead.id}`, { ...lead, lead_type: lt })
+      setLead(p=>({...p, lead_type: lt}))
+    } catch(e) { Alert.alert('Error', e.message) }
+  }
+
+  const updateSchoolName = async (name) => {
+    if (name === (lead.school_name||'')) return
+    try {
+      await api.put(`/leads/${lead.id}`, { ...lead, school_name: name })
+      setLead(p=>({...p, school_name: name}))
+    } catch(e) { Alert.alert('Error', e.message) }
   }
 
   const updateStatus = async (st) => {
@@ -182,8 +197,10 @@ export default function LeadDetailScreen({ route, navigation }) {
 
         {/* ── INFO TAB ─────────────────────────────── */}
         {tab==='info' && <View style={{gap:8}}>
-          {[['Email',lead.email||'—'],['City',lead.city||'—'],['Source',lead.source||'—'],
-            ['Assigned To',lead.agent_name||'—'],['Remark',lead.admin_remark||'—']].map(([l,v])=>(
+          {[['Lead Type',lead.lead_type||'—'],['School / Org',lead.school_name||'—'],
+            ['Email',lead.email||'—'],['City',lead.city||'—'],['Source',lead.source||'—'],
+            ['Assigned To',lead.agent_name||'—'],['Remark',lead.admin_remark||'—'],
+            ['Creation Note',lead.creation_comment||'—']].map(([l,v])=>(
             <View key={l} style={s.infoCard}>
               <Text style={s.infoLbl}>{l}</Text>
               <Text style={s.infoVal}>{v}</Text>
@@ -200,6 +217,32 @@ export default function LeadDetailScreen({ route, navigation }) {
                 </TouchableOpacity>
               })}
             </ScrollView>
+          </View>
+
+          {/* Lead Type */}
+          <View style={s.section}>
+            <Text style={s.secTitle}>Lead Type</Text>
+            <View style={{flexDirection:'row',gap:8}}>
+              {['B2B','B2C'].map(lt=>(
+                <TouchableOpacity key={lt} onPress={()=>updateLeadType(lt)}
+                  style={{flex:1,padding:10,borderRadius:10,borderWidth:2,alignItems:'center',
+                    borderColor:lead.lead_type===lt?'#4F46E5':'#E5E7EB',
+                    backgroundColor:lead.lead_type===lt?'#4F46E5':'#fff'}}>
+                  <Text style={{fontWeight:'700',color:lead.lead_type===lt?'#fff':'#374151'}}>{lt}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* School Name */}
+          <View style={s.section}>
+            <Text style={s.secTitle}>School / Organisation</Text>
+            <TextInput
+              defaultValue={lead.school_name||''}
+              onEndEditing={e=>updateSchoolName(e.nativeEvent.text)}
+              placeholder="Enter school or company name"
+              placeholderTextColor="#9CA3AF"
+              style={s.input} />
           </View>
         </View>}
 
