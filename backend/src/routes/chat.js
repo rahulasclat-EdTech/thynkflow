@@ -47,6 +47,40 @@ const { createNotif } = require('./notifications')
 
 const router = express.Router()
 
+// ── Auto-create chat tables if they don't exist ───────────
+db.query(`
+  CREATE TABLE IF NOT EXISTS conversations (
+    id         SERIAL PRIMARY KEY,
+    type       VARCHAR(20) DEFAULT 'direct' CHECK (type IN ('direct','group','broadcast')),
+    name       VARCHAR(200),
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS conversation_members (
+    id              SERIAL PRIMARY KEY,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    user_id         UUID    NOT NULL REFERENCES users(id),
+    joined_at       TIMESTAMP DEFAULT NOW(),
+    last_read_at    TIMESTAMP DEFAULT NOW(),
+    UNIQUE(conversation_id, user_id)
+  );
+  CREATE TABLE IF NOT EXISTS messages (
+    id              SERIAL PRIMARY KEY,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    sender_id       UUID    NOT NULL REFERENCES users(id),
+    message         TEXT,
+    file_url        VARCHAR(500),
+    file_name       VARCHAR(300),
+    file_type       VARCHAR(100),
+    file_size       INTEGER,
+    is_deleted      BOOLEAN DEFAULT false,
+    created_at      TIMESTAMP DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_conv_members  ON conversation_members(user_id);
+`).catch(err => console.error('Chat table creation error:', err.message))
+
 const uploadDir = path.join(__dirname, '../../uploads/chat')
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true })
 
