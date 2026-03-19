@@ -261,13 +261,29 @@ export default function FollowUpsPage() {
       if (filterStatus)  params.set('lead_status', filterStatus)
 
       const r = await api.get(`/followups?${params}`)
+      console.log('Followups API response:', JSON.stringify(r.data?.counts), 'data keys:', Object.keys(r.data?.data || {}))
       const d = r.data?.data || {}
-      setData({
-        today:       Array.isArray(d.today)       ? d.today       : [],
-        previous:    Array.isArray(d.previous)    ? d.previous    : [],
-        next_3_days: Array.isArray(d.next_3_days) ? d.next_3_days : [],
+
+      // Handle both {today:[], previous:[], next_3_days:[]} and flat array response
+      let todayItems = [], prevItems = [], nextItems = []
+      if (Array.isArray(r.data?.data)) {
+        // Flat array — categorise client-side
+        const all = r.data.data
+        todayItems = all.filter(x => x.followup_type === 'today')
+        prevItems  = all.filter(x => x.followup_type === 'overdue')
+        nextItems  = all.filter(x => x.followup_type === 'upcoming')
+      } else {
+        todayItems = Array.isArray(d.today)       ? d.today       : []
+        prevItems  = Array.isArray(d.previous)    ? d.previous    : []
+        nextItems  = Array.isArray(d.next_3_days) ? d.next_3_days : []
+      }
+      setData({ today: todayItems, previous: prevItems, next_3_days: nextItems })
+      setCounts(r.data?.counts || {
+        today:       todayItems.length,
+        previous:    prevItems.length,
+        next_3_days: nextItems.length,
+        total:       todayItems.length + prevItems.length + nextItems.length,
       })
-      setCounts(r.data?.counts || { today: 0, previous: 0, next_3_days: 0, total: 0 })
     } catch (err) {
       console.error('Followups error:', err)
       toast.error('Failed to load follow-ups')
