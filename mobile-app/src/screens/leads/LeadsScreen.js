@@ -32,7 +32,7 @@ export default function LeadsScreen({ navigation }) {
   const [loading, setLoading]         = useState(true)
   const [refreshing, setRefreshing]   = useState(false)
   const [search, setSearch]           = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
+  const [filterStatus, setFilterStatus] = useState('new')
   const [filterProduct, setFilterProduct] = useState('')
   const [page, setPage]               = useState(1)
   const [hasMore, setHasMore]         = useState(true)
@@ -42,7 +42,7 @@ export default function LeadsScreen({ navigation }) {
   const [showPostCallPrompt, setShowPostCallPrompt] = useState(false)
   const appStateRef  = useRef(AppState.currentState)
   const calledLeadRef = useRef(null)
-  const PER_PAGE = 20
+  const PER_PAGE = 50
 
   // Detect return from phone call
   useEffect(() => {
@@ -79,6 +79,8 @@ export default function LeadsScreen({ navigation }) {
     Promise.all([api.get('/products/active'), api.get('/chat/users'), api.get('/settings')]).then(([p, u, s]) => {
       setProducts(p.data?.data || p.data || [])
       setAgents(Array.isArray(u.data?.data) ? u.data.data : (Array.isArray(u.data) ? u.data : []))
+      const sData = s.data?.data || s.data || {}
+      setLeadTypes(sData.lead_type || sData.leadType || [])
       const sData = s.data?.data || s.data || {}
       setLeadTypes(sData.lead_type || sData.lead_types || [{label:'B2B',key:'b2b'},{label:'B2C',key:'b2c'}])
     }).catch(() => {})
