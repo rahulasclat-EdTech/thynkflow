@@ -77,15 +77,15 @@ function NewChatModal({ onClose, onCreated, isAdmin }) {
       if (mode === 'direct') {
         if (!selected.length) return toast.error('Select a user')
         const res = await api.post('/chat/conversations/direct', { target_user_id: selected[0] })
-        onCreated(res.data?.id ?? res.data?.data?.id)
+        onCreated(res.data.data.id)
       } else if (mode === 'group') {
         if (!groupName.trim()) return toast.error('Enter group name')
         if (!selected.length) return toast.error('Add at least 1 member')
         const res = await api.post('/chat/conversations/group', { name: groupName, member_ids: selected })
-        onCreated(res.data?.id ?? res.data?.data?.id)
+        onCreated(res.data.data.id)
       } else {
         const res = await api.post('/chat/conversations/broadcast', { name: bcastName })
-        onCreated(res.data?.id ?? res.data?.data?.id)
+        onCreated(res.data.data.id)
       }
       onClose()
     } catch (err) { toast.error(err.message || 'Failed') }
@@ -255,7 +255,7 @@ export default function ChatPage() {
   const loadConversations = useCallback(async () => {
     try {
       const res = await api.get('/chat/conversations')
-      setConversations(res.data?.data || res.data || [])
+      setConversations(res.data?.data || [])
     } catch {}
     finally { setLoading(false) }
   }, [])
@@ -267,7 +267,7 @@ export default function ChatPage() {
     if (!convId) return
     try {
       const res = await api.get(`/chat/conversations/${convId}/messages`)
-      const msgs = res.data?.data || res.data || []
+      const msgs = res.data?.data || []
       setMessages(msgs)
       if (msgs.length) lastMsgTime.current = msgs[msgs.length - 1].created_at
       else lastMsgTime.current = null
@@ -287,7 +287,7 @@ export default function ChatPage() {
       try {
         const params = lastMsgTime.current ? `?since=${encodeURIComponent(lastMsgTime.current)}` : ''
         const res = await api.get(`/chat/conversations/${activeConvId}/messages${params}`)
-        const newMsgs = res.data?.data || res.data || []
+        const newMsgs = res.data?.data || []
         if (newMsgs.length) {
           setMessages(prev => [...prev, ...newMsgs])
           lastMsgTime.current = newMsgs[newMsgs.length - 1].created_at
@@ -317,7 +317,7 @@ export default function ChatPage() {
       const res = await api.post(`/chat/conversations/${activeConvId}/messages`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
-      const newMsg = res.data?.data || res.data
+      const newMsg = res.data?.data
       if (newMsg) {
         setMessages(prev => [...prev, newMsg])
         lastMsgTime.current = newMsg.created_at
@@ -427,9 +427,9 @@ export default function ChatPage() {
               {TYPE_ICONS[activeConv?.type] || '💬'}
             </div>
             <div>
-              <p className="font-bold text-slate-800">{activeConv ? getConvTitle(activeConv) : 'Chat'}</p>
+              <p className="font-bold text-slate-800">{activeConv ? getConvTitle(activeConv) : "Chat"}</p>
               <p className="text-xs text-slate-400">
-                {activeConv ? TYPE_LABELS[activeConv.type] : ''}{activeConv ? ' · ' : ''}
+                {activeConv ? TYPE_LABELS[activeConv.type] : ""} ·{' '}
                 {(activeConv?.members || []).length} members
               </p>
             </div>
