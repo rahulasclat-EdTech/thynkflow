@@ -126,13 +126,20 @@ export default function ReportsPage() {
   const [pipelineTab, setPipelineTab] = useState('status')
   const [drillDown, setDrillDown]   = useState(null)
 
-  // Load agents for filter
+  // Load agents for filter — /users includes self, fallback to /chat/users
   useEffect(() => {
     if (isAdmin) {
-      api.get('/chat/users').then(r => {
-        const list = r.data?.data || r.data || []
-        setAgents(Array.isArray(list) ? list : [])
-      }).catch(() => {})
+      api.get('/users')
+        .then(r => {
+          const list = r.data?.data || r.data || []
+          setAgents(Array.isArray(list) ? list.filter(u => ['agent','admin'].includes(u.role_name)) : [])
+        })
+        .catch(() => {
+          api.get('/chat/users').then(r => {
+            const list = r.data?.data || r.data || []
+            setAgents(Array.isArray(list) ? list : [])
+          }).catch(() => {})
+        })
     }
   }, [isAdmin])
 
@@ -163,7 +170,10 @@ export default function ReportsPage() {
 
       } else if (tab === 'agent') {
         const r = await api.get('/reports/agent-wise')
-        setData(Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : [])
+        const rows = Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : []
+        // For agent login: filter to only their own row
+        const filtered = isAdmin ? rows : rows.filter(a => a.agent_id === user?.id)
+        setData(filtered)
 
       } else if (tab === 'daily') {
         const params = { date: dateFilter }
@@ -173,15 +183,37 @@ export default function ReportsPage() {
 
       } else if (tab === 'weekly') {
         const r = await api.get('/reports/weekly-comparison')
-        setData(Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : [])
+        let rows = Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : []
+        // If no call data yet, build week buckets from lead creation data
+        if (!rows.length) {
+          try {
+            const lr = await api.get('/leads', { params: { per_page: 1000 } })
+            const leads = Array.isArray(lr.data) ? lr.data : (lr.data?.data || [])
+            const buckets = {}
+            leads.forEach(l => {
+              const d = new Date(l.created_at)
+              const wstart = new Date(d)
+              wstart.setDate(d.getDate() - d.getDay())
+              wstart.setHours(0,0,0,0)
+              const key = wstart.toISOString()
+              if (!buckets[key]) buckets[key] = { week_start: key, total_calls: 0, leads_contacted: 0, converted: 0, hot: 0, warm: 0, new_leads: 0 }
+              buckets[key].new_leads++
+              if (l.status === 'converted') buckets[key].converted++
+              if (l.status === 'hot') buckets[key].hot++
+              if (l.status === 'warm') buckets[key].warm++
+            })
+            rows = Object.values(buckets).sort((a,b) => new Date(b.week_start)-new Date(a.week_start)).slice(0,4)
+          } catch {}
+        }
+        setData(rows)
 
       } else if (tab === 'monthly') {
         const r = await api.get('/reports/monthly-comparison')
         setData(Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : [])
 
       } else if (tab === 'pipeline') {
-        const r = await api.get('/reports/pipeline')
-        const d = r.data?.data || {}
+        const r = await api.get('/reports/pipeline').catch(e => { throw e })
+        const d = r.data?.data || r.data || {}
         setPipeline({
           by_status:  Array.isArray(d.by_status)  ? d.by_status  : [],
           by_agent:   Array.isArray(d.by_agent)   ? d.by_agent   : [],
@@ -200,7 +232,12 @@ export default function ReportsPage() {
         const r = await api.get('/reports/conversion')
         setData(Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : [])
       }
-    } catch (err) { console.error('Report error:', err); setData([]) }
+    } catch (err) {
+      console.error('Report error:', err)
+      setData([])
+      // Reset pipeline on error so it doesn't show stale data
+      if (tab === 'pipeline') setPipeline({ by_status: [], by_agent: [], by_product: [] })
+    }
     finally { setLoading(false) }
   }, [tab, dateFilter, filterAgent, isAdmin])
 
@@ -577,7 +614,7 @@ export default function ReportsPage() {
                             <span className={`px-3 py-1 rounded-full text-xs font-bold ${i===0?'bg-blue-100 text-blue-700':'bg-slate-100 text-slate-600'}`}>Week {i+1}</span>
                           </div>
                           <div className="grid grid-cols-3 gap-3">
-                            {[['Calls',row.total_calls,'#2563eb'],['Contacted',row.leads_contacted,'#7c3aed'],['Converted',row.converted,'#16a34a'],['Hot',row.hot,'#dc2626'],['Warm',row.warm,'#d97706'],['Follow-ups',row.followups_created,'#0891b2']].map(([label,val,color])=>(
+                            {[['Calls',row.total_calls,'#2563eb'],['New Leads',row.new_leads||row.leads_contacted,'#7c3aed'],['Converted',row.converted,'#16a34a'],['Hot',row.hot,'#dc2626'],['Warm',row.warm,'#d97706'],['Contacted',row.leads_contacted,'#0891b2']].map(([label,val,color])=>(
                               <div key={label} className="text-center p-2 bg-slate-50 rounded-xl">
                                 <p className="text-xl font-black" style={{color}}>{val||0}</p>
                                 <p className="text-xs text-slate-500 mt-0.5">{label}</p>
