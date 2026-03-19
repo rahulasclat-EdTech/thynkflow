@@ -369,7 +369,7 @@ export default function FollowUpsPage() {
           <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Status:</label>
           <select className="input w-40 text-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
             <option value="">All Statuses</option>
-          {ALL_STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+          {ALL_STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)} 
           </select>
         </div>
         {(filterAgent || filterProduct || filterStatus) && (
