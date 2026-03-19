@@ -150,11 +150,14 @@ export default function LeadsPage() {
       const [leadsRes, prodRes, agentRes, settRes] = await Promise.all([
         api.get(`/leads?${params}`),
         api.get('/products/active'),
-        // Try /chat/users first (works for all roles), fallback to /users
-        api.get('/chat/users')
-          .then(r => r)
-          .catch(() => api.get('/users').catch(() => ({ data: { data: [] } })))
-          .then(r => r),
+        // Fetch users - works for all roles
+        (async () => {
+          try { return await api.get('/chat/users') }
+          catch {
+            try { return await api.get('/users') }
+            catch { return { data: { data: [] } } }
+          }
+        })(),
         api.get('/settings'),
       ])
       // Leads endpoint may return { data, total } or just array
