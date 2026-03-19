@@ -37,7 +37,7 @@ async function insertCallLog(lead_id, user_id, discussion, next_followup_date) {
   insertCols.push('discussion');        insertVals.push(discussion || '');       placeholders.push(`$${i++}`)
   insertCols.push('next_followup_date'); insertVals.push(next_followup_date || null); placeholders.push(`$${i++}`)
   if (colNames.includes('status')) {
-    insertCols.push('status'); insertVals.push('completed'); placeholders.push(`$${i++}`)
+    insertCols.push('status'); insertVals.push('call_back'); placeholders.push(`$${i++}`)
   }
   if (colNames.includes('called_at')) {
     insertCols.push('called_at'); insertVals.push(new Date()); placeholders.push(`$${i++}`)
