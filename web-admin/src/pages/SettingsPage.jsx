@@ -5,10 +5,11 @@ import toast from 'react-hot-toast'
 // ─── DROPDOWN SETTINGS ───────────────────────────────────────────────────────
 
 const CATEGORIES = [
-  { key: 'lead_status', label: 'Lead Statuses', icon: '🏷️', description: 'Status options shown after each call (e.g. Hot, Warm, Converted)' },
-  { key: 'lead_source', label: 'Lead Sources', icon: '📥', description: 'Where leads come from (e.g. Excel Upload, Referral, Website)' },
-  { key: 'lead_type',   label: 'Lead Types',   icon: '🏢', description: 'Type of lead — B2B (Business to Business) or B2C (Business to Consumer) and more' },
-  { key: 'city',        label: 'Cities',        icon: '🏙️', description: 'City options for lead location filtering' },
+  { key: 'lead_status',  label: 'Lead Statuses',  icon: '🏷️', description: 'Status options shown after each call (e.g. Hot, Warm, Converted)' },
+  { key: 'lead_source',  label: 'Lead Sources',   icon: '📥', description: 'Where leads come from (e.g. Excel Upload, Referral, Website)' },
+  { key: 'lead_type',    label: 'Lead Types',     icon: '🏢', description: 'Type of lead — B2B or B2C and more' },
+  { key: 'school_name',  label: 'School Names',   icon: '🏫', description: 'School / Organisation names. Auto-populated when leads are created or imported. Can be managed here.' },
+  { key: 'city',         label: 'Cities',         icon: '🏙️', description: 'City options for lead location filtering' },
 ]
 
 const PRESET_COLORS = [
