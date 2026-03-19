@@ -46,22 +46,44 @@ function fmtSize(bytes) {
 
 // ── New Conversation Modal ────────────────────────────────
 function NewChatModal({ onClose, onCreated, isAdmin }) {
-  const [mode, setMode]       = useState('direct') // direct | group | broadcast
-  const [users, setUsers]     = useState([])
-  const [search, setSearch]   = useState('')
+  const [mode, setMode]         = useState('direct')
+  const [users, setUsers]       = useState([])
+  const [usersLoading, setUsersLoading] = useState(true)
+  const [usersError, setUsersError]     = useState('')
+  const [search, setSearch]     = useState('')
   const [selected, setSelected] = useState([])
   const [groupName, setGroupName] = useState('')
   const [bcastName, setBcastName] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading]   = useState(false)
 
   useEffect(() => {
     setUsers([])
-    api.get('/chat/users')
-      .then(r => {
+    setUsersLoading(true)
+    setUsersError('')
+    // Try /chat/users first, fallback to /users if it fails
+    const load = async () => {
+      try {
+        const r = await api.get('/chat/users')
         const list = r.data?.data || r.data || []
-        setUsers(Array.isArray(list) ? list : [])
-      })
-      .catch(() => setUsers([]))
+        if (Array.isArray(list) && list.length > 0) {
+          setUsers(list)
+          return
+        }
+        // Empty — try /users as fallback
+        throw new Error('empty')
+      } catch {
+        try {
+          const r2 = await api.get('/users')
+          const list2 = r2.data?.data || r2.data || []
+          setUsers(Array.isArray(list2) ? list2.filter(u => u.id !== undefined) : [])
+        } catch (e) {
+          setUsersError('Could not load users. Please refresh.')
+        }
+      } finally {
+        setUsersLoading(false)
+      }
+    }
+    load()
   }, [])
 
   const filtered = users.filter(u =>
@@ -135,15 +157,21 @@ function NewChatModal({ onClose, onCreated, isAdmin }) {
                 placeholder="Search users…"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
               <div className="space-y-1 max-h-48 overflow-y-auto">
-                {users.length === 0 ? (
+                {usersLoading ? (
                   <div className="text-center py-6 text-slate-400">
+                    <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
                     <p className="text-sm">Loading users…</p>
-                    <p className="text-xs mt-1">If this persists, check your connection</p>
+                  </div>
+                ) : usersError ? (
+                  <div className="text-center py-6 text-red-400">
+                    <p className="text-sm">{usersError}</p>
                   </div>
                 ) : filtered.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400 text-sm">No users match your search</div>
+                  <div className="text-center py-6 text-slate-400 text-sm">
+                    {search ? 'No users match your search' : 'No other users found'}
+                  </div>
                 ) : null}
-                {filtered.map(u => (
+                {!usersLoading && !usersError && filtered.map(u => (
                   <button key={u.id} onClick={() => mode === 'direct' ? setSelected([u.id]) : toggle(u.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-colors ${(mode === 'direct' ? selected[0] === u.id : selected.includes(u.id)) ? 'bg-blue-50 border border-blue-200' : 'hover:bg-slate-50'}`}>
                     <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
