@@ -1,5 +1,8 @@
 // mobile-app/src/screens/products/ProductScreen.js
-import React, { useEffect, useState } from 'react'
+// 4 earning tabs: Potential / Actual Earned / Earning Lost / Still To Earn
+// Admin: By Product + By Agent tabs
+// Agent: sees only own data
+import React, { useEffect, useState, useCallback } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity,
   RefreshControl, ActivityIndicator, StyleSheet
@@ -44,15 +47,10 @@ export default function ProductScreen() {
 
   const fetchData = async () => {
     try {
-      // interceptor returns body directly: {success, data: {product_stats, ...}}
       const body = await api.get('/products/dashboard')
       setData(body?.data || body || {})
-    } catch (e) {
-      console.log('Products error:', e.message)
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
+    } catch (e) { console.log('Products error:', e.message) }
+    finally { setLoading(false); setRefreshing(false) }
   }
 
   useEffect(() => { fetchData() }, [])
@@ -68,6 +66,7 @@ export default function ProductScreen() {
   const totalLost      = parseFloat(data?.total_earning_lost   || 0)
   const totalStill     = parseFloat(data?.total_still_to_earn  || 0)
 
+  // Build agent map
   const agentMap = {}
   agentBreakdown.forEach(row => {
     if (!agentMap[row.agent_id]) {
@@ -88,22 +87,25 @@ export default function ProductScreen() {
     a.products.push(row)
   })
   const agentList = Object.values(agentMap).sort((a, b) => b.earned - a.earned)
+
   const currentEarning = EARNING_TABS.find(t => t.key === earningTab) || EARNING_TABS[0]
 
   return (
     <View style={s.container}>
+      {/* Header */}
       <View style={s.header}>
         <Text style={s.title}>📦 Products</Text>
         <Text style={s.subtitle}>{isAdmin ? 'All Products Dashboard' : 'My Performance'}</Text>
       </View>
 
+      {/* Overall earning summary banner */}
       <View style={s.banner}>
         <View style={s.bannerRow}>
           {[
-            { label: 'Potential',     val: totalPotential, color: '#7C3AED' },
-            { label: 'Earned',        val: totalEarned,    color: '#16A34A' },
-            { label: 'Lost',          val: totalLost,      color: '#DC2626' },
-            { label: 'Still To Earn', val: totalStill,     color: '#D97706' },
+            { label: 'Potential',    val: totalPotential, color: '#7C3AED' },
+            { label: 'Earned',       val: totalEarned,    color: '#16A34A' },
+            { label: 'Lost',         val: totalLost,      color: '#DC2626' },
+            { label: 'Still To Earn',val: totalStill,     color: '#D97706' },
           ].map(({ label, val, color }, i) => (
             <React.Fragment key={label}>
               {i > 0 && <View style={s.divider} />}
@@ -116,31 +118,33 @@ export default function ProductScreen() {
         </View>
         {totalPotential > 0 && (
           <View style={{ marginTop: 10 }}>
-            <View style={{ flexDirection:'row', justifyContent:'space-between', marginBottom:4 }}>
-              <Text style={{ fontSize:11, color:'#6B7280' }}>Achievement Rate</Text>
-              <Text style={{ fontSize:11, fontWeight:'700', color:'#16A34A' }}>{pct(totalEarned, totalPotential)}%</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+              <Text style={{ fontSize: 11, color: '#6B7280' }}>Achievement Rate</Text>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#16A34A' }}>{pct(totalEarned, totalPotential)}%</Text>
             </View>
             <View style={s.bigBar}>
-              <View style={[s.bigBarEarned, { width:`${pct(totalEarned, totalPotential)}%` }]} />
-              <View style={[s.bigBarLost,   { width:`${pct(totalLost,   totalPotential)}%` }]} />
+              <View style={[s.bigBarEarned, { width: `${pct(totalEarned, totalPotential)}%` }]} />
+              <View style={[s.bigBarLost, { width: `${pct(totalLost, totalPotential)}%` }]} />
             </View>
           </View>
         )}
       </View>
 
+      {/* Earning type tabs */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabBar}>
         {EARNING_TABS.map(t => (
           <TouchableOpacity key={t.key} onPress={() => setEarningTab(t.key)}
             style={[s.tab, earningTab === t.key && { backgroundColor: t.color }]}>
-            <Text style={[s.tabTxt, earningTab === t.key && { color:'#fff', fontWeight:'700' }]}>
+            <Text style={[s.tabTxt, earningTab === t.key && { color: '#fff', fontWeight: '700' }]}>
               {t.label}
             </Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
+      {/* View tabs — admin only */}
       {isAdmin && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[s.tabBar, { paddingTop:2 }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[s.tabBar, { paddingTop: 2 }]}>
           {VIEW_TABS_ADMIN.map(t => (
             <TouchableOpacity key={t.key} onPress={() => setViewTab(t.key)}
               style={[s.tab, viewTab === t.key && s.tabActive]}>
@@ -151,13 +155,15 @@ export default function ProductScreen() {
       )}
 
       <ScrollView
-        contentContainerStyle={{ padding:14, paddingBottom:80, gap:12 }}
+        contentContainerStyle={{ padding: 14, paddingBottom: 80, gap: 12 }}
         refreshControl={
           <RefreshControl refreshing={refreshing}
             onRefresh={() => { setRefreshing(true); fetchData() }}
-            tintColor={COLORS.primary} />
-        }>
-
+            tintColor={COLORS.primary}
+          />
+        }
+      >
+        {/* ── BY PRODUCT ── */}
         {(!isAdmin || viewTab === 'products') && (
           productStats.length === 0 ? (
             <View style={s.empty}>
@@ -165,36 +171,39 @@ export default function ProductScreen() {
               <Text style={s.emptyTxt}>No products found</Text>
             </View>
           ) : productStats.map(p => {
-            const activeVal = parseFloat(p[currentEarning.field] || 0)
-            const achPct    = parseFloat(pct(p.actual_earned, p.total_potential_earning))
+            const activeVal  = parseFloat(p[currentEarning.field] || 0)
+            const achPct     = parseFloat(pct(p.actual_earned, p.total_potential_earning))
+            const perClosure = parseFloat(p.per_closure_earning || 0)
             return (
               <View key={p.product_id} style={s.card}>
+                {/* Product header */}
                 <View style={s.cardHead}>
-                  <View style={{ flex:1 }}>
+                  <View style={{ flex: 1 }}>
                     <Text style={s.productName}>{p.product_name}</Text>
-                    <View style={{ flexDirection:'row', gap:6, marginTop:4 }}>
+                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
                       <View style={[s.badge, { backgroundColor: p.product_type === 'B2B' ? '#DBEAFE' : '#EDE9FE' }]}>
                         <Text style={[s.badgeTxt, { color: p.product_type === 'B2B' ? '#1E40AF' : '#5B21B6' }]}>
                           {p.product_type || 'B2C'}
                         </Text>
                       </View>
-                      <View style={[s.badge, { backgroundColor:'#FEF3C7' }]}>
-                        <Text style={[s.badgeTxt, { color:'#92400E' }]}>{fmtMoney(p.per_closure_earning)}/closure</Text>
+                      <View style={[s.badge, { backgroundColor: '#FEF3C7' }]}>
+                        <Text style={[s.badgeTxt, { color: '#92400E' }]}>{fmtMoney(perClosure)}/closure</Text>
                       </View>
                     </View>
                   </View>
-                  <View style={{ alignItems:'flex-end' }}>
-                    <Text style={{ fontSize:11, color:'#6B7280' }}>{currentEarning.label}</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: 11, color: '#6B7280' }}>{currentEarning.label}</Text>
                     <Text style={[s.activeVal, { color: currentEarning.color }]}>{fmtMoney(activeVal)}</Text>
                   </View>
                 </View>
 
+                {/* All 4 earning cards */}
                 <View style={s.earningCards}>
                   {[
-                    { label:'Potential', val:p.total_potential_earning, color:'#7C3AED', border:'#DDD6FE' },
-                    { label:'Earned',    val:p.actual_earned,           color:'#16A34A', border:'#BBF7D0' },
-                    { label:'Lost',      val:p.earning_lost,            color:'#DC2626', border:'#FECACA' },
-                    { label:'Still',     val:p.still_to_earn,           color:'#D97706', border:'#FDE68A' },
+                    { label: 'Potential', val: p.total_potential_earning, color: '#7C3AED', border: '#DDD6FE' },
+                    { label: 'Earned',    val: p.actual_earned,           color: '#16A34A', border: '#BBF7D0' },
+                    { label: 'Lost',      val: p.earning_lost,            color: '#DC2626', border: '#FECACA' },
+                    { label: 'Still',     val: p.still_to_earn,           color: '#D97706', border: '#FDE68A' },
                   ].map(({ label, val, color, border }) => (
                     <View key={label} style={[s.eCard, { borderColor: border }]}>
                       <Text style={s.eCardLabel}>{label}</Text>
@@ -203,29 +212,31 @@ export default function ProductScreen() {
                   ))}
                 </View>
 
+                {/* Achievement bar */}
                 {parseFloat(p.total_potential_earning) > 0 && (
-                  <View style={{ marginTop:8 }}>
-                    <View style={{ flexDirection:'row', justifyContent:'space-between', marginBottom:3 }}>
-                      <Text style={{ fontSize:11, color:'#6B7280' }}>Achievement</Text>
-                      <Text style={{ fontSize:11, fontWeight:'700',
+                  <View style={{ marginTop: 8 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <Text style={{ fontSize: 11, color: '#6B7280' }}>Achievement</Text>
+                      <Text style={{ fontSize: 11, fontWeight: '700',
                         color: achPct >= 70 ? '#16A34A' : achPct >= 40 ? '#D97706' : '#DC2626' }}>
                         {achPct}%
                       </Text>
                     </View>
                     <View style={s.bar}>
-                      <View style={[s.barFill, { width:`${achPct}%`,
+                      <View style={[s.barFill, { width: `${achPct}%`,
                         backgroundColor: achPct >= 70 ? '#16A34A' : achPct >= 40 ? '#D97706' : '#DC2626' }]} />
                     </View>
                   </View>
                 )}
 
+                {/* Lead stats row */}
                 <View style={s.leadStats}>
                   {[
-                    ['Total', p.total_leads,           '#4F46E5'],
-                    ['Conv.', p.converted_leads,        '#16A34A'],
-                    ['Lost',  p.not_interested_leads,   '#DC2626'],
-                    ['Hot',   p.hot_leads,              '#EF4444'],
-                    ['Warm',  p.warm_leads,             '#D97706'],
+                    ['Total',  p.total_leads,           '#4F46E5'],
+                    ['Conv.',  p.converted_leads,        '#16A34A'],
+                    ['Lost',   p.not_interested_leads,   '#DC2626'],
+                    ['Hot',    p.hot_leads,              '#EF4444'],
+                    ['Warm',   p.warm_leads,             '#D97706'],
                   ].map(([label, val, color]) => (
                     <View key={label} style={s.leadStat}>
                       <Text style={[s.leadStatVal, { color }]}>{val || 0}</Text>
@@ -238,6 +249,7 @@ export default function ProductScreen() {
           })
         )}
 
+        {/* ── BY AGENT ── */}
         {isAdmin && viewTab === 'agents' && (
           agentList.length === 0 ? (
             <View style={s.empty}><Text style={s.emptyTxt}>No agent data</Text></View>
@@ -251,34 +263,35 @@ export default function ProductScreen() {
             const achPct   = parseFloat(pct(agent.earned, agent.potential))
             return (
               <View key={agent.agent_id} style={s.card}>
-                <View style={{ flexDirection:'row', alignItems:'center', gap:10, marginBottom:10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                   <View style={[s.avatar, { backgroundColor: i < 3 ? '#4F46E5' : '#9CA3AF' }]}>
-                    <Text style={{ color:'#fff', fontWeight:'700', fontSize:15 }}>
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>
                       {agent.agent_name?.charAt(0)?.toUpperCase()}
                     </Text>
                   </View>
-                  <View style={{ flex:1 }}>
-                    <Text style={{ fontSize:15, fontWeight:'700', color:'#111827' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: '#111827' }}>
                       {['🥇','🥈','🥉'][i] || ''} {agent.agent_name}
                     </Text>
-                    <Text style={{ fontSize:12, color:'#6B7280' }}>
+                    <Text style={{ fontSize: 12, color: '#6B7280' }}>
                       {agent.total_leads} leads · {agent.converted} conv · {convRate}%
                     </Text>
                   </View>
-                  <View style={{ alignItems:'flex-end' }}>
-                    <Text style={{ fontSize:14, fontWeight:'800', color: currentEarning.color }}>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: 14, fontWeight: '800', color: currentEarning.color }}>
                       {fmtMoney(activeVal)}
                     </Text>
-                    <Text style={{ fontSize:10, color:'#9CA3AF' }}>{currentEarning.label}</Text>
+                    <Text style={{ fontSize: 10, color: '#9CA3AF' }}>{currentEarning.label}</Text>
                   </View>
                 </View>
 
+                {/* Agent earning cards */}
                 <View style={s.earningCards}>
                   {[
-                    { label:'Potential', val:agent.potential,    color:'#7C3AED', border:'#DDD6FE' },
-                    { label:'Earned',    val:agent.earned,        color:'#16A34A', border:'#BBF7D0' },
-                    { label:'Lost',      val:agent.lost,          color:'#DC2626', border:'#FECACA' },
-                    { label:'Still',     val:agent.still_to_earn, color:'#D97706', border:'#FDE68A' },
+                    { label: 'Potential', val: agent.potential,     color: '#7C3AED', border: '#DDD6FE' },
+                    { label: 'Earned',    val: agent.earned,         color: '#16A34A', border: '#BBF7D0' },
+                    { label: 'Lost',      val: agent.lost,           color: '#DC2626', border: '#FECACA' },
+                    { label: 'Still',     val: agent.still_to_earn,  color: '#D97706', border: '#FDE68A' },
                   ].map(({ label, val, color, border }) => (
                     <View key={label} style={[s.eCard, { borderColor: border }]}>
                       <Text style={s.eCardLabel}>{label}</Text>
@@ -287,26 +300,28 @@ export default function ProductScreen() {
                   ))}
                 </View>
 
+                {/* Achievement bar */}
                 {agent.potential > 0 && (
-                  <View style={{ marginTop:8 }}>
-                    <View style={{ flexDirection:'row', justifyContent:'space-between', marginBottom:3 }}>
-                      <Text style={{ fontSize:11, color:'#6B7280' }}>Achievement</Text>
-                      <Text style={{ fontSize:11, fontWeight:'700',
+                  <View style={{ marginTop: 8 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <Text style={{ fontSize: 11, color: '#6B7280' }}>Achievement</Text>
+                      <Text style={{ fontSize: 11, fontWeight: '700',
                         color: achPct >= 70 ? '#16A34A' : achPct >= 40 ? '#D97706' : '#DC2626' }}>
                         {achPct}%
                       </Text>
                     </View>
                     <View style={s.bar}>
-                      <View style={[s.barFill, { width:`${achPct}%`,
+                      <View style={[s.barFill, { width: `${achPct}%`,
                         backgroundColor: achPct >= 70 ? '#16A34A' : achPct >= 40 ? '#D97706' : '#DC2626' }]} />
                     </View>
                   </View>
                 )}
 
+                {/* Products breakdown */}
                 {agent.products.map(p => (
                   <View key={p.product_name}
                     style={{ flexDirection:'row', alignItems:'center', paddingVertical:6,
-                      borderTopWidth:1, borderTopColor:'#F3F4F6', marginTop:4 }}>
+                             borderTopWidth:1, borderTopColor:'#F3F4F6', marginTop:4 }}>
                     <Text style={{ flex:1, fontSize:13, color:'#374151' }}>{p.product_name}</Text>
                     <Text style={{ fontSize:12, color:'#6B7280' }}>{p.total_leads} leads</Text>
                     <Text style={{ fontSize:12, fontWeight:'700', color:'#16A34A', marginLeft:12 }}>
@@ -333,7 +348,8 @@ const s = StyleSheet.create({
                   backgroundColor:'#fff', borderBottomWidth:1, borderBottomColor:'#E5E7EB' },
   title:        { fontSize:22, fontWeight:'800', color:'#111827' },
   subtitle:     { fontSize:13, color:'#6B7280', marginTop:2 },
-  banner:       { backgroundColor:'#fff', padding:16, borderBottomWidth:1, borderBottomColor:'#E5E7EB' },
+  banner:       { backgroundColor:'#fff', padding:16,
+                  borderBottomWidth:1, borderBottomColor:'#E5E7EB' },
   bannerRow:    { flexDirection:'row', alignItems:'center' },
   bannerBox:    { flex:1, alignItems:'center' },
   divider:      { width:1, height:36, backgroundColor:'#E5E7EB' },
