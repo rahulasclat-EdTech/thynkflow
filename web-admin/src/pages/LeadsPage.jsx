@@ -83,7 +83,7 @@ export default function LeadsPage() {
   const [filterSchool, setFilterSchool]   = useState('')
   const [schools, setSchools]             = useState([]) // unique school names
   const [page, setPage]               = useState(1)
-  const PER_PAGE = 25
+  const PER_PAGE = 50
 
   // ── modals ────────────────────────────────────────────────────
   const [showCreateModal, setShowCreateModal]     = useState(false)
