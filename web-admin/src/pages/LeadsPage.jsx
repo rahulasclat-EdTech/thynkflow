@@ -160,16 +160,23 @@ export default function LeadsPage() {
         })(),
         api.get('/settings'),
       ])
-      // Leads endpoint may return { data, total } or just array
+      // Leads endpoint may return { data, total, count } or just array
       const raw = leadsRes.data
+      let rows = []
+      let total = 0
       if (Array.isArray(raw)) {
-        setLeads(raw)
-        setTotalCount(raw.length)
+        rows = raw
+        total = raw.length
       } else {
-        const rows = raw.data || raw.leads || []
-        setLeads(rows)
-        // Use total from backend if available, else use rows length
-        setTotalCount(raw.total || raw.count || rows.length)
+        rows = raw.data || raw.leads || []
+        total = raw.total || raw.count || raw.totalCount || rows.length
+      }
+      setLeads(rows)
+      setTotalCount(total)
+      // If backend returned fewer rows than per_page but total says more exist,
+      // the backend has its own limit - show a warning
+      if (rows.length < total && rows.length < PER_PAGE) {
+        console.warn(`Backend returned ${rows.length} but total is ${total}. Backend may have a default limit.`)
       }
       setProducts(prodRes.data?.data || prodRes.data || [])
       const agentList = Array.isArray(agentRes.data?.data) ? agentRes.data.data : (Array.isArray(agentRes.data) ? agentRes.data : [])
