@@ -51,7 +51,18 @@ function NewChatModal({ visible, onClose, onCreated, isAdmin }) {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (visible) api.get('/chat/users').then(r => setUsers(r.data?.data||[])).catch(()=>{})
+    if (visible) {
+      setUsers([]) // clear previous
+      api.get('/chat/users')
+        .then(r => {
+          const list = r.data?.data || r.data || []
+          setUsers(Array.isArray(list) ? list : [])
+        })
+        .catch(err => {
+          console.log('Chat users error:', err.message)
+          setUsers([])
+        })
+    }
   }, [visible])
 
   const filtered = users.filter(u =>
@@ -114,12 +125,18 @@ function NewChatModal({ visible, onClose, onCreated, isAdmin }) {
               )}
               <TextInput value={search} onChangeText={setSearch}
                 placeholder="Search users…" style={nc.inp} placeholderTextColor="#9CA3AF" />
-              {filtered.map(u => {
+              {filtered.length === 0 ? (
+                <View style={{ padding:20, alignItems:'center' }}>
+                  <Text style={{ color:'#9CA3AF', fontSize:14 }}>
+                    {users.length === 0 ? 'Loading users…' : 'No users found'}
+                  </Text>
+                </View>
+              ) : filtered.map(u => {
                 const sel = mode === 'direct' ? selected[0] === u.id : selected.includes(u.id)
                 return (
                   <TouchableOpacity key={u.id} onPress={() => mode==='direct'?setSelected([u.id]):toggle(u.id)}
                     style={[nc.userRow, sel && nc.userRowSel]}>
-                    <View style={nc.avatar}><Text style={{ color:'#fff', fontWeight:'700' }}>{u.name[0]?.toUpperCase()}</Text></View>
+                    <View style={nc.avatar}><Text style={{ color:'#fff', fontWeight:'700' }}>{u.name?.[0]?.toUpperCase()}</Text></View>
                     <View style={{ flex:1 }}>
                       <Text style={{ fontSize:14, fontWeight:'600', color:'#111827' }}>{u.name}</Text>
                       <Text style={{ fontSize:12, color:'#6B7280', textTransform:'capitalize' }}>{u.role_name}</Text>
