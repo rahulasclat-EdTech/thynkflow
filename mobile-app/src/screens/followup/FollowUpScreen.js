@@ -51,6 +51,7 @@ export default function FollowUpScreen({ navigation }) {
   const calledLeadRef = useRef(null)
   const [callLead, setCallLead]     = useState(null)
   const [showPostCall, setShowPostCall] = useState(false)
+  const [total, setTotal] = useState(0)
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', next => {
@@ -70,11 +71,14 @@ export default function FollowUpScreen({ navigation }) {
       const params = filter !== 'all' ? `?status=${filter}&per_page=100${statusParam}` : `?per_page=100${statusParam}`
       const [fuRes, uRes] = await Promise.all([
         api.get(`/followups${params}`),
-        api.get('/users'),
+        api.get('/chat/users'),
       ])
       const raw = fuRes.data?.data || fuRes.data || []
-      setFollowups(Array.isArray(raw) ? raw : [])
-      const allUsers = Array.isArray(uRes.data) ? uRes.data : (uRes.data?.data || [])
+      const rows = Array.isArray(raw) ? raw : []
+      setFollowups(rows)
+      // capture total from meta or use count
+      setTotal(fuRes.data?.total || fuRes.data?.count || rows.length)
+      const allUsers = Array.isArray(uRes.data?.data) ? uRes.data.data : (Array.isArray(uRes.data) ? uRes.data : [])
       setAgents(allUsers)
     } catch (e) { console.log(e.message) }
     finally { setLoading(false); setRefreshing(false) }
@@ -148,7 +152,7 @@ export default function FollowUpScreen({ navigation }) {
     <View style={s.container}>
       <View style={s.header}>
         <Text style={s.title}>Follow-ups</Text>
-        <Text style={s.count}>{followups.length} {filter === 'pending' ? 'pending' : filter === 'done' ? 'done' : 'total'}</Text>
+        <Text style={s.count}>{total > followups.length ? `${followups.length}/${total}` : followups.length} {filter === 'pending' ? 'pending' : filter === 'done' ? 'done' : 'total'}</Text>
       </View>
 
       {/* Filter tabs - Pending/Done/All */}
