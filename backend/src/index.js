@@ -15,6 +15,8 @@ const emailRoutes     = require('./routes/emails');
 const activityRoutes  = require('./routes/activities');
 const chatRoutes      = require('./routes/chat');
 const notifRoutes     = require('./routes/notifications');
+const leadCommRoutes = require('./routes/leads_additions')
+app.use('/api/leads', leadCommRoutes)
 
 const app = express();
 
