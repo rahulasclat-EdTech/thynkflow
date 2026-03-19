@@ -45,12 +45,13 @@ export default function ProductDashboardPage() {
   useEffect(() => {
     if (isAdmin) {
       api.get('/users').then(r => {
-        const list = r.data?.data || r.data || []
+        // interceptor returns body directly, so r = {success, data}
+        const list = r?.data || r || []
         setAgents(Array.isArray(list) ? list.filter(u => ['agent','admin'].includes(u.role_name)) : [])
       }).catch(() => {})
     }
     api.get('/products/active').then(r => {
-      const list = r.data?.data || r.data || []
+      const list = r?.data || r || []
       setProducts(Array.isArray(list) ? list : [])
     }).catch(() => {})
   }, [isAdmin])
@@ -59,16 +60,20 @@ export default function ProductDashboardPage() {
     setLoading(true)
     try {
       const params = new URLSearchParams()
-      if (isAdmin && agentF) params.set('agent_id',   agentF)
-      if (productF)          params.set('product_id', productF)
-      const res = await api.get(`/products/dashboard?${params}`)
-      setData(res.data?.data || res.data || {})
+      if (isAdmin && agentF)  params.set('agent_id',   agentF)
+      if (productF)           params.set('product_id', productF)
+      // interceptor returns body directly: {success, data: {product_stats, agent_breakdown, ...}}
+      const body = await api.get(`/products/dashboard?${params}`)
+      setData(body?.data || body || {})
     } catch (err) {
       console.error('Products dashboard error:', err)
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { fetchData(filterAgent, filterProduct) }, [filterAgent, filterProduct])
+  useEffect(() => {
+    fetchData(filterAgent, filterProduct)
+  }, [filterAgent, filterProduct])
+
   useEffect(() => {
     const t = setInterval(() => fetchData(filterAgent, filterProduct), 60000)
     return () => clearInterval(t)
@@ -111,7 +116,6 @@ export default function ProductDashboardPage() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">📦 Products Dashboard</h1>
@@ -160,11 +164,11 @@ export default function ProductDashboardPage() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Earning Potential', val: totalPotential, color: '#7c3aed', icon: '💰' },
-          { label: 'Actual Earned',     val: totalEarned,    color: '#16a34a', icon: '✅' },
-          { label: 'Earning Lost',      val: totalLost,      color: '#dc2626', icon: '❌' },
-          { label: 'Still To Earn',     val: totalStill,     color: '#d97706', icon: '⏳' },
-        ].map(({ label, val, color, icon }) => (
+          { label: 'Earning Potential', val: totalPotential, color: '#7c3aed', bg: '#f5f3ff', icon: '💰' },
+          { label: 'Actual Earned',     val: totalEarned,    color: '#16a34a', bg: '#f0fdf4', icon: '✅' },
+          { label: 'Earning Lost',      val: totalLost,      color: '#dc2626', bg: '#fef2f2', icon: '❌' },
+          { label: 'Still To Earn',     val: totalStill,     color: '#d97706', bg: '#fffbeb', icon: '⏳' },
+        ].map(({ label, val, color, bg, icon }) => (
           <div key={label} className="card p-4" style={{ borderLeft: `4px solid ${color}` }}>
             <div className="flex items-center gap-2 mb-1">
               <span className="text-lg">{icon}</span>
@@ -183,8 +187,8 @@ export default function ProductDashboardPage() {
             <p className="text-sm font-black text-green-600">{pct(totalEarned, totalPotential)}%</p>
           </div>
           <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden flex">
-            <div className="h-full bg-green-500" style={{ width: `${pct(totalEarned, totalPotential)}%` }} />
-            <div className="h-full bg-red-400"   style={{ width: `${pct(totalLost, totalPotential)}%` }} />
+            <div className="h-full bg-green-500 transition-all" style={{ width: `${pct(totalEarned, totalPotential)}%` }} title="Earned" />
+            <div className="h-full bg-red-400 transition-all" style={{ width: `${pct(totalLost, totalPotential)}%` }} title="Lost" />
           </div>
           <div className="flex gap-4 mt-2 text-xs text-slate-500">
             <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"/>Earned {pct(totalEarned,totalPotential)}%</span>
@@ -221,8 +225,8 @@ export default function ProductDashboardPage() {
                       <tr key={p.product_id} className="hover:bg-slate-50">
                         <td className="px-3 py-3 font-semibold text-slate-800 whitespace-nowrap">{p.product_name}</td>
                         <td className="px-3 py-3">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${p.product_type==='B2B' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
-                            {p.product_type||'B2C'}
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${p.product_type === 'B2B' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
+                            {p.product_type || 'B2C'}
                           </span>
                         </td>
                         <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{fmtMoney(p.per_closure_earning)}</td>
@@ -238,9 +242,9 @@ export default function ProductDashboardPage() {
                         <td className="px-3 py-3 min-w-[100px]">
                           <div className="flex items-center gap-2">
                             <ProgressBar value={p.actual_earned} max={p.total_potential_earning}
-                              color={achPct>=70?'#16a34a':achPct>=40?'#d97706':'#dc2626'} />
+                              color={achPct >= 70 ? '#16a34a' : achPct >= 40 ? '#d97706' : '#dc2626'} />
                             <span className="text-xs font-bold whitespace-nowrap"
-                              style={{color:achPct>=70?'#16a34a':achPct>=40?'#d97706':'#dc2626'}}>
+                              style={{ color: achPct >= 70 ? '#16a34a' : achPct >= 40 ? '#d97706' : '#dc2626' }}>
                               {achPct}%
                             </span>
                           </div>
@@ -252,15 +256,15 @@ export default function ProductDashboardPage() {
                 <tfoot className="bg-slate-50 border-t font-bold">
                   <tr>
                     <td className="px-3 py-3 font-bold" colSpan={3}>Total</td>
-                    <td className="px-3 py-3 text-blue-600">{data?.total_leads||0}</td>
-                    <td className="px-3 py-3 text-green-600">{data?.total_converted||0}</td>
-                    <td className="px-3 py-3 text-red-500">{data?.total_not_interested||0}</td>
+                    <td className="px-3 py-3 text-blue-600">{data?.total_leads || 0}</td>
+                    <td className="px-3 py-3 text-green-600">{data?.total_converted || 0}</td>
+                    <td className="px-3 py-3 text-red-500">{data?.total_not_interested || 0}</td>
                     <td className="px-3 py-3" colSpan={2}/>
                     <td className="px-3 py-3 text-purple-600 whitespace-nowrap">{fmtMoney(totalPotential)}</td>
                     <td className="px-3 py-3 text-green-600 whitespace-nowrap">{fmtMoney(totalEarned)}</td>
                     <td className="px-3 py-3 text-red-500 whitespace-nowrap">{fmtMoney(totalLost)}</td>
                     <td className="px-3 py-3 text-amber-600 whitespace-nowrap">{fmtMoney(totalStill)}</td>
-                    <td className="px-3 py-3">{pct(totalEarned,totalPotential)}%</td>
+                    <td className="px-3 py-3">{pct(totalEarned, totalPotential)}%</td>
                   </tr>
                 </tfoot>
               </table>
@@ -297,17 +301,17 @@ export default function ProductDashboardPage() {
                         <td className="px-3 py-3 font-semibold whitespace-nowrap">
                           <div className="flex items-center gap-2">
                             <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                              style={{background: i<3?'#4f46e5':'#9ca3af'}}>
+                              style={{ background: i < 3 ? '#4f46e5' : '#9ca3af' }}>
                               {a.agent_name?.charAt(0)?.toUpperCase()}
                             </div>
-                            {['🥇','🥈','🥉'][i]||''} {a.agent_name}
+                            {['🥇','🥈','🥉'][i] || ''} {a.agent_name}
                           </div>
                         </td>
                         <td className="px-3 py-3 font-bold text-blue-600">{a.total_leads}</td>
                         <td className="px-3 py-3 font-bold text-green-600">{a.converted}</td>
                         <td className="px-3 py-3 text-red-500">{a.not_interested}</td>
                         <td className="px-3 py-3">
-                          <span className={`font-bold text-sm ${convRate>=20?'text-green-600':convRate>=10?'text-amber-500':'text-red-400'}`}>
+                          <span className={`font-bold text-sm ${convRate >= 20 ? 'text-green-600' : convRate >= 10 ? 'text-amber-500' : 'text-red-400'}`}>
                             {convRate}%
                           </span>
                         </td>
@@ -318,9 +322,9 @@ export default function ProductDashboardPage() {
                         <td className="px-3 py-3 min-w-[100px]">
                           <div className="flex items-center gap-2">
                             <ProgressBar value={a.earned} max={a.potential}
-                              color={achPct>=70?'#16a34a':achPct>=40?'#d97706':'#dc2626'} />
+                              color={achPct >= 70 ? '#16a34a' : achPct >= 40 ? '#d97706' : '#dc2626'} />
                             <span className="text-xs font-bold whitespace-nowrap"
-                              style={{color:achPct>=70?'#16a34a':achPct>=40?'#d97706':'#dc2626'}}>
+                              style={{ color: achPct >= 70 ? '#16a34a' : achPct >= 40 ? '#d97706' : '#dc2626' }}>
                               {achPct}%
                             </span>
                           </div>
