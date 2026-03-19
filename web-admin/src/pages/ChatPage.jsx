@@ -45,52 +45,28 @@ function fmtSize(bytes) {
 }
 
 // ── New Conversation Modal ────────────────────────────────
-function NewChatModal({ onClose, onCreated, isAdmin, currentUserId }) {
-  const [mode, setMode]         = useState('direct')
-  const [users, setUsers]       = useState([])
-  const [usersLoading, setUsersLoading] = useState(true)
-  const [usersError, setUsersError]     = useState('')
-  const [search, setSearch]     = useState('')
+function NewChatModal({ onClose, onCreated, isAdmin }) {
+  const [mode, setMode]       = useState('direct') // direct | group | broadcast
+  const [users, setUsers]     = useState([])
+  const [search, setSearch]   = useState('')
   const [selected, setSelected] = useState([])
   const [groupName, setGroupName] = useState('')
   const [bcastName, setBcastName] = useState('')
-  const [loading, setLoading]   = useState(false)
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     setUsers([])
-    setUsersLoading(true)
-    setUsersError('')
-    // Try /chat/users first, fallback to /users if it fails
-    const load = async () => {
-      try {
-        const r = await api.get('/chat/users')
+    api.get('/chat/users')
+      .then(r => {
         const list = r.data?.data || r.data || []
-        if (Array.isArray(list) && list.length > 0) {
-          setUsers(list)
-          return
-        }
-        // Empty — try /users as fallback
-        throw new Error('empty')
-      } catch {
-        try {
-          const r2 = await api.get('/users')
-          const list2 = r2.data?.data || r2.data || []
-          // /users may include self — filter out any without id and deduplicate
-          const validList = Array.isArray(list2) ? list2.filter(u => u.id && u.id !== currentUserId) : []
-          setUsers(validList)
-        } catch (e) {
-          setUsersError('Could not load users. Please refresh.')
-        }
-      } finally {
-        setUsersLoading(false)
-      }
-    }
-    load()
+        setUsers(Array.isArray(list) ? list : [])
+      })
+      .catch(() => setUsers([]))
   }, [])
 
   const filtered = users.filter(u =>
-    (u.name || '').toLowerCase().includes(search.toLowerCase()) ||
-    (u.email || '').toLowerCase().includes(search.toLowerCase())
+    u.name.toLowerCase().includes(search.toLowerCase()) ||
+    u.email.toLowerCase().includes(search.toLowerCase())
   )
 
   const toggle = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
@@ -98,27 +74,21 @@ function NewChatModal({ onClose, onCreated, isAdmin, currentUserId }) {
   const handleCreate = async () => {
     setLoading(true)
     try {
-      let convId = null
       if (mode === 'direct') {
-        if (!selected.length) { toast.error('Select a user'); setLoading(false); return }
+        if (!selected.length) return toast.error('Select a user')
         const res = await api.post('/chat/conversations/direct', { target_user_id: selected[0] })
-        // Handle both { data: { id } } and { id } response shapes
-        convId = res.data?.data?.id ?? res.data?.id
+        onCreated(res.data.data.id)
       } else if (mode === 'group') {
-        if (!groupName.trim()) { toast.error('Enter group name'); setLoading(false); return }
-        if (!selected.length) { toast.error('Add at least 1 member'); setLoading(false); return }
+        if (!groupName.trim()) return toast.error('Enter group name')
+        if (!selected.length) return toast.error('Add at least 1 member')
         const res = await api.post('/chat/conversations/group', { name: groupName, member_ids: selected })
-        convId = res.data?.data?.id ?? res.data?.id
+        onCreated(res.data.data.id)
       } else {
         const res = await api.post('/chat/conversations/broadcast', { name: bcastName })
-        convId = res.data?.data?.id ?? res.data?.id
+        onCreated(res.data.data.id)
       }
-      if (!convId) throw new Error('Could not get conversation ID from server response')
-      onCreated(convId)
       onClose()
-    } catch (err) {
-      toast.error(err.response?.data?.message || err.message || 'Failed to create conversation')
-    }
+    } catch (err) { toast.error(err.message || 'Failed') }
     finally { setLoading(false) }
   }
 
@@ -165,21 +135,15 @@ function NewChatModal({ onClose, onCreated, isAdmin, currentUserId }) {
                 placeholder="Search users…"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
               <div className="space-y-1 max-h-48 overflow-y-auto">
-                {usersLoading ? (
+                {users.length === 0 ? (
                   <div className="text-center py-6 text-slate-400">
-                    <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
                     <p className="text-sm">Loading users…</p>
-                  </div>
-                ) : usersError ? (
-                  <div className="text-center py-6 text-red-400">
-                    <p className="text-sm">{usersError}</p>
+                    <p className="text-xs mt-1">If this persists, check your connection</p>
                   </div>
                 ) : filtered.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400 text-sm">
-                    {search ? 'No users match your search' : 'No other users found'}
-                  </div>
+                  <div className="text-center py-6 text-slate-400 text-sm">No users match your search</div>
                 ) : null}
-                {!usersLoading && !usersError && filtered.map(u => (
+                {filtered.map(u => (
                   <button key={u.id} onClick={() => mode === 'direct' ? setSelected([u.id]) : toggle(u.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-colors ${(mode === 'direct' ? selected[0] === u.id : selected.includes(u.id)) ? 'bg-blue-50 border border-blue-200' : 'hover:bg-slate-50'}`}>
                     <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
@@ -550,12 +514,8 @@ export default function ChatPage() {
       {showNew && (
         <NewChatModal
           isAdmin={isAdmin}
-          currentUserId={user?.id}
           onClose={() => setShowNew(false)}
-          onCreated={(id) => {
-            setActiveConvId(id)
-            loadConversations()
-          }} />
+          onCreated={(id) => { setActiveConvId(id); loadConversations() }} />
       )}
     </div>
   )
