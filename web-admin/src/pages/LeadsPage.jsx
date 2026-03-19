@@ -523,8 +523,15 @@ export default function LeadsPage() {
         })(),
       })).filter(r => r.name || r.phone)
 
-      await api.post('/leads/bulk', { leads: payload })
-      toast.success(`${payload.length} leads imported from Excel`)
+      // Send in chunks of 100 to avoid request size limits
+      const CHUNK = 100
+      let totalCreated = 0
+      for (let i = 0; i < payload.length; i += CHUNK) {
+        const chunk = payload.slice(i, i + CHUNK)
+        const res = await api.post('/leads/bulk', { leads: chunk })
+        totalCreated += res.data?.created || chunk.length
+      }
+      toast.success(`${totalCreated} of ${payload.length} leads imported from Excel`)
       // Auto-add new school names to settings
       const xlNewSchools = [...new Set(payload.map(r => r.school_name).filter(Boolean))]
         .filter(s => !schools.includes(s))
