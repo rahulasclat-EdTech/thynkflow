@@ -59,8 +59,8 @@ export default function ProductDashboardPage() {
       }).catch(() => {})
     }
     api.get('/products/active').then(r => {
-      const plist = Array.isArray(r.data) ? r.data : (r.data?.data || r.data || [])
-      setProducts(plist)
+      const plist = r.data?.data || r.data || []
+      setProducts(Array.isArray(plist) ? plist : [])
     }).catch(() => {})
   }, [isAdmin])
 
@@ -71,7 +71,7 @@ export default function ProductDashboardPage() {
       if (isAdmin && filterAgent)   params.set('agent_id',   filterAgent)
       if (filterProduct) params.set('product_id', filterProduct)
       const r = await api.get(`/products/dashboard?${params}`)
-      setData(r.data || {})
+      setData(r.data?.data || r.data || {})
     } catch (err) {
       console.error('Products dashboard error:', err)
     } finally { setLoading(false) }
