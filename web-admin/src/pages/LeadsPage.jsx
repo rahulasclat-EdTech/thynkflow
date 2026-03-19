@@ -208,7 +208,7 @@ export default function LeadsPage() {
     } catch (err) {
       toast.error('Failed to load leads')
     } finally { setLoading(false) }
-  }, [page, search, filterStatus, filterAgent, filterProduct, filterSchool, isAdmin])
+  }, [page, PER_PAGE, search, filterStatus, filterAgent, filterProduct, filterSchool, isAdmin])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
