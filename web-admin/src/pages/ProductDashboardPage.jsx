@@ -24,6 +24,13 @@ function ProgressBar({ value, max, color = '#16a34a' }) {
   )
 }
 
+const EARNING_TABS = [
+  { key: 'potential', label: '💰 Earning Potential', color: '#7c3aed', field: 'total_potential_earning',  desc: 'Leads excl. Not Interested × Closure Rate' },
+  { key: 'earned',   label: '✅ Actual Earned',      color: '#16a34a', field: 'actual_earned',            desc: 'Converted leads × Closure Rate' },
+  { key: 'lost',     label: '❌ Earning Lost',        color: '#dc2626', field: 'earning_lost',             desc: 'Not Interested leads × Closure Rate' },
+  { key: 'still',    label: '⏳ Still To Earn',       color: '#d97706', field: 'still_to_earn',            desc: 'Leads excl. Converted & Not Interested × Closure Rate' },
+]
+
 const VIEW_OPTIONS = [
   { value: 'all',      label: '📦 + 👤 All (Product + Agent)' },
   { value: 'products', label: '📦 By Product' },
@@ -36,6 +43,7 @@ export default function ProductDashboardPage() {
 
   const [data, setData]             = useState(null)
   const [loading, setLoading]       = useState(true)
+  const [earningTab, setEarningTab] = useState('potential')
   const [viewMode, setViewMode]     = useState('all')
   const [agents, setAgents]         = useState([])
   const [products, setProducts]     = useState([])
@@ -46,12 +54,12 @@ export default function ProductDashboardPage() {
     if (isAdmin) {
       api.get('/users').then(r => {
         // interceptor returns body directly, so r = {success, data}
-        const list = r.data?.data || r.data || []
+        const list = r?.data || r || []
         setAgents(Array.isArray(list) ? list.filter(u => ['agent','admin'].includes(u.role_name)) : [])
       }).catch(() => {})
     }
     api.get('/products/active').then(r => {
-      const list = r.data?.data || r.data || []
+      const list = r?.data || r || []
       setProducts(Array.isArray(list) ? list : [])
     }).catch(() => {})
   }, [isAdmin])
@@ -64,7 +72,7 @@ export default function ProductDashboardPage() {
       if (productF)           params.set('product_id', productF)
       // interceptor returns body directly: {success, data: {product_stats, agent_breakdown, ...}}
       const body = await api.get(`/products/dashboard?${params}`)
-      setData(body.data?.data || body.data || {})
+      setData(body?.data || body || {})
     } catch (err) {
       console.error('Products dashboard error:', err)
     } finally { setLoading(false) }
@@ -113,6 +121,8 @@ export default function ProductDashboardPage() {
   const totalEarned    = parseFloat(data?.total_actual_earned || 0)
   const totalLost      = parseFloat(data?.total_earning_lost  || 0)
   const totalStill     = parseFloat(data?.total_still_to_earn || 0)
+
+  const currentTab = EARNING_TABS.find(t => t.key === earningTab) || EARNING_TABS[0]
 
   return (
     <div className="space-y-5">
@@ -197,6 +207,18 @@ export default function ProductDashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Earning Tabs */}
+      <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 flex-wrap">
+        {EARNING_TABS.map(t => (
+          <button key={t.key} onClick={() => setEarningTab(t.key)}
+            className="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+            style={earningTab === t.key ? { background: t.color, color: '#fff' } : { color: '#64748b' }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-slate-400 -mt-3 px-1">{currentTab.desc}</p>
 
       {/* By Product */}
       {(viewMode === 'products' || viewMode === 'all') && (
