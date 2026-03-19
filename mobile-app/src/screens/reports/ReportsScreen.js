@@ -61,11 +61,20 @@ export default function ReportsScreen() {
         api.get('/reports/agent-wise').catch(() => ({ data: [] })),
         api.get('/reports/conversion').catch(() => ({ data: [] })),
       ])
+      // /reports/overview returns { success, data: { total_leads, hot_leads, ... } }
+      const ovRaw = r1.data?.data || r1.data || {}
+      // Normalise field names - backend returns both with and without _leads suffix
+      const ovNorm = {
+        ...ovRaw,
+        call_back: ovRaw.call_back || ovRaw.call_back_leads || 0,
+        not_interested: ovRaw.not_interested || ovRaw.not_interested_leads || 0,
+        converted: ovRaw.converted || ovRaw.converted_leads || 0,
+      }
       setData({
-        overview:   r1.data?.data || r1.data || {},
-        status:     r2.data?.data || r2.data || [],
-        agents:     r3.data?.data || r3.data || [],
-        conversion: r4.data?.data || r4.data || [],
+        overview:   ovNorm,
+        status:     Array.isArray(r2.data?.data) ? r2.data.data : (Array.isArray(r2.data) ? r2.data : []),
+        agents:     Array.isArray(r3.data?.data) ? r3.data.data : (Array.isArray(r3.data) ? r3.data : []),
+        conversion: Array.isArray(r4.data?.data) ? r4.data.data : (Array.isArray(r4.data) ? r4.data : []),
       })
     } catch (err) {
       console.log('Reports error:', err.message)
@@ -90,7 +99,7 @@ export default function ReportsScreen() {
   const agentData  = Array.isArray(data?.agents)  ? data.agents  : []
   const convData   = Array.isArray(data?.conversion) ? data.conversion : []
   const totalLeads = parseInt(ov.total_leads || 0)
-  const converted  = parseInt(ov.converted_leads || ov.converted || 0)
+  const converted  = parseInt(ov.converted || ov.converted_leads || 0)
   const convRate   = totalLeads > 0 ? ((converted / totalLeads) * 100).toFixed(1) : '0'
 
   return (
@@ -241,13 +250,13 @@ export default function ReportsScreen() {
           <View style={{ gap: 8 }}>
             <Text style={s.sectionTitle}>Lead Pipeline</Text>
             {[
-              { stage: 'New Leads',      key: 'new_leads', color: '#0891B2', icon: '🆕' },
-              { stage: 'Hot',            key: 'hot_leads', color: '#DC2626', icon: '🔥' },
-              { stage: 'Warm',           key: 'warm_leads', color: '#D97706', icon: '☀️' },
-              { stage: 'Cold',           key: 'cold_leads',     color: '#6B7280', icon: '❄️' },
-              { stage: 'Call Back',      key: 'call_back_leads',  color: '#7C3AED', icon: '📞' },
-              { stage: 'Not Interested', key: 'not_interested_leads', color: '#9CA3AF', icon: '🚫' },
-              { stage: 'Converted',      key: 'converted',      color: '#16A34A', icon: '✅' },
+              { stage: 'New Leads',      key: 'new_leads',      color: '#0891B2', icon: '🆕' },
+              { stage: 'Hot',            key: 'hot_leads',       color: '#DC2626', icon: '🔥' },
+              { stage: 'Warm',           key: 'warm_leads',      color: '#D97706', icon: '☀️' },
+              { stage: 'Cold',           key: 'cold_leads',      color: '#6B7280', icon: '❄️' },
+              { stage: 'Call Back',      key: 'call_back',       color: '#7C3AED', icon: '📞' },
+              { stage: 'Not Interested', key: 'not_interested',  color: '#9CA3AF', icon: '🚫' },
+              { stage: 'Converted',      key: 'converted',       color: '#16A34A', icon: '✅' },
             ].map((item, i) => {
               const count = parseInt(ov[item.key] || 0)
               const pct   = totalLeads > 0 ? (count / totalLeads) * 100 : 0
