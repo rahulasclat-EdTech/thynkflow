@@ -1,38 +1,44 @@
-// backend/src/routes/users.js — COMPLETE FILE (full replacement)
+// backend/src/routes/users.js — FIXED
+// users table has: id, name, email, password, phone, role_id, is_active, created_at, updated_at
+// roles table has: id, name, permissions
+
 const express = require('express')
 const db      = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
-
-const router = express.Router()
+const router  = express.Router()
 
 // ── GET /api/users — ALL roles can call this ──────────────
-// Agents need it for chat user selection + assignment dropdowns
 router.get('/', auth, async (req, res) => {
   try {
     const isAdmin = req.user.role_name === 'admin'
     let rows
     if (isAdmin) {
-      const result = await db.query(
-        `SELECT u.id, u.name, u.email, u.role_name, u.is_active, u.created_at,
-                ll.logged_in_at AS last_login
-         FROM users u
-         LEFT JOIN LATERAL (
-           SELECT logged_in_at FROM login_logs
-           WHERE user_id = u.id ORDER BY logged_in_at DESC LIMIT 1
-         ) ll ON true
-         WHERE u.is_active = true
-         ORDER BY u.name`
-      )
+      const result = await db.query(`
+        SELECT u.id, u.name, u.email, u.phone, u.is_active, u.created_at,
+               r.name AS role_name,
+               ll.logged_in_at AS last_login
+        FROM users u
+        LEFT JOIN roles r ON r.id = u.role_id
+        LEFT JOIN LATERAL (
+          SELECT logged_in_at FROM login_logs
+          WHERE user_id = u.id ORDER BY logged_in_at DESC LIMIT 1
+        ) ll ON true
+        WHERE u.is_active = true
+        ORDER BY u.name
+      `)
       rows = result.rows
     } else {
-      const result = await db.query(
-        `SELECT id, name, email, role_name
-         FROM users WHERE is_active = true ORDER BY name`
-      )
+      const result = await db.query(`
+        SELECT u.id, u.name, u.email, u.phone, r.name AS role_name
+        FROM users u
+        LEFT JOIN roles r ON r.id = u.role_id
+        WHERE u.is_active = true ORDER BY u.name
+      `)
       rows = result.rows
     }
     res.json({ success: true, data: rows })
   } catch (err) {
+    console.error('GET /users error:', err.message)
     res.status(500).json({ success: false, message: err.message })
   }
 })
@@ -40,11 +46,13 @@ router.get('/', auth, async (req, res) => {
 // ── GET /api/users/:id — single user (admin only) ─────────
 router.get('/:id', auth, adminOnly, async (req, res) => {
   try {
-    const { rows } = await db.query(
-      `SELECT u.id, u.name, u.email, u.role_name, u.is_active, u.created_at
-       FROM users u WHERE u.id = $1`,
-      [req.params.id]
-    )
+    const { rows } = await db.query(`
+      SELECT u.id, u.name, u.email, u.phone, u.is_active, u.created_at,
+             r.name AS role_name
+      FROM users u
+      LEFT JOIN roles r ON r.id = u.role_id
+      WHERE u.id = $1
+    `, [req.params.id])
     if (!rows.length) return res.status(404).json({ success: false, message: 'User not found' })
     res.json({ success: true, data: rows[0] })
   } catch (err) {
@@ -56,16 +64,25 @@ router.get('/:id', auth, adminOnly, async (req, res) => {
 router.post('/', auth, adminOnly, async (req, res) => {
   try {
     const bcrypt = require('bcryptjs')
-    const { name, email, password, role_name } = req.body
+    const { name, email, password, role_name, phone } = req.body
     if (!name || !email || !password)
       return res.status(400).json({ success: false, message: 'name, email, password required' })
+
+    // Get role_id from role name
+    const { rows: roleRows } = await db.query(
+      `SELECT id FROM roles WHERE name = $1`, [role_name || 'agent']
+    )
+    if (!roleRows.length)
+      return res.status(400).json({ success: false, message: `Role '${role_name}' not found` })
+
     const hashed = await bcrypt.hash(password, 10)
     const { rows } = await db.query(
-      `INSERT INTO users (name, email, password_hash, role_name, is_active)
-       VALUES ($1, $2, $3, $4, true) RETURNING id, name, email, role_name`,
-      [name, email, hashed, role_name || 'agent']
+      `INSERT INTO users (name, email, password, phone, role_id, is_active)
+       VALUES ($1, $2, $3, $4, $5, true)
+       RETURNING id, name, email, phone, role_id`,
+      [name, email, hashed, phone || null, roleRows[0].id]
     )
-    res.status(201).json({ success: true, data: rows[0] })
+    res.status(201).json({ success: true, data: { ...rows[0], role_name: role_name || 'agent' } })
   } catch (err) {
     if (err.code === '23505') return res.status(400).json({ success: false, message: 'Email already exists' })
     res.status(500).json({ success: false, message: err.message })
@@ -75,14 +92,22 @@ router.post('/', auth, adminOnly, async (req, res) => {
 // ── PUT /api/users/:id — update user (admin only) ─────────
 router.put('/:id', auth, adminOnly, async (req, res) => {
   try {
-    const { name, email, role_name, is_active } = req.body
+    const { name, email, phone, role_name, is_active } = req.body
+
+    // Get role_id
+    const { rows: roleRows } = await db.query(
+      `SELECT id FROM roles WHERE name = $1`, [role_name || 'agent']
+    )
+    const role_id = roleRows.length ? roleRows[0].id : null
+
     const { rows } = await db.query(
-      `UPDATE users SET name=$1, email=$2, role_name=$3, is_active=$4 WHERE id=$5
-       RETURNING id, name, email, role_name, is_active`,
-      [name, email, role_name, is_active !== false, req.params.id]
+      `UPDATE users SET name=$1, email=$2, phone=$3, role_id=COALESCE($4, role_id),
+       is_active=$5, updated_at=NOW() WHERE id=$6
+       RETURNING id, name, email, phone, role_id, is_active`,
+      [name, email, phone || null, role_id, is_active !== false, req.params.id]
     )
     if (!rows.length) return res.status(404).json({ success: false, message: 'User not found' })
-    res.json({ success: true, data: rows[0] })
+    res.json({ success: true, data: { ...rows[0], role_name } })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
   }
@@ -97,7 +122,7 @@ router.put('/:id/reset-password', auth, adminOnly, async (req, res) => {
     const bcrypt = require('bcryptjs')
     const hashed = await bcrypt.hash(new_password, 10)
     const { rows } = await db.query(
-      `UPDATE users SET password_hash=$1 WHERE id=$2 RETURNING id, name, email`,
+      `UPDATE users SET password=$1, updated_at=NOW() WHERE id=$2 RETURNING id, name, email`,
       [hashed, req.params.id]
     )
     if (!rows.length) return res.status(404).json({ success: false, message: 'User not found' })
@@ -145,7 +170,7 @@ router.get('/:id/logs', auth, adminOnly, async (req, res) => {
 // ── DELETE /api/users/:id — deactivate (admin only) ───────
 router.delete('/:id', auth, adminOnly, async (req, res) => {
   try {
-    await db.query(`UPDATE users SET is_active=false WHERE id=$1`, [req.params.id])
+    await db.query(`UPDATE users SET is_active=false, updated_at=NOW() WHERE id=$1`, [req.params.id])
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
