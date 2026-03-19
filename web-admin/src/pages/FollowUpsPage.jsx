@@ -273,7 +273,8 @@ export default function FollowUpsPage() {
         prevItems  = Array.isArray(d.previous)    ? d.previous    : []
         nextItems  = Array.isArray(d.next_3_days) ? d.next_3_days : []
       }
-      setData({ today: todayItems, previous: prevItems, next_3_days: nextItems })
+console.log('SETTING DATA:', todayItems.length, prevItems.length, nextItems.length)
+setData({ today: todayItems, previous: prevItems, next_3_days: nextItems })
       setCounts(r.data?.counts || {
         today:       todayItems.length,
         previous:    prevItems.length,
