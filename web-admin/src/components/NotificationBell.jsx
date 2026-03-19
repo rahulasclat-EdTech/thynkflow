@@ -2,7 +2,7 @@
 // Drop this component into Layout.jsx header area
 // Usage: <NotificationBell />
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import api from '../../utils/api'
+import api from '../utils/api'
 
 const TYPE_ICONS = {
   lead_assigned:      '👤',
