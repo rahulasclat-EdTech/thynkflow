@@ -147,7 +147,7 @@ export default function LeadsPage() {
       const [leadsRes, prodRes, agentRes, settRes] = await Promise.all([
         api.get(`/leads?${params}`),
         api.get('/products/active'),
-        isAdmin ? api.get('/users?role=agent') : Promise.resolve({ data: [] }),
+        api.get('/chat/users').catch(() => ({ data: { data: [] } })),
         api.get('/settings'),
       ])
       // Leads endpoint may return { data, total } or just array
@@ -158,7 +158,7 @@ export default function LeadsPage() {
         setLeads(raw.data || []); setTotalCount(raw.total || 0)
       }
       setProducts(prodRes.data?.data || prodRes.data || [])
-      setAgents(Array.isArray(agentRes.data) ? agentRes.data : agentRes.data?.data || [])
+      setAgents(Array.isArray(agentRes.data?.data) ? agentRes.data.data : (Array.isArray(agentRes.data) ? agentRes.data : []))
       // settings returns { statuses, sources, cities } or similar
       const s = settRes.data?.data || settRes.data || {}
       setSettings({
@@ -1211,7 +1211,7 @@ export default function LeadsPage() {
               </div>
 
               {/* Assign to user - default is logged-in user, can change */}
-              <div>
+              {agents.length > 0 && <div>
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Assign To</h3>
                 <select
                   value={form.assigned_to || user?.id || ''}
