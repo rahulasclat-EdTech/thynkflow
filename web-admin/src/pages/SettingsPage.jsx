@@ -7,7 +7,8 @@ import toast from 'react-hot-toast'
 const CATEGORIES = [
   { key: 'lead_status', label: 'Lead Statuses', icon: '🏷️', description: 'Status options shown after each call (e.g. Hot, Warm, Converted)' },
   { key: 'lead_source', label: 'Lead Sources', icon: '📥', description: 'Where leads come from (e.g. Excel Upload, Referral, Website)' },
-  { key: 'city', label: 'Cities', icon: '🏙️', description: 'City options for lead location filtering' },
+  { key: 'lead_type',   label: 'Lead Types',   icon: '🏢', description: 'Type of lead — B2B (Business to Business) or B2C (Business to Consumer) and more' },
+  { key: 'city',        label: 'Cities',        icon: '🏙️', description: 'City options for lead location filtering' },
 ]
 
 const PRESET_COLORS = [
@@ -294,19 +295,6 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState({})
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('products')
-
-  // ── Email SMTP config state ───────────────────────────────
-  const [smtpForm, setSmtpForm] = useState({
-    SMTP_HOST: 'smtp.gmail.com',
-    SMTP_PORT: '587',
-    SMTP_USER: 'thynksuccess01@gmail.com',
-    SMTP_PASS: '',
-    SMTP_FROM: 'ThynkFlow Sales <thynksuccess01@gmail.com>',
-  })
-  const [smtpLoading, setSmtpLoading]   = useState(false)
-  const [smtpTesting, setSmtpTesting]   = useState(false)
-  const [smtpSaved, setSmtpSaved]       = useState(false)
-  const [smtpTestResult, setSmtpTestResult] = useState(null)
   const [activeCategory, setActiveCategory] = useState('lead_status')
   const [showModal, setShowModal] = useState(false)
   const [editItem, setEditItem] = useState(null)
@@ -398,142 +386,10 @@ export default function SettingsPage() {
           className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${activeTab === 'dropdowns' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
           🏷️ Dropdown Options
         </button>
-        <button onClick={() => setActiveTab('email')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${activeTab === 'email' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
-          📧 Email Config
-        </button>
       </div>
 
       {/* Products Tab */}
       {activeTab === 'products' && <ProductsSection />}
-
-      {/* Email Config Tab */}
-      {activeTab === 'email' && (
-        <div className="space-y-6 max-w-2xl">
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-xl">📧</div>
-              <div>
-                <h2 className="text-lg font-bold text-slate-800">Email SMTP Configuration</h2>
-                <p className="text-sm text-slate-500">Configure outgoing email server for the internal email system</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">SMTP Host</label>
-                  <input value={smtpForm.SMTP_HOST}
-                    onChange={e => setSmtpForm(f => ({ ...f, SMTP_HOST: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                    placeholder="smtp.gmail.com" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">SMTP Port</label>
-                  <input value={smtpForm.SMTP_PORT}
-                    onChange={e => setSmtpForm(f => ({ ...f, SMTP_PORT: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                    placeholder="465" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Email Address (From)</label>
-                <input value={smtpForm.SMTP_USER}
-                  onChange={e => setSmtpForm(f => ({ ...f, SMTP_USER: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  placeholder="thynksuccess01@gmail.com" />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1.5">App Password</label>
-                <input type="password" value={smtpForm.SMTP_PASS}
-                  onChange={e => setSmtpForm(f => ({ ...f, SMTP_PASS: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  placeholder="Gmail app password (16 chars, no spaces)" />
-                <p className="text-xs text-slate-400 mt-1">Generate from myaccount.google.com → Security → App passwords</p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Display Name (From Name)</label>
-                <input value={smtpForm.SMTP_FROM}
-                  onChange={e => setSmtpForm(f => ({ ...f, SMTP_FROM: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  placeholder="ThynkFlow Sales <sales@thynksuccess.in>" />
-              </div>
-
-              {smtpTestResult && (
-                <div className={`p-3 rounded-xl text-sm font-medium ${smtpTestResult.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-                  {smtpTestResult.ok ? '✅ ' : '❌ '}{smtpTestResult.message}
-                </div>
-              )}
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  onClick={async () => {
-                    setSmtpTesting(true); setSmtpTestResult(null)
-                    try {
-                      const res = await api.get('/emails/test')
-                      setSmtpTestResult({ ok: true, message: res.data?.message || 'Connection successful!' })
-                    } catch (err) {
-                      setSmtpTestResult({ ok: false, message: err.message || 'Connection failed' })
-                    } finally { setSmtpTesting(false) }
-                  }}
-                  className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold hover:bg-slate-50 disabled:opacity-50"
-                  disabled={smtpTesting}>
-                  {smtpTesting ? '⏳ Testing…' : '🔧 Test Connection'}
-                </button>
-                <button
-                  onClick={() => {
-                    toast.success('SMTP settings are stored as environment variables on Render. Update them there directly.')
-                  }}
-                  className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700">
-                  📋 View Setup Instructions
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Setup instructions card */}
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6">
-            <h3 className="font-bold text-slate-700 mb-4">🚀 How to update SMTP settings</h3>
-            <p className="text-sm text-slate-600 mb-3">SMTP credentials are stored securely as environment variables on Render (not in the database). To update them:</p>
-            <ol className="space-y-2 text-sm text-slate-600 list-decimal list-inside">
-              <li>Go to <strong>render.com</strong> → your <strong>thynkflow</strong> service</li>
-              <li>Click <strong>Environment</strong> in the left sidebar</li>
-              <li>Add or update these 5 variables:</li>
-            </ol>
-            <div className="mt-3 bg-slate-800 rounded-xl p-4 font-mono text-xs text-green-400 space-y-1">
-              <p>SMTP_HOST = smtp.zoho.in</p>
-              <p>SMTP_PORT = 465</p>
-              <p>SMTP_USER = sales@thynksuccess.in</p>
-              <p>SMTP_PASS = PWehM8CNdBC2</p>
-              <p>SMTP_FROM = ThynkFlow Sales &lt;sales@thynksuccess.in&gt;</p>
-            </div>
-            <p className="text-xs text-slate-400 mt-3">⚠️ After adding env vars, Render will auto-redeploy the backend.</p>
-            <p className="text-xs text-slate-400 mt-1">Then click "Test Connection" above to verify everything works.</p>
-          </div>
-
-          {/* Current config display */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5">
-            <h3 className="font-bold text-slate-700 mb-3">📊 Current Configuration</h3>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              {[
-                ['Provider', 'Zoho Mail'],
-                ['From Email', 'sales@thynksuccess.in'],
-                ['From Name', 'ThynkFlow Sales'],
-                ['Encryption', 'SSL (Port 465)'],
-                ['Status', '⏳ Test to verify'],
-              ].map(([label, val]) => (
-                <div key={label} className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-xs text-slate-400">{label}</p>
-                  <p className="font-semibold text-slate-800 mt-0.5">{val}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Dropdowns Tab */}
       {activeTab === 'dropdowns' && (
