@@ -1,203 +1,180 @@
-const express = require('express');
-const db = require('../config/db');
-const { auth, adminOnly } = require('../middleware/auth');
+// backend/src/routes/products.js — COMPLETE REWRITE
+// Earnings formulas:
+//   Potential  = leads (excl. not_interested) * per_closure_earning
+//   Actual     = converted * per_closure_earning
+//   Lost       = not_interested * per_closure_earning
+//   Still To   = leads (excl. converted & not_interested) * per_closure_earning
+const express = require('express')
+const db      = require('../config/db')
+const { auth, adminOnly } = require('../middleware/auth')
+const router  = express.Router()
 
-const router = express.Router();
-
-// Create products table if not exists
-async function ensureProductsTable() {
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS products (
-      id SERIAL PRIMARY KEY,
-      name VARCHAR(200) NOT NULL,
-      type VARCHAR(10) NOT NULL DEFAULT 'B2B' CHECK (type IN ('B2B', 'B2C')),
-      description TEXT,
-      per_closure_earning NUMERIC(10,2) NOT NULL DEFAULT 0,
-      is_active BOOLEAN DEFAULT true,
-      sort_order INTEGER DEFAULT 0,
-      created_at TIMESTAMP DEFAULT NOW(),
-      UNIQUE(name)
-    );
-  `);
+function agentScope(user, alias = 'l') {
+  return user.role_name === 'admin' ? '' : `AND ${alias}.assigned_to = '${user.id}'`
 }
 
-ensureProductsTable().catch(console.error);
-
-// GET /api/products - get all products
-router.get('/', auth, async (req, res) => {
-  try {
-    const { rows } = await db.query(
-      `SELECT * FROM products ORDER BY sort_order, name`
-    );
-    res.json({ success: true, data: rows });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// GET /api/products/active - get only active products (for dropdowns)
+// ── GET /api/products/active — for dropdowns ─────────────
 router.get('/active', auth, async (req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT * FROM products WHERE is_active = true ORDER BY sort_order, name`
-    );
-    res.json({ success: true, data: rows });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+      `SELECT id, name, type, per_closure_earning FROM products WHERE is_active=true ORDER BY name`
+    )
+    res.json({ success: true, data: rows })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
 
-// GET /api/products/dashboard - product wise dashboard stats
+// ── GET /api/products/dashboard — main stats ─────────────
+// ?agent_id=   filter by agent (admin only)
+// ?product_id= filter by product
 router.get('/dashboard', auth, async (req, res) => {
   try {
-    const isAdmin = req.user.role_name === 'admin';
-    const agentId = req.user.id;
+    const { agent_id, product_id } = req.query
+    let scope = agentScope(req.user)
+    if (req.user.role_name === 'admin' && agent_id) scope += ` AND l.assigned_to = '${agent_id}'`
+    if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
 
-    // Product wise lead count + status breakdown
-    const productStatsQuery = isAdmin
-      ? `
-        SELECT
-          p.id as product_id,
-          p.name as product_name,
-          p.type as product_type,
-          p.per_closure_earning,
-          COUNT(l.id) as total_leads,
-          COUNT(CASE WHEN l.status = 'new' THEN 1 END) as new_leads,
-          COUNT(CASE WHEN l.status = 'hot' THEN 1 END) as hot_leads,
-          COUNT(CASE WHEN l.status = 'warm' THEN 1 END) as warm_leads,
-          COUNT(CASE WHEN l.status = 'cold' THEN 1 END) as cold_leads,
-          COUNT(CASE WHEN l.status = 'converted' THEN 1 END) as converted_leads,
-          COUNT(CASE WHEN l.status = 'not_interested' THEN 1 END) as not_interested_leads,
-          COUNT(CASE WHEN l.status = 'call_back' THEN 1 END) as call_back_leads,
-          ROUND(COUNT(l.id) * p.per_closure_earning, 2) as total_potential_earning,
-          ROUND(COUNT(CASE WHEN l.status = 'converted' THEN 1 END) * p.per_closure_earning, 2) as actual_earned
-        FROM products p
-        LEFT JOIN leads l ON l.product_id = p.id
-        WHERE p.is_active = true
-        GROUP BY p.id, p.name, p.type, p.per_closure_earning
-        ORDER BY total_leads DESC
-      `
-      : `
-        SELECT
-          p.id as product_id,
-          p.name as product_name,
-          p.type as product_type,
-          p.per_closure_earning,
-          COUNT(l.id) as total_leads,
-          COUNT(CASE WHEN l.status = 'new' THEN 1 END) as new_leads,
-          COUNT(CASE WHEN l.status = 'hot' THEN 1 END) as hot_leads,
-          COUNT(CASE WHEN l.status = 'warm' THEN 1 END) as warm_leads,
-          COUNT(CASE WHEN l.status = 'cold' THEN 1 END) as cold_leads,
-          COUNT(CASE WHEN l.status = 'converted' THEN 1 END) as converted_leads,
-          COUNT(CASE WHEN l.status = 'not_interested' THEN 1 END) as not_interested_leads,
-          COUNT(CASE WHEN l.status = 'call_back' THEN 1 END) as call_back_leads,
-          ROUND(COUNT(l.id) * p.per_closure_earning, 2) as total_potential_earning,
-          ROUND(COUNT(CASE WHEN l.status = 'converted' THEN 1 END) * p.per_closure_earning, 2) as actual_earned
-        FROM products p
-        LEFT JOIN leads l ON l.product_id = p.id AND l.assigned_to = $1
-        WHERE p.is_active = true
-        GROUP BY p.id, p.name, p.type, p.per_closure_earning
-        ORDER BY total_leads DESC
-      `;
+    // ── Product-wise stats ────────────────────────────────
+    const { rows: productStats } = await db.query(`
+      SELECT
+        p.id                                                               AS product_id,
+        p.name                                                             AS product_name,
+        p.type                                                             AS product_type,
+        p.per_closure_earning,
 
-    const productStats = isAdmin
-      ? await db.query(productStatsQuery)
-      : await db.query(productStatsQuery, [agentId]);
+        COUNT(l.id)                                                        AS total_leads,
+        COUNT(CASE WHEN l.status='hot'            THEN 1 END)             AS hot_leads,
+        COUNT(CASE WHEN l.status='warm'           THEN 1 END)             AS warm_leads,
+        COUNT(CASE WHEN l.status='cold'           THEN 1 END)             AS cold_leads,
+        COUNT(CASE WHEN l.status='new'            THEN 1 END)             AS new_leads,
+        COUNT(CASE WHEN l.status='call_back'      THEN 1 END)             AS call_back_leads,
+        COUNT(CASE WHEN l.status='converted'      THEN 1 END)             AS converted_leads,
+        COUNT(CASE WHEN l.status='not_interested' THEN 1 END)             AS not_interested_leads,
 
-    // Admin only: product wise leads by agent
-    let agentBreakdown = [];
-    if (isAdmin) {
-      const { rows } = await db.query(`
-        SELECT
-          p.id as product_id,
-          p.name as product_name,
-          u.id as agent_id,
-          u.name as agent_name,
-          COUNT(l.id) as total_leads,
-          COUNT(CASE WHEN l.status = 'converted' THEN 1 END) as converted,
-          COUNT(CASE WHEN l.status = 'hot' THEN 1 END) as hot,
-          COUNT(CASE WHEN l.status = 'warm' THEN 1 END) as warm,
-          COUNT(CASE WHEN l.status = 'new' THEN 1 END) as new_leads,
-          ROUND(COUNT(CASE WHEN l.status = 'converted' THEN 1 END) * p.per_closure_earning, 2) as earned
-        FROM products p
-        JOIN leads l ON l.product_id = p.id
-        JOIN users u ON l.assigned_to = u.id
-        WHERE p.is_active = true
-        GROUP BY p.id, p.name, u.id, u.name
-        ORDER BY p.name, total_leads DESC
-      `);
-      agentBreakdown = rows;
-    }
+        -- Potential  = excl. not_interested
+        COUNT(CASE WHEN l.status != 'not_interested' THEN 1 END)
+          * p.per_closure_earning                                          AS total_potential_earning,
+
+        -- Actual earned = converted
+        COUNT(CASE WHEN l.status='converted' THEN 1 END)
+          * p.per_closure_earning                                          AS actual_earned,
+
+        -- Lost = not_interested
+        COUNT(CASE WHEN l.status='not_interested' THEN 1 END)
+          * p.per_closure_earning                                          AS earning_lost,
+
+        -- Still to earn = excl. converted & not_interested
+        COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END)
+          * p.per_closure_earning                                          AS still_to_earn
+
+      FROM products p
+      LEFT JOIN leads l ON l.product_id = p.id AND l.id IS NOT NULL ${scope}
+      WHERE p.is_active = true
+      GROUP BY p.id, p.name, p.type, p.per_closure_earning
+      ORDER BY total_leads DESC
+    `)
+
+    // ── Agent + Product breakdown ─────────────────────────
+    const { rows: agentBreakdown } = await db.query(`
+      SELECT
+        u.id                                                               AS agent_id,
+        u.name                                                             AS agent_name,
+        p.id                                                               AS product_id,
+        p.name                                                             AS product_name,
+        p.per_closure_earning,
+
+        COUNT(l.id)                                                        AS total_leads,
+        COUNT(CASE WHEN l.status='converted'      THEN 1 END)             AS converted,
+        COUNT(CASE WHEN l.status='not_interested' THEN 1 END)             AS not_interested,
+        COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END) AS still_to_earn_count,
+
+        COUNT(CASE WHEN l.status != 'not_interested' THEN 1 END)
+          * p.per_closure_earning                                          AS potential,
+        COUNT(CASE WHEN l.status='converted' THEN 1 END)
+          * p.per_closure_earning                                          AS earned,
+        COUNT(CASE WHEN l.status='not_interested' THEN 1 END)
+          * p.per_closure_earning                                          AS lost,
+        COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END)
+          * p.per_closure_earning                                          AS still_to_earn
+
+      FROM users u
+      JOIN leads l ON l.assigned_to = u.id ${scope}
+      JOIN products p ON l.product_id = p.id
+      WHERE u.role_name IN ('agent','admin') AND p.is_active = true
+      GROUP BY u.id, u.name, p.id, p.name, p.per_closure_earning
+      ORDER BY u.name, earned DESC
+    `)
+
+    // ── Totals ────────────────────────────────────────────
+    const totals = productStats.reduce((acc, p) => ({
+      total_leads:       acc.total_leads       + parseInt(p.total_leads       || 0),
+      total_potential:   acc.total_potential   + parseFloat(p.total_potential_earning || 0),
+      total_earned:      acc.total_earned      + parseFloat(p.actual_earned   || 0),
+      total_lost:        acc.total_lost        + parseFloat(p.earning_lost    || 0),
+      total_still:       acc.total_still       + parseFloat(p.still_to_earn   || 0),
+      total_converted:   acc.total_converted   + parseInt(p.converted_leads   || 0),
+      total_ni:          acc.total_ni          + parseInt(p.not_interested_leads || 0),
+    }), { total_leads:0, total_potential:0, total_earned:0, total_lost:0, total_still:0, total_converted:0, total_ni:0 })
 
     res.json({
       success: true,
       data: {
-        product_stats: productStats.rows,
-        agent_breakdown: agentBreakdown,
-        is_admin: isAdmin,
+        product_stats:      productStats,
+        agent_breakdown:    agentBreakdown,
+        total_potential:    totals.total_potential,
+        total_actual_earned:totals.total_earned,
+        total_earning_lost: totals.total_lost,
+        total_still_to_earn:totals.total_still,
+        total_leads:        totals.total_leads,
+        total_converted:    totals.total_converted,
+        total_not_interested: totals.total_ni,
       }
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+    })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
 
-// POST /api/products - create product
+// ── GET /api/products — list all (admin only) ───────────
+router.get('/', auth, adminOnly, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT p.*, COUNT(l.id) AS lead_count
+       FROM products p LEFT JOIN leads l ON l.product_id = p.id
+       GROUP BY p.id ORDER BY p.name`
+    )
+    res.json({ success: true, data: rows })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
+
+// ── POST /api/products — create (admin only) ────────────
 router.post('/', auth, adminOnly, async (req, res) => {
   try {
-    const { name, type, description, per_closure_earning, sort_order } = req.body;
-    if (!name) return res.status(400).json({ success: false, message: 'Product name is required' });
-    if (!['B2B', 'B2C'].includes(type)) return res.status(400).json({ success: false, message: 'Type must be B2B or B2C' });
-
+    const { name, type, per_closure_earning } = req.body
     const { rows } = await db.query(
-      `INSERT INTO products (name, type, description, per_closure_earning, sort_order)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [name, type, description || '', per_closure_earning || 0, sort_order || 0]
-    );
-    res.status(201).json({ success: true, data: rows[0] });
-  } catch (err) {
-    if (err.code === '23505') return res.status(400).json({ success: false, message: 'Product name already exists' });
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+      `INSERT INTO products (name, type, per_closure_earning, is_active) VALUES ($1,$2,$3,true) RETURNING *`,
+      [name, type || 'B2C', parseFloat(per_closure_earning) || 0]
+    )
+    res.status(201).json({ success: true, data: rows[0] })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
 
-// PUT /api/products/:id - update product
+// ── PUT /api/products/:id — update (admin only) ─────────
 router.put('/:id', auth, adminOnly, async (req, res) => {
   try {
-    const { name, type, description, per_closure_earning, sort_order, is_active } = req.body;
+    const { name, type, per_closure_earning, is_active } = req.body
     const { rows } = await db.query(
-      `UPDATE products SET name=$1, type=$2, description=$3, per_closure_earning=$4, sort_order=$5, is_active=$6
-       WHERE id=$7 RETURNING *`,
-      [name, type, description, per_closure_earning, sort_order, is_active, req.params.id]
-    );
-    if (!rows.length) return res.status(404).json({ success: false, message: 'Product not found' });
-    res.json({ success: true, data: rows[0] });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+      `UPDATE products SET name=$1, type=$2, per_closure_earning=$3, is_active=$4 WHERE id=$5 RETURNING *`,
+      [name, type || 'B2C', parseFloat(per_closure_earning) || 0, is_active !== false, req.params.id]
+    )
+    if (!rows.length) return res.status(404).json({ success: false, message: 'Not found' })
+    res.json({ success: true, data: rows[0] })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
 
-// DELETE /api/products/:id
+// ── DELETE /api/products/:id — deactivate (admin only) ──
 router.delete('/:id', auth, adminOnly, async (req, res) => {
   try {
-    await db.query('DELETE FROM products WHERE id = $1', [req.params.id]);
-    res.json({ success: true, message: 'Product deleted' });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+    await db.query(`UPDATE products SET is_active=false WHERE id=$1`, [req.params.id])
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
 
-// PATCH /api/products/:id/toggle
-router.patch('/:id/toggle', auth, adminOnly, async (req, res) => {
-  try {
-    const { rows } = await db.query(
-      `UPDATE products SET is_active = NOT is_active WHERE id = $1 RETURNING *`,
-      [req.params.id]
-    );
-    res.json({ success: true, data: rows[0] });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-module.exports = router;
+module.exports = router
