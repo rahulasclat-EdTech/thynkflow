@@ -71,7 +71,7 @@ export default function LeadsPage() {
   const [leads, setLeads]             = useState([])
   const [products, setProducts]       = useState([])
   const [agents, setAgents]           = useState([])
-  const [settings, setSettings]       = useState({ statuses: [], sources: [], cities: [] })
+  const [settings, setSettings]       = useState({ statuses: [], sources: [], cities: [], lead_types: [] })
   const [loading, setLoading]         = useState(true)
   const [totalCount, setTotalCount]   = useState(0)
 
@@ -97,6 +97,7 @@ export default function LeadsPage() {
   // ── create form ───────────────────────────────────────────────
   const emptyForm = {
     name: '', phone: '', email: '', source: '', city: '',
+    school_name: '', lead_type: 'B2C', creation_comment: '',
     status: 'new', assigned_to: '', product_id: '', // assigned_to set to user.id on open
     product_detail: '', admin_remark: '', follow_up_date: '',
     notes: ''
@@ -106,7 +107,9 @@ export default function LeadsPage() {
 
   // ── paste modal ───────────────────────────────────────────────
   const [pasteText, setPasteText]     = useState('')
-  const [pasteProduct, setPasteProduct] = useState('')
+  const [pasteProduct, setPasteProduct]   = useState('')
+  const [pasteLeadType, setPasteLeadType] = useState('B2C')
+  const [pasteComment, setPasteComment]   = useState('')
   const [pasteRows, setPasteRows]     = useState([])
   const [pasteStep, setPasteStep]     = useState(1) // 1=paste, 2=preview
 
@@ -159,9 +162,10 @@ export default function LeadsPage() {
       // settings returns { statuses, sources, cities } or similar
       const s = settRes.data?.data || settRes.data || {}
       setSettings({
-        statuses: s.statuses || s.status || [],
-        sources:  s.sources  || s.source  || [],
-        cities:   s.cities   || s.city    || [],
+        statuses:   s.lead_status || s.statuses || s.status || [],
+        sources:    s.lead_source || s.sources  || s.source  || [],
+        cities:     s.city        || s.cities   || [],
+        lead_types: s.lead_type   || s.lead_types || [],
       })
     } catch (err) {
       toast.error('Failed to load leads')
@@ -188,7 +192,10 @@ export default function LeadsPage() {
       phone:        getPhone(lead),
       email:        lead.email || '',
       city:         lead.city  || '',
-      source:       lead.source || '',
+      source:           lead.source || '',
+      school_name:      lead.school_name || '',
+      lead_type:        lead.lead_type || '',
+      creation_comment: lead.creation_comment || '',
       status:       lead.status || 'new',
       assigned_to:  lead.assigned_to || '',
       admin_remark: lead.admin_remark || '',
@@ -201,7 +208,7 @@ export default function LeadsPage() {
     if (!selectedLead) return
     setSavingEdit(true)
     try {
-      await api.put(`/leads/${selectedLead.id}`, editForm)
+      await api.put(`/leads/${selectedLead.id}`, { ...editForm, contact_name: editForm.name, school_name: editForm.school_name })
       const updated = { ...selectedLead, ...editForm }
       setSelectedLead(updated)
       setLeads(prev => prev.map(l => l.id === updated.id ? { ...l, ...editForm } : l))
@@ -294,9 +301,12 @@ export default function LeadsPage() {
     setSaving(true)
     try {
       const res = await api.post('/leads', {
-        name:           form.name.trim(),
-        contact_name:   form.name.trim(),
-        phone:          form.phone.trim(),
+        name:             form.name.trim(),
+        contact_name:     form.name.trim(),
+        school_name:      form.school_name?.trim()      || null,
+        lead_type:        form.lead_type                || null,
+        creation_comment: form.creation_comment?.trim() || null,
+        phone:            form.phone.trim(),
         email:          form.email.trim() || null,
         city:           form.city || null,
         source:         form.source || null,
@@ -345,7 +355,10 @@ export default function LeadsPage() {
     const phoneIdx   = colIdx(['phone', 'mobile', 'contact', 'number'])
     const emailIdx   = colIdx(['email', 'mail'])
     const cityIdx    = colIdx(['city', 'location'])
-    const sourceIdx  = colIdx(['source', 'channel'])
+    const sourceIdx    = colIdx(['source', 'channel'])
+    const leadTypeIdx  = colIdx(['lead_type', 'type', 'b2b/b2c', 'lead type'])
+    const schoolIdx    = colIdx(['school_name', 'school', 'organisation', 'organization'])
+    const commentIdx   = colIdx(['creation_comment', 'comment', 'upload comment'])
     const productIdx = colIdx(['product', 'course', 'program'])
 
     const dataLines = nameIdx >= 0 ? lines.slice(1) : lines // no header → treat all as data
@@ -358,7 +371,10 @@ export default function LeadsPage() {
           phone:   cols[phoneIdx]   || '',
           email:   cols[emailIdx]   || '',
           city:    cols[cityIdx]    || '',
-          source:  cols[sourceIdx]  || '',
+          source:           cols[sourceIdx]   || '',
+          lead_type:        cols[leadTypeIdx]  || '',
+          school_name:      cols[schoolIdx]    || '',
+          creation_comment: cols[commentIdx]   || '',
           product: cols[productIdx] || '',
         }
       }
@@ -383,11 +399,14 @@ export default function LeadsPage() {
       }
       const payload = pasteRows.map(r => ({
         name:       r.name,
-        phone:      r.phone,
-        email:      r.email,
-        city:       r.city,
-        source:     r.source,
-        status:     'new',
+        phone:            r.phone,
+        email:            r.email,
+        city:             r.city,
+        source:           r.source,
+        school_name:      r.school_name || '',
+        lead_type:        r.lead_type || pasteLeadType || 'B2C',
+        creation_comment: r.creation_comment || pasteComment || '',
+        status:           'new',
         product_id: r.product ? (productMap[r.product.toLowerCase()] || null) : (pasteProduct || null),
       }))
       await api.post('/leads/bulk', { leads: payload })
@@ -438,12 +457,16 @@ export default function LeadsPage() {
         productMap = res.data?.data || {}
       }
       const payload = importRows.map(r => ({
-        name:       colAlias(r, 'name', 'full name', 'student name'),
-        phone:      colAlias(r, 'phone', 'mobile', 'contact', 'phone number'),
-        email:      colAlias(r, 'email', 'email address', 'mail'),
-        city:       colAlias(r, 'city', 'location'),
-        source:     colAlias(r, 'source', 'lead source', 'channel'),
-        status:     'new',
+        name:             colAlias(r, 'name', 'full name', 'student name'),
+        contact_name:     colAlias(r, 'name', 'full name', 'student name'),
+        phone:            colAlias(r, 'phone', 'mobile', 'contact', 'phone number'),
+        email:            colAlias(r, 'email', 'email address', 'mail'),
+        city:             colAlias(r, 'city', 'location'),
+        source:           colAlias(r, 'source', 'lead source', 'channel'),
+        school_name:      colAlias(r, 'school name', 'school', 'organisation', 'organization', 'company'),
+        lead_type:        colAlias(r, 'lead type', 'type', 'b2b/b2c', 'lead_type') || 'B2C',
+        creation_comment: colAlias(r, 'creation comment', 'comment', 'upload comment', 'notes', 'creation_comment'),
+        status:           'new',
         product_id: (() => {
           const pname = colAlias(r, 'product', 'course', 'program')
           return pname ? (productMap[pname.toLowerCase()] || null) : null
@@ -538,18 +561,27 @@ export default function LeadsPage() {
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
-                {['Name','Phone','Product','Status','Agent','Date','Actions'].map(h => (
+                {['Name','School','Type','Phone','Product','Status','Agent','Date','Actions'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {!leads.length && (
-                <tr><td colSpan={7} className="text-center py-12 text-gray-400">No leads found</td></tr>
+                <tr><td colSpan={9} className="text-center py-12 text-gray-400">No leads found</td></tr>
               )}
               {leads.map(lead => (
                 <tr key={lead.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => openDetail(lead)}>
-                  <td className="px-4 py-3 font-medium text-gray-900">{lead.name}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900">{lead.name || lead.contact_name || lead.school_name}</div>
+                    {lead.creation_comment && <div className="text-xs text-gray-400 truncate max-w-[160px]" title={lead.creation_comment}>📝 {lead.creation_comment}</div>}
+                  </td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{lead.school_name || '—'}</td>
+                  <td className="px-4 py-3">
+                    {lead.lead_type
+                      ? <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${lead.lead_type==='B2B'?'bg-blue-100 text-blue-700':'bg-green-100 text-green-700'}`}>{lead.lead_type}</span>
+                      : <span className="text-gray-300">—</span>}
+                  </td>
                   <td className="px-4 py-3 text-gray-600 font-mono">{lead.phone}</td>
                   <td className="px-4 py-3">
                     {lead.product_id
@@ -649,11 +681,14 @@ export default function LeadsPage() {
                           ['Name',         getName(selectedLead)],
                           ['Phone',        getPhone(selectedLead) || '—'],
                           ['Email',        selectedLead.email || '—'],
+                          ['Lead Type',    selectedLead.lead_type || '—'],
+                          ['School / Org',  selectedLead.school_name || '—'],
                           ['Source',       selectedLead.source || '—'],
                           ['City',         selectedLead.city || '—'],
                           ['Assigned To',  selectedLead.agent_name || '—'],
                           ['Created',      selectedLead.created_at ? format(parseISO(selectedLead.created_at), 'dd MMM yyyy HH:mm') : '—'],
                           ['Admin Remark', selectedLead.admin_remark || '—'],
+                          ['Creation Note',selectedLead.creation_comment || '—'],
                         ].map(([label, val]) => (
                           <div key={label} className="bg-gray-50 rounded-xl p-3">
                             <p className="text-xs text-gray-500 mb-1">{label}</p>
@@ -696,7 +731,53 @@ export default function LeadsPage() {
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-500 mb-1">Source</label>
-                          <input value={editForm.source} onChange={e => setEditForm(f => ({ ...f, source: e.target.value }))}
+                          <select value={editForm.source} onChange={e => setEditForm(f => ({ ...f, source: e.target.value }))}
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                            <option value="">— Select source —</option>
+                            {settings.sources.map(s => <option key={s?.key||s} value={s?.label||s}>{s?.label||s}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Lead Type</label>
+                          <select value={editForm.lead_type || ''} onChange={e => setEditForm(f => ({ ...f, lead_type: e.target.value }))}
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                            <option value="">— Select type —</option>
+                            {settings.lead_types?.length > 0
+                              ? settings.lead_types.map(t => <option key={t?.key||t} value={t?.label||t}>{t?.label||t}</option>)
+                              : [['B2B','B2B'],['B2C','B2C']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">School / Organisation</label>
+                          <input value={editForm.school_name || ''} onChange={e => setEditForm(f => ({ ...f, school_name: e.target.value }))}
+                            placeholder="School or organisation name"
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Creation Comment</label>
+                          <input value={editForm.creation_comment || ''} onChange={e => setEditForm(f => ({ ...f, creation_comment: e.target.value }))}
+                            placeholder="Upload batch, campaign name…"
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Lead Type</label>
+                          <div className="flex gap-2">
+                            {(settings.lead_types.length > 0
+                              ? settings.lead_types.map(t => typeof t === 'string' ? t : (t.label || t.value || t))
+                              : ['B2B', 'B2C']
+                            ).map(lt => (
+                              <button key={lt} type="button"
+                                onClick={() => setEditForm(f => ({ ...f, lead_type: lt }))}
+                                className={`flex-1 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${editForm.lead_type === lt ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-200 text-slate-600'}`}>
+                                {lt}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">School / Organisation</label>
+                          <input value={editForm.school_name || ''} onChange={e => setEditForm(f => ({ ...f, school_name: e.target.value }))}
+                            placeholder="School or company name"
                             className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
                         </div>
                         <div>
@@ -982,9 +1063,79 @@ export default function LeadsPage() {
                       onChange={e => setForm(f => ({ ...f, source: e.target.value }))}
                       className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent">
                       <option value="">— Select source —</option>
-                      {settings.sources.map(s => <option key={s} value={s}>{s}</option>)}
+                      {settings.sources.map(s => <option key={s?.key||s} value={s?.label||s}>{s?.label||s}</option>)}
                     </select>
                   </div>
+
+                  {/* Lead Type */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Lead Type</label>
+                    <select
+                      value={form.lead_type}
+                      onChange={e => setForm(f => ({ ...f, lead_type: e.target.value }))}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent">
+                      <option value="">— Select type —</option>
+                      {settings.lead_types?.length > 0
+                        ? settings.lead_types.map(t => <option key={t?.key||t} value={t?.label||t}>{t?.label||t}</option>)
+                        : [['B2B','B2B'],['B2C','B2C']].map(([v,l]) => <option key={v} value={v}>{l}</option>)
+                      }
+                    </select>
+                  </div>
+
+                  {/* School Name */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">School / Organisation Name</label>
+                    <input
+                      value={form.school_name || ''}
+                      onChange={e => setForm(f => ({ ...f, school_name: e.target.value }))}
+                      placeholder="e.g. Delhi Public School, Sunshine Academy"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent" />
+                  </div>
+
+                  {/* Lead Type */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Lead Type *</label>
+                    <div className="flex gap-2">
+                      {(settings.lead_types.length > 0
+                        ? settings.lead_types.map(t => typeof t === 'string' ? { label: t, value: t } : t)
+                        : [{ label: 'B2B', value: 'B2B' }, { label: 'B2C', value: 'B2C' }]
+                      ).map(lt => (
+                        <button key={lt.value || lt.label} type="button"
+                          onClick={() => setForm(f => ({ ...f, lead_type: lt.value || lt.label }))}
+                          className={`flex-1 py-2 rounded-xl text-sm font-bold border-2 transition-all ${
+                            form.lead_type === (lt.value || lt.label)
+                              ? 'border-indigo-600 bg-indigo-600 text-white'
+                              : 'border-slate-200 text-slate-600 hover:border-indigo-300'
+                          }`}>
+                          {lt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* School Name */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">School / Organisation Name</label>
+                    <input
+                      className="input"
+                      placeholder="e.g. Delhi Public School, ABC Corp"
+                      value={form.school_name}
+                      onChange={e => setForm(f => ({ ...f, school_name: e.target.value }))}
+                    />
+                  </div>
+
+                  {/* Creation Comment */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Creation Comment</label>
+                    <textarea
+                      className="input"
+                      rows={2}
+                      placeholder="Notes about how this lead was sourced or created…"
+                      value={form.creation_comment}
+                      onChange={e => setForm(f => ({ ...f, creation_comment: e.target.value }))}
+                    />
+                  </div>
+
                   <div>
                     <label className="block text-xs font-semibold text-gray-600 mb-1.5">Initial Status</label>
                     <select
@@ -1034,6 +1185,14 @@ export default function LeadsPage() {
                       onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
                       placeholder="Any initial notes about this lead…"
                       className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent resize-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Creation Comment <span className="text-gray-300 font-normal">(upload / import note)</span></label>
+                    <input
+                      value={form.creation_comment || ''}
+                      onChange={e => setForm(f => ({ ...f, creation_comment: e.target.value }))}
+                      placeholder="e.g. Uploaded from April 2026 Excel, Cold calling campaign…"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-600 mb-1.5">
@@ -1148,6 +1307,33 @@ export default function LeadsPage() {
                       <option value="">— No product —</option>
                       {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
+                  </div>
+
+                  {/* Lead Type for paste */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Lead Type (applies to all rows)</label>
+                    <div className="flex gap-2">
+                      {(settings.lead_types.length > 0
+                        ? settings.lead_types.map(t => typeof t === 'string' ? t : (t.label || t.value || t))
+                        : ['B2B', 'B2C']
+                      ).map(lt => (
+                        <button key={lt} type="button"
+                          onClick={() => setPasteLeadType(lt)}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${pasteLeadType === lt ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
+                          {lt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Upload Comment */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Upload Comment (applies to all rows)</label>
+                    <input value={pasteComment} onChange={e => setPasteComment(e.target.value)}
+                      placeholder="e.g. Uploaded from WhatsApp list, March batch…"
+                      className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                  </div>
+
                   </div>
 
                   <div className="flex justify-end gap-2">
