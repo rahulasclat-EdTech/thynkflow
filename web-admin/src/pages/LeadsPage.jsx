@@ -1334,8 +1334,6 @@ export default function LeadsPage() {
                       className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
                   </div>
 
-                  </div>
-
                   <div className="flex justify-end gap-2">
                     <button onClick={() => setShowPasteModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
                     <button onClick={parsePasteText} disabled={!pasteText.trim()}
