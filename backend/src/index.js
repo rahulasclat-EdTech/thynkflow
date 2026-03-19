@@ -13,6 +13,7 @@ const settingsRoutes  = require('./routes/settings');
 const productRoutes   = require('./routes/products');
 const emailRoutes     = require('./routes/emails');
 const activityRoutes  = require('./routes/activities');
+const chatRoutes      = require('./routes/chat');
 const notifRoutes     = require('./routes/notifications');
 
 const app = express();
@@ -35,6 +36,7 @@ app.use('/api/settings',   settingsRoutes);
 app.use('/api/products',   productRoutes);
 app.use('/api/emails',     emailRoutes);
 app.use('/api/activities', activityRoutes);
+app.use('/api/chat',          chatRoutes);
 app.use('/api/notifications', notifRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', app: 'ThynkFlow' }));
