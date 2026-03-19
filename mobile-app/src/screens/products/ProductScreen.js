@@ -47,8 +47,8 @@ export default function ProductScreen() {
 
   const fetchData = async () => {
     try {
-      const body = await api.get('/products/dashboard')
-      setData(body?.data || body || {})
+      const res = await api.get('/products/dashboard')
+      setData(res.data?.data || res.data || {})
     } catch (e) { console.log('Products error:', e.message) }
     finally { setLoading(false); setRefreshing(false) }
   }
