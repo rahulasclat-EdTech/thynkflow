@@ -5,10 +5,13 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import api from '../utils/api'
 
 const TYPE_ICONS = {
-  lead_assigned:      '👤',
-  followup_scheduled: '📅',
-  missed_followup:    '⚠️',
-  default:            '🔔',
+  lead_assigned:        '👤',
+  followup_scheduled:   '📅',
+  missed_followup:      '⚠️',
+  missed_followup_bulk: '🚨',
+  new_message:          '💬',
+  new_chat:             '💬',
+  default:              '🔔',
 }
 
 function timeAgo(d) {
@@ -32,6 +35,14 @@ export default function NotificationBell() {
       setNotifs(r.data?.data || [])
       setUnread(r.data?.unread || 0)
     } catch {}
+  }, [])
+
+  // Check for missed follow-ups every 5 minutes
+  useEffect(() => {
+    const checkMissed = () => api.get('/notifications/check-missed').catch(() => {})
+    checkMissed() // on mount
+    const t = setInterval(checkMissed, 5 * 60 * 1000)
+    return () => clearInterval(t)
   }, [])
 
   useEffect(() => {
