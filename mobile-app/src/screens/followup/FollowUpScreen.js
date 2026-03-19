@@ -63,15 +63,15 @@ export default function FollowUpScreen({ navigation }) {
   const fetchFollowups = async () => {
     setError(null)
     try {
-      const resp = await api.get('/followups?section=all')
-      const body = resp.data || {}
-      const d    = body.data || {}
+      // api interceptor returns res.data directly, so body = {success, data, counts}
+      const body = await api.get('/followups?section=all')
+      const d    = body?.data || {}
 
       let today = [], previous = [], next3 = []
-      if (Array.isArray(body.data)) {
-        today    = body.data.filter(x => x.followup_type === 'today')
-        previous = body.data.filter(x => x.followup_type === 'overdue')
-        next3    = body.data.filter(x => x.followup_type === 'upcoming')
+      if (Array.isArray(d)) {
+        today    = d.filter(x => x.followup_type === 'today')
+        previous = d.filter(x => x.followup_type === 'overdue')
+        next3    = d.filter(x => x.followup_type === 'upcoming')
       } else {
         today    = Array.isArray(d.today)       ? d.today       : []
         previous = Array.isArray(d.previous)    ? d.previous    : []
@@ -84,15 +84,14 @@ export default function FollowUpScreen({ navigation }) {
       if (next3.length > 0)    built.push({ title: `📆 Next 3 Days (${next3.length})`, data: next3,    color: '#2563EB' })
 
       setSections(built)
-      setCounts(body.counts || {
+      setCounts(body?.counts || {
         today:       today.length,
         previous:    previous.length,
         next_3_days: next3.length,
         total:       today.length + previous.length + next3.length,
       })
     } catch (e) {
-      const msg = e?.response?.data?.message || e.message || 'Failed to load follow-ups'
-      setError(msg)
+      setError(e?.message || 'Failed to load follow-ups')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -291,7 +290,7 @@ function UpdateFollowUpModal({ visible, followup, onClose, onSave }) {
       }
       Alert.alert('✅ Saved', 'Follow-up updated', [{ text:'OK', onPress:onSave }])
     } catch(e) {
-      Alert.alert('Error', e?.response?.data?.message || e.message || 'Failed')
+      Alert.alert('Error', e?.message || 'Failed')
     } finally { setSaving(false) }
   }
 
