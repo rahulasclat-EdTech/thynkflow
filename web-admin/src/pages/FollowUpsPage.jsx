@@ -2,7 +2,7 @@
 // 3 sections: Today / Previous Pending (Overdue) / Next 3 Days
 // Scoped by role — agent sees only own leads, admin sees all
 // Filters: agent (admin only), product, lead status
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import { format } from 'date-fns'
@@ -249,7 +249,49 @@ export default function FollowUpsPage() {
     }).catch(() => {})
   }, [isAdmin])
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const params = new URLSearchParams({ section: 'all' })
+      if (isAdmin && filterAgent)  params.set('agent_id',    filterAgent)
+      if (filterProduct)           params.set('product_id',  filterProduct)
+      if (filterStatus)            params.set('lead_status', filterStatus)
+
+      const r = await api.get(`/followups?${params.toString()}`)
+      const d = r.data?.data || {}
+
+      let todayItems = [], prevItems = [], nextItems = []
+      if (Array.isArray(r.data?.data)) {
+        const all = r.data.data
+        todayItems = all.filter(x => x.followup_type === 'today')
+        prevItems  = all.filter(x => x.followup_type === 'overdue')
+        nextItems  = all.filter(x => x.followup_type === 'upcoming')
+      } else {
+        todayItems = Array.isArray(d.today)       ? d.today       : []
+        prevItems  = Array.isArray(d.previous)    ? d.previous    : []
+        nextItems  = Array.isArray(d.next_3_days) ? d.next_3_days : []
+      }
+      setData({ today: todayItems, previous: prevItems, next_3_days: nextItems })
+      setCounts(r.data?.counts || {
+        today:       todayItems.length,
+        previous:    prevItems.length,
+        next_3_days: nextItems.length,
+        total:       todayItems.length + prevItems.length + nextItems.length,
+      })
+    } catch (err) {
+      const msg = err?.response?.data?.message || err.message || 'Failed to load follow-ups'
+      setError(msg)
+      toast.error(msg)
+    } finally { setLoading(false) }
+  }
+
+  useEffect(() => { fetchAll() }, [filterAgent, filterProduct, filterStatus])
+
+  useEffect(() => {
+    const t = setInterval(fetchAll, 60000)
+    return () => clearInterval(t)
+  }, [])
     setLoading(true)
     setError(null)
     try {
