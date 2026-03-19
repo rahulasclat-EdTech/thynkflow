@@ -1,5 +1,4 @@
-// backend/src/routes/products.js — FIXED
-// Fix: removed role_id/roles table reference → use role_name column directly
+// backend/src/routes/products.js
 const express = require('express')
 const db      = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
@@ -37,7 +36,7 @@ router.get('/dashboard', auth, async (req, res) => {
         COUNT(CASE WHEN l.status='converted'      THEN 1 END) AS converted_leads,
         COUNT(CASE WHEN l.status='not_interested' THEN 1 END) AS not_interested_leads,
         COUNT(CASE WHEN l.status != 'not_interested' THEN 1 END) * p.per_closure_earning AS total_potential_earning,
-        COUNT(CASE WHEN l.status='converted'      THEN 1 END) * p.per_closure_earning AS actual_earned,
+        COUNT(CASE WHEN l.status='converted' THEN 1 END) * p.per_closure_earning AS actual_earned,
         COUNT(CASE WHEN l.status='not_interested' THEN 1 END) * p.per_closure_earning AS earning_lost,
         COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END) * p.per_closure_earning AS still_to_earn
       FROM products p
@@ -56,13 +55,14 @@ router.get('/dashboard', auth, async (req, res) => {
         COUNT(CASE WHEN l.status='not_interested' THEN 1 END) AS not_interested,
         COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END) AS still_to_earn_count,
         COUNT(CASE WHEN l.status != 'not_interested' THEN 1 END) * p.per_closure_earning AS potential,
-        COUNT(CASE WHEN l.status='converted'      THEN 1 END) * p.per_closure_earning AS earned,
+        COUNT(CASE WHEN l.status='converted' THEN 1 END) * p.per_closure_earning AS earned,
         COUNT(CASE WHEN l.status='not_interested' THEN 1 END) * p.per_closure_earning AS lost,
         COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END) * p.per_closure_earning AS still_to_earn
       FROM users u
       JOIN leads l ON l.assigned_to = u.id ${scope}
       JOIN products p ON l.product_id = p.id
-      WHERE u.role_name IN ('agent','admin')
+      -- FIX: use role_id join instead of role_name column
+      WHERE u.role_id IN (SELECT id FROM roles WHERE name IN ('agent','admin'))
         AND p.is_active = true
       GROUP BY u.id, u.name, p.id, p.name, p.per_closure_earning
       ORDER BY u.name, earned DESC
