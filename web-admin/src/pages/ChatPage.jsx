@@ -552,7 +552,10 @@ export default function ChatPage() {
           isAdmin={isAdmin}
           currentUserId={user?.id}
           onClose={() => setShowNew(false)}
-          onCreated={(id) => { setActiveConvId(id); loadConversations() }} />
+          onCreated={async (id) => {
+            await loadConversations()
+            setActiveConvId(id)
+          }} />
       )}
     </div>
   )
