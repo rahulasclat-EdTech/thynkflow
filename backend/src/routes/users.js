@@ -7,7 +7,7 @@ const { auth, adminOnly } = require('../middleware/auth');
 const router = express.Router();
 
 // GET /api/users - list all users (admin)
-router.get('/', auth, adminOnly, async (req, res) => {
+router.get('/', auth, async (req, res) => {
   try {
     const { rows } = await db.query(`
       SELECT u.id, u.name, u.email, u.phone, u.is_active, u.created_at,
