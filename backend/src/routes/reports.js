@@ -82,9 +82,13 @@ router.get('/agent-wise', auth, async (req, res) => {
 // ── Daily calls — detailed ────────────────────────────────
 router.get('/daily-calls', auth, async (req, res) => {
   try {
-    const { date } = req.query
+    const { date, agent_id } = req.query
     const targetDate = date || new Date().toISOString().split('T')[0]
-    const scope = agentScope(req.user)
+    let scope = agentScope(req.user)
+    // Admin can filter by specific agent
+    if (req.user.role_name === 'admin' && agent_id) {
+      scope = `AND l.assigned_to = '${agent_id}'`
+    }
 
     const { rows } = await db.query(`
       SELECT
