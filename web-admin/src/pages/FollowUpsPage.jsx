@@ -5,7 +5,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
-import { format, isToday, isPast, parseISO } from 'date-fns'
+import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 
 const STATUS_COLORS = {
@@ -36,12 +36,11 @@ function formatDate(d) {
 
 function daysOverdue(d) {
   if (!d) return 0
-  const diff = Math.floor((new Date() - new Date(d)) / 86400000)
-  return diff
+  return Math.floor((new Date() - new Date(d)) / 86400000)
 }
 
 // ── Update Modal ──────────────────────────────────────────
-function UpdateModal({ followup, agents, products, onClose, onSave }) {
+function UpdateModal({ followup, onClose, onSave }) {
   const [newStatus, setNewStatus]   = useState(followup.lead_status || 'new')
   const [discussion, setDiscussion] = useState('')
   const [nextDate, setNextDate]     = useState('')
@@ -60,12 +59,12 @@ function UpdateModal({ followup, agents, products, onClose, onSave }) {
           lead_id: followup.lead_id,
           follow_up_date: nextDate,
           notes: discussion
-        }).catch(() => {})
+        }).catch(e => console.warn('Schedule followup failed:', e.message))
       }
       toast.success('Follow-up updated')
       onSave()
     } catch (err) {
-      toast.error(err.message || 'Failed to save')
+      toast.error(err?.response?.data?.message || err.message || 'Failed to save')
     } finally { setSaving(false) }
   }
 
@@ -80,14 +79,12 @@ function UpdateModal({ followup, agents, products, onClose, onSave }) {
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center hover:bg-slate-200">✕</button>
         </div>
         <div className="p-5 space-y-4">
-          {/* Call notes */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">📝 Call Notes *</label>
             <textarea value={discussion} onChange={e => setDiscussion(e.target.value)}
               rows={3} placeholder="What was discussed on the call?"
               className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none" />
           </div>
-          {/* Lead status */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">📊 Update Status</label>
             <div className="flex flex-wrap gap-2">
@@ -104,7 +101,6 @@ function UpdateModal({ followup, agents, products, onClose, onSave }) {
               })}
             </div>
           </div>
-          {/* Next follow-up date */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">📅 Next Follow-up Date</label>
             <input type="date" value={nextDate} onChange={e => setNextDate(e.target.value)}
@@ -224,6 +220,7 @@ export default function FollowUpsPage() {
   const [data, setData]           = useState({ today: [], previous: [], next_3_days: [] })
   const [counts, setCounts]       = useState({ today: 0, previous: 0, next_3_days: 0, total: 0 })
   const [loading, setLoading]     = useState(true)
+  const [error, setError]         = useState(null)   // FIX: surface errors instead of swallowing
   const [agents, setAgents]       = useState([])
   const [products, setProducts]   = useState([])
 
@@ -254,20 +251,19 @@ export default function FollowUpsPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const params = new URLSearchParams({ section: 'all' })
-      if (isAdmin && filterAgent)   params.set('agent_id',    filterAgent)
-      if (filterProduct) params.set('product_id', filterProduct)
-      if (filterStatus)  params.set('lead_status', filterStatus)
+      if (isAdmin && filterAgent)  params.set('agent_id',    filterAgent)
+      if (filterProduct)           params.set('product_id',  filterProduct)
+      if (filterStatus)            params.set('lead_status', filterStatus)
 
       const r = await api.get(`/followups?${params}`)
-      console.log('Followups API response:', JSON.stringify(r.data?.counts), 'data keys:', Object.keys(r.data?.data || {}))
       const d = r.data?.data || {}
 
       // Handle both {today:[], previous:[], next_3_days:[]} and flat array response
       let todayItems = [], prevItems = [], nextItems = []
       if (Array.isArray(r.data?.data)) {
-        // Flat array — categorise client-side
         const all = r.data.data
         todayItems = all.filter(x => x.followup_type === 'today')
         prevItems  = all.filter(x => x.followup_type === 'overdue')
@@ -285,8 +281,10 @@ export default function FollowUpsPage() {
         total:       todayItems.length + prevItems.length + nextItems.length,
       })
     } catch (err) {
+      const msg = err?.response?.data?.message || err.message || 'Failed to load follow-ups'
       console.error('Followups error:', err)
-      toast.error('Failed to load follow-ups')
+      setError(msg)
+      toast.error(msg)
     } finally { setLoading(false) }
   }, [isAdmin, filterAgent, filterProduct, filterStatus])
 
@@ -315,6 +313,18 @@ export default function FollowUpsPage() {
           🔄 Refresh
         </button>
       </div>
+
+      {/* Error banner — shows API errors clearly instead of silent empty state */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-3">
+          <span className="text-red-500 text-lg">⚠️</span>
+          <div>
+            <p className="text-sm font-semibold text-red-700">Failed to load follow-ups</p>
+            <p className="text-xs text-red-500">{error}</p>
+          </div>
+          <button onClick={fetchAll} className="ml-auto text-xs text-red-600 underline">Retry</button>
+        </div>
+      )}
 
       {/* Summary KPI cards */}
       <div className="grid grid-cols-3 gap-4">
@@ -359,7 +369,7 @@ export default function FollowUpsPage() {
           <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Status:</label>
           <select className="input w-40 text-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
             <option value="">All Statuses</option>
-            {ALL_STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
+            {ALL_STATUSES.map(s => <option key={s} value={s}>{s.replace(/_,' ')}</option>)}
           </select>
         </div>
         {(filterAgent || filterProduct || filterStatus) && (
@@ -375,7 +385,6 @@ export default function FollowUpsPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {/* Section A: Today */}
           <Section
             title={`Today's Follow-ups — ${format(new Date(), 'dd MMM yyyy')}`}
             icon="⏰"
@@ -384,8 +393,6 @@ export default function FollowUpsPage() {
             onUpdate={handleUpdate}
             isAdmin={isAdmin}
           />
-
-          {/* Section B: Previous / Overdue */}
           <Section
             title="Previous Pending (Overdue)"
             icon="🔴"
@@ -394,8 +401,6 @@ export default function FollowUpsPage() {
             onUpdate={handleUpdate}
             isAdmin={isAdmin}
           />
-
-          {/* Section C: Next 3 Days */}
           <Section
             title="Next 3 Days"
             icon="📆"
@@ -407,12 +412,9 @@ export default function FollowUpsPage() {
         </div>
       )}
 
-      {/* Update modal */}
       {selected && (
         <UpdateModal
           followup={selected}
-          agents={agents}
-          products={products}
           onClose={() => setSelected(null)}
           onSave={handleSaved}
         />
