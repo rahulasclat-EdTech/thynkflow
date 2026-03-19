@@ -60,7 +60,7 @@ function UpdateModal({ followup, onClose, onSave }) {
       toast.success('Follow-up updated')
       onSave()
     } catch (err) {
-      toast.error(err?.response?.data?.message || err.message || 'Failed to save')
+      toast.error(err?.message || 'Failed to save')
     } finally { setSaving(false) }
   }
 
@@ -211,30 +211,32 @@ export default function FollowUpsPage() {
   const { user } = useAuth()
   const isAdmin = user?.role_name === 'admin'
 
-  const [data, setData]           = useState({ today: [], previous: [], next_3_days: [] })
-  const [counts, setCounts]       = useState({ today: 0, previous: 0, next_3_days: 0, total: 0 })
-  const [loading, setLoading]     = useState(true)
-  const [error, setError]         = useState(null)
-  const [agents, setAgents]       = useState([])
-  const [products, setProducts]   = useState([])
+  const [data, setData]       = useState({ today: [], previous: [], next_3_days: [] })
+  const [counts, setCounts]   = useState({ today: 0, previous: 0, next_3_days: 0, total: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState(null)
+  const [agents, setAgents]   = useState([])
+  const [products, setProducts] = useState([])
   const [filterAgent, setFilterAgent]     = useState('')
   const [filterProduct, setFilterProduct] = useState('')
   const [filterStatus, setFilterStatus]   = useState('')
-  const [selected, setSelected]   = useState(null)
+  const [selected, setSelected] = useState(null)
 
   useEffect(() => {
     if (isAdmin) {
       api.get('/users').then(r => {
-        const list = r.data?.data || r.data || []
+        const list = r?.data || r || []
         setAgents(Array.isArray(list) ? list.filter(u => ['agent','admin'].includes(u.role_name)) : [])
       }).catch(() => {
         api.get('/chat/users').then(r => {
-          setAgents(r.data?.data || r.data || [])
+          const list = r?.data || r || []
+          setAgents(Array.isArray(list) ? list : [])
         }).catch(() => {})
       })
     }
     api.get('/products/active').then(r => {
-      setProducts(r.data?.data || r.data || [])
+      const list = r?.data || r || []
+      setProducts(Array.isArray(list) ? list : [])
     }).catch(() => {})
   }, [isAdmin])
 
@@ -243,19 +245,19 @@ export default function FollowUpsPage() {
     setError(null)
     try {
       const params = new URLSearchParams({ section: 'all' })
-      if (isAdmin && agentF)   params.set('agent_id',    agentF)
-      if (productF)            params.set('product_id',  productF)
-      if (statusF)             params.set('lead_status', statusF)
+      if (isAdmin && agentF) params.set('agent_id',    agentF)
+      if (productF)          params.set('product_id',  productF)
+      if (statusF)           params.set('lead_status', statusF)
 
-      const resp = await api.get(`/followups?${params.toString()}`)
-      const body = resp.data || {}
-      const d    = body.data  || {}
+      // NOTE: api interceptor returns res.data directly, so response IS the body
+      const body = await api.get(`/followups?${params.toString()}`)
+      const d    = body?.data || {}
 
       let todayItems = [], prevItems = [], nextItems = []
-      if (Array.isArray(body.data)) {
-        todayItems = body.data.filter(x => x.followup_type === 'today')
-        prevItems  = body.data.filter(x => x.followup_type === 'overdue')
-        nextItems  = body.data.filter(x => x.followup_type === 'upcoming')
+      if (Array.isArray(d)) {
+        todayItems = d.filter(x => x.followup_type === 'today')
+        prevItems  = d.filter(x => x.followup_type === 'overdue')
+        nextItems  = d.filter(x => x.followup_type === 'upcoming')
       } else {
         todayItems = Array.isArray(d.today)       ? d.today       : []
         prevItems  = Array.isArray(d.previous)    ? d.previous    : []
@@ -263,14 +265,14 @@ export default function FollowUpsPage() {
       }
 
       setData({ today: todayItems, previous: prevItems, next_3_days: nextItems })
-      setCounts(body.counts || {
+      setCounts(body?.counts || {
         today:       todayItems.length,
         previous:    prevItems.length,
         next_3_days: nextItems.length,
         total:       todayItems.length + prevItems.length + nextItems.length,
       })
     } catch (err) {
-      const msg = err?.response?.data?.message || err.message || 'Failed to load follow-ups'
+      const msg = err?.message || 'Failed to load follow-ups'
       setError(msg)
       toast.error(msg)
     } finally { setLoading(false) }
