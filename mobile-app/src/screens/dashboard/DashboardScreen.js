@@ -115,7 +115,9 @@ export default function DashboardScreen({ navigation }) {
         api.get('/activities/dashboard').catch(() => ({ data: {} })),
         api.get('/followups?status=pending&per_page=5').catch(() => ({ data: [] })),
       ])
-      setDashData(d.data?.data || d.data || {})
+      // /dashboard returns { success, data: { totals: {...} } }
+      const dashRaw = d.data?.data || d.data || {}
+      setDashData(dashRaw.totals || dashRaw)
       setProdData(p.data?.data || p.data || {})
       setActData(a.data?.data  || a.data  || {})
       const raw = f.data?.data || f.data || []
@@ -152,7 +154,7 @@ export default function DashboardScreen({ navigation }) {
   const act  = actData  || {}
 
   const totalLeads   = parseInt(dash.total_leads || 0)
-  const converted    = parseInt(dash.converted_leads || dash.converted || 0)
+  const converted    = parseInt(dash.converted || dash.converted_leads || 0)
   const convRate     = totalLeads > 0 ? ((converted / totalLeads) * 100).toFixed(1) : '0'
   const todayCalls   = parseInt(dash.today_calls || 0)
   const weekCalls    = parseInt(dash.week_calls  || 0)
@@ -172,13 +174,13 @@ export default function DashboardScreen({ navigation }) {
 
   // Status breakdown
   const statusBreakdown = [
-    { key: 'new',            label: 'New',          val: dash.new_leads         || 0 },
-    { key: 'hot',            label: 'Hot',           val: dash.hot_leads         || 0 },
-    { key: 'warm',           label: 'Warm',          val: dash.warm_leads        || 0 },
-    { key: 'cold',           label: 'Cold',          val: dash.cold_leads        || 0 },
-    { key: 'converted',      label: 'Converted',     val: dash.converted         || 0 },
-    { key: 'call_back',      label: 'Call Back',     val: dash.call_back_leads || dash.call_back || 0 },
-    { key: 'not_interested', label: 'Not Interested',val: dash.not_interested_leads || dash.not_interested || 0 },
+    { key: 'new',            label: 'New',           val: parseInt(dash.new_leads || 0) },
+    { key: 'hot',            label: 'Hot',            val: parseInt(dash.hot_leads || 0) },
+    { key: 'warm',           label: 'Warm',           val: parseInt(dash.warm_leads || 0) },
+    { key: 'cold',           label: 'Cold',           val: parseInt(dash.cold_leads || 0) },
+    { key: 'converted',      label: 'Converted',      val: parseInt(dash.converted || 0) },
+    { key: 'call_back',      label: 'Call Back',      val: parseInt(dash.call_back || dash.call_back_leads || 0) },
+    { key: 'not_interested', label: 'Not Interested', val: parseInt(dash.not_interested || dash.not_interested_leads || 0) },
   ]
 
   return (
