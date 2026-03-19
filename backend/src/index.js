@@ -6,6 +6,7 @@ const path = require('path');
 const authRoutes      = require('./routes/auth');
 const userRoutes      = require('./routes/users');
 const leadRoutes      = require('./routes/leads');
+const leadAddRoutes   = require('./routes/leads_additions');
 const followupRoutes  = require('./routes/followups');
 const reportRoutes    = require('./routes/reports');
 const dashboardRoutes = require('./routes/dashboard');
@@ -28,6 +29,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 app.use('/api/auth',       authRoutes);
 app.use('/api/users',      userRoutes);
+app.use('/api/leads',      leadAddRoutes);  // bulk, assign, lookup-products, comms
 app.use('/api/leads',      leadRoutes);
 app.use('/api/followups',  followupRoutes);
 app.use('/api/reports',    reportRoutes);
