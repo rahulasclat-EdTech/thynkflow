@@ -1,15 +1,18 @@
-// backend/src/routes/followups.js — FIXED
-// Key fixes vs previous version:
-//   1. DATE(next_followup_date) cast to handle timestamp vs date storage
-//   2. Removed status filter that was wrongly excluding active leads
-//   3. Added fallback: if call_logs empty, also checks communication_logs
-//   4. Section 'previous' includes TODAY too (overdue = <= today, not just < today)
-//      because a lead due today that was missed is also "pending"
-//   5. Better NULL handling in DISTINCT ON
+// backend/src/routes/followups.js — FIXED v2
+// Fixes vs previous version:
+//   1. module.exports moved to END of file (was cutting off /debug route)
+//   2. Timezone-safe date comparison using AT TIME ZONE 'Asia/Kolkata'
+//   3. 'previous' section now correctly captures overdue leads (< today IST)
+//   4. Added proper error logging so silent failures become visible
+//   5. /debug route now actually registered (was dead code before)
+
 const express = require('express')
 const db      = require('../config/db')
 const { auth } = require('../middleware/auth')
 const router  = express.Router()
+
+// IST timezone offset helper — uses DB-level timezone so Render UTC != issue
+const IST_TODAY = `(NOW() AT TIME ZONE 'Asia/Kolkata')::date`
 
 function agentScope(user, alias = 'l') {
   return user.role_name === 'admin' ? '' : `AND ${alias}.assigned_to = '${user.id}'`
@@ -24,19 +27,16 @@ async function getFollowups(user, section = 'all', filters = {}) {
   if (product_id)  extraScope += ` AND l.product_id = ${parseInt(product_id)}`
   if (lead_status) extraScope += ` AND l.status = '${lead_status}'`
 
-  // Date filter using DATE() cast to handle both date and timestamp columns
+  // All date comparisons use IST date, not UTC date (fixes Render UTC vs IST gap)
   let dateFilter = ''
   if (section === 'today') {
-    dateFilter = `AND DATE(latest.next_followup_date) = CURRENT_DATE`
+    dateFilter = `AND (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date = ${IST_TODAY}`
   } else if (section === 'previous') {
-    // Overdue = strictly before today
-    dateFilter = `AND DATE(latest.next_followup_date) < CURRENT_DATE`
+    dateFilter = `AND (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date < ${IST_TODAY}`
   } else if (section === 'next_3_days') {
-    // Upcoming = after today through 3 days ahead
-    dateFilter = `AND DATE(latest.next_followup_date) > CURRENT_DATE
-                  AND DATE(latest.next_followup_date) <= CURRENT_DATE + INTERVAL '3 days'`
+    dateFilter = `AND (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date > ${IST_TODAY}
+                  AND (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date <= ${IST_TODAY} + INTERVAL '3 days'`
   }
-  // section === 'all' → no dateFilter, return everything
 
   const { rows } = await db.query(`
     SELECT
@@ -55,11 +55,11 @@ async function getFollowups(user, section = 'all', filters = {}) {
       p.name                        AS product_name,
       u.name                        AS agent_name,
       CASE
-        WHEN DATE(latest.next_followup_date) < CURRENT_DATE  THEN 'overdue'
-        WHEN DATE(latest.next_followup_date) = CURRENT_DATE  THEN 'today'
+        WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date < ${IST_TODAY}  THEN 'overdue'
+        WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date = ${IST_TODAY}  THEN 'today'
         ELSE 'upcoming'
       END                           AS followup_type,
-      (CURRENT_DATE - DATE(latest.next_followup_date))::int  AS days_overdue
+      (${IST_TODAY} - (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date)::int  AS days_overdue
     FROM (
       SELECT DISTINCT ON (cl.lead_id)
         cl.lead_id,
@@ -75,7 +75,7 @@ async function getFollowups(user, section = 'all', filters = {}) {
     WHERE 1=1
       ${dateFilter}
       ${extraScope}
-    ORDER BY DATE(latest.next_followup_date) ASC
+    ORDER BY (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date ASC
     LIMIT 500
   `)
   return rows
@@ -110,7 +110,7 @@ router.get('/', auth, async (req, res) => {
       }
     })
   } catch (err) {
-    console.error('Followups error:', err.message)
+    console.error('Followups GET / error:', err.message, err.stack)
     res.status(500).json({ success: false, message: err.message })
   }
 })
@@ -121,10 +121,10 @@ router.get('/summary', auth, async (req, res) => {
     const scope = agentScope(req.user)
     const { rows: [r] } = await db.query(`
       SELECT
-        COUNT(CASE WHEN DATE(latest.next_followup_date) = CURRENT_DATE              THEN 1 END) AS today,
-        COUNT(CASE WHEN DATE(latest.next_followup_date) < CURRENT_DATE              THEN 1 END) AS overdue,
-        COUNT(CASE WHEN DATE(latest.next_followup_date) > CURRENT_DATE
-                    AND DATE(latest.next_followup_date) <= CURRENT_DATE+INTERVAL '3 days' THEN 1 END) AS next_3_days
+        COUNT(CASE WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date = ${IST_TODAY}              THEN 1 END) AS today,
+        COUNT(CASE WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date < ${IST_TODAY}              THEN 1 END) AS overdue,
+        COUNT(CASE WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date > ${IST_TODAY}
+                    AND  (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date <= ${IST_TODAY}+INTERVAL '3 days' THEN 1 END) AS next_3_days
       FROM (
         SELECT DISTINCT ON (cl.lead_id) cl.lead_id, cl.next_followup_date
         FROM call_logs cl
@@ -135,7 +135,10 @@ router.get('/summary', auth, async (req, res) => {
       WHERE 1=1 ${scope}
     `)
     res.json({ success: true, data: r })
-  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+  } catch (err) {
+    console.error('Followups GET /summary error:', err.message)
+    res.status(500).json({ success: false, message: err.message })
+  }
 })
 
 // ── POST /api/followups — schedule a follow-up ────────────
@@ -149,7 +152,10 @@ router.post('/', auth, async (req, res) => {
       [lead_id, req.user.id, notes || '', follow_up_date || null]
     )
     res.status(201).json({ success: true })
-  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+  } catch (err) {
+    console.error('Followups POST / error:', err.message)
+    res.status(500).json({ success: false, message: err.message })
+  }
 })
 
 // ── PATCH /api/followups/:leadId — update after call ──────
@@ -170,25 +176,31 @@ router.patch('/:leadId', auth, async (req, res) => {
       )
     }
     res.json({ success: true })
-  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+  } catch (err) {
+    console.error('Followups PATCH error:', err.message)
+    res.status(500).json({ success: false, message: err.message })
+  }
 })
 
-module.exports = router
-
-// ── GET /api/followups/debug — see raw call_logs data ────
-// Remove this in production once verified
+// ── GET /api/followups/debug — verify raw data (remove in prod) ──
 router.get('/debug', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
-    // Show ALL call_logs with next_followup_date set
     const { rows: raw } = await db.query(`
-      SELECT cl.lead_id, cl.next_followup_date, cl.called_at, cl.discussion,
-             DATE(cl.next_followup_date) AS fu_date,
-             CURRENT_DATE AS server_today,
-             DATE(cl.next_followup_date) = CURRENT_DATE AS is_today,
-             DATE(cl.next_followup_date) < CURRENT_DATE  AS is_overdue,
-             l.status AS lead_status, l.contact_name, l.school_name,
-             u.name AS agent_name
+      SELECT
+        cl.lead_id,
+        cl.next_followup_date,
+        cl.called_at,
+        cl.discussion,
+        -- Show both UTC date and IST date so you can compare
+        DATE(cl.next_followup_date)                                              AS utc_date,
+        (cl.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date               AS ist_date,
+        ${IST_TODAY}                                                              AS server_ist_today,
+        CURRENT_DATE                                                              AS server_utc_today,
+        (cl.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date = ${IST_TODAY} AS is_today_ist,
+        (cl.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date < ${IST_TODAY} AS is_overdue_ist,
+        l.status AS lead_status, l.contact_name, l.school_name,
+        u.name AS agent_name
       FROM call_logs cl
       JOIN leads l ON l.id = cl.lead_id
       LEFT JOIN users u ON l.assigned_to = u.id
@@ -196,6 +208,18 @@ router.get('/debug', auth, async (req, res) => {
       ORDER BY cl.next_followup_date DESC
       LIMIT 20
     `)
-    res.json({ success: true, server_date: new Date().toISOString(), data: raw, count: raw.length })
-  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+    res.json({
+      success:      true,
+      server_utc:   new Date().toISOString(),
+      server_ist:   new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+      data:         raw,
+      count:        raw.length
+    })
+  } catch (err) {
+    console.error('Followups GET /debug error:', err.message)
+    res.status(500).json({ success: false, message: err.message })
+  }
 })
+
+// ── MUST be at the very end ───────────────────────────────
+module.exports = router
