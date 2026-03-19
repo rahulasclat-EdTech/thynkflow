@@ -1,81 +1,406 @@
-import React, { useEffect, useState } from 'react'
+// web-admin/src/pages/FollowUpsPage.jsx
+// 3 sections: Today / Previous Pending (Overdue) / Next 3 Days
+// Scoped by role — agent sees only own leads, admin sees all
+// Filters: agent (admin only), product, lead status
+import React, { useEffect, useState, useCallback } from 'react'
 import api from '../utils/api'
-import { format } from 'date-fns'
-import LeadDetailModal from '../components/leads/LeadDetailModal'
+import { useAuth } from '../context/AuthContext'
+import { format, isToday, isPast, parseISO } from 'date-fns'
+import toast from 'react-hot-toast'
 
-const GROUP_CONFIG = {
-  missed: { label: 'Missed Follow-ups', color: 'text-red-600', dot: 'bg-red-500', border: 'border-l-red-500' },
-  today: { label: "Today's Follow-ups", color: 'text-green-600', dot: 'bg-green-500', border: 'border-l-green-500' },
-  tomorrow: { label: "Tomorrow's Follow-ups", color: 'text-blue-600', dot: 'bg-blue-500', border: 'border-l-blue-500' },
-  upcoming: { label: 'Upcoming', color: 'text-slate-600', dot: 'bg-slate-400', border: 'border-l-slate-400' },
+const STATUS_COLORS = {
+  new:            { bg: '#dbeafe', text: '#1e40af' },
+  hot:            { bg: '#fee2e2', text: '#991b1b' },
+  warm:           { bg: '#fef3c7', text: '#92400e' },
+  cold:           { bg: '#e2e8f0', text: '#475569' },
+  converted:      { bg: '#dcfce7', text: '#14532d' },
+  not_interested: { bg: '#f1f5f9', text: '#64748b' },
+  call_back:      { bg: '#ede9fe', text: '#5b21b6' },
+}
+const ALL_STATUSES = Object.keys(STATUS_COLORS)
+
+function StatusBadge({ status }) {
+  const c = STATUS_COLORS[status] || { bg: '#f1f5f9', text: '#64748b' }
+  return (
+    <span className="text-xs font-bold px-2 py-0.5 rounded-full capitalize"
+      style={{ background: c.bg, color: c.text }}>
+      {status?.replace(/_/g, ' ')}
+    </span>
+  )
 }
 
-export default function FollowUpsPage() {
-  const [data, setData] = useState({ missed: [], today: [], tomorrow: [], upcoming: [] })
-  const [loading, setLoading] = useState(true)
-  const [selectedLead, setSelectedLead] = useState(null)
+function formatDate(d) {
+  if (!d) return '—'
+  try { return format(new Date(d), 'dd MMM yyyy') } catch { return String(d) }
+}
 
-  useEffect(() => {
-    api.get('/followups').then(res => setData(res.data)).finally(() => setLoading(false))
-  }, [])
+function daysOverdue(d) {
+  if (!d) return 0
+  const diff = Math.floor((new Date() - new Date(d)) / 86400000)
+  return diff
+}
 
-  if (loading) return <div className="flex items-center justify-center h-64 text-slate-400">Loading follow-ups...</div>
+// ── Update Modal ──────────────────────────────────────────
+function UpdateModal({ followup, agents, products, onClose, onSave }) {
+  const [newStatus, setNewStatus]   = useState(followup.lead_status || 'new')
+  const [discussion, setDiscussion] = useState('')
+  const [nextDate, setNextDate]     = useState('')
+  const [saving, setSaving]         = useState(false)
 
-  const total = Object.values(data).reduce((s, a) => s + a.length, 0)
+  const handleSave = async () => {
+    if (!discussion.trim()) return toast.error('Add call notes')
+    setSaving(true)
+    try {
+      await api.post(`/leads/${followup.lead_id}/communications`, {
+        type: 'call', direction: 'outbound', note: discussion
+      })
+      await api.patch(`/leads/${followup.lead_id}/status`, { status: newStatus })
+      if (nextDate) {
+        await api.post('/followups', {
+          lead_id: followup.lead_id,
+          follow_up_date: nextDate,
+          notes: discussion
+        }).catch(() => {})
+      }
+      toast.success('Follow-up updated')
+      onSave()
+    } catch (err) {
+      toast.error(err.message || 'Failed to save')
+    } finally { setSaving(false) }
+  }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Follow Ups</h1>
-        <p className="text-slate-500 text-sm">{total} pending follow-ups</p>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+          <div>
+            <h3 className="text-lg font-bold text-slate-800">Update Follow-up</h3>
+            <p className="text-sm text-slate-500">{followup.lead_name} · {followup.phone}</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center hover:bg-slate-200">✕</button>
+        </div>
+        <div className="p-5 space-y-4">
+          {/* Call notes */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">📝 Call Notes *</label>
+            <textarea value={discussion} onChange={e => setDiscussion(e.target.value)}
+              rows={3} placeholder="What was discussed on the call?"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none" />
+          </div>
+          {/* Lead status */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">📊 Update Status</label>
+            <div className="flex flex-wrap gap-2">
+              {ALL_STATUSES.map(s => {
+                const c = STATUS_COLORS[s]
+                const active = newStatus === s
+                return (
+                  <button key={s} onClick={() => setNewStatus(s)}
+                    className="px-3 py-1 rounded-full text-xs font-semibold transition-all"
+                    style={{ background: active ? c.text : c.bg, color: active ? '#fff' : c.text }}>
+                    {s.replace(/_/g, ' ')}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          {/* Next follow-up date */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">📅 Next Follow-up Date</label>
+            <input type="date" value={nextDate} onChange={e => setNextDate(e.target.value)}
+              min={new Date().toISOString().split('T')[0]}
+              className="border border-slate-200 rounded-xl px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+          </div>
+        </div>
+        <div className="p-5 border-t border-slate-100 flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-slate-600 text-sm font-semibold hover:bg-slate-50">Cancel</button>
+          <button onClick={handleSave} disabled={saving}
+            className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save Update'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Section component ─────────────────────────────────────
+function Section({ title, icon, color, items, onUpdate, isAdmin }) {
+  const [expanded, setExpanded] = useState(true)
+  if (!items) return null
+
+  return (
+    <div className="card overflow-hidden">
+      <button onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition-colors">
+        <div className="flex items-center gap-3">
+          <span className="text-xl">{icon}</span>
+          <h2 className="text-base font-bold text-slate-800">{title}</h2>
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold text-white" style={{ background: color }}>
+            {items.length}
+          </span>
+        </div>
+        <span className="text-slate-400 text-sm">{expanded ? '▲' : '▼'}</span>
+      </button>
+
+      {expanded && (
+        items.length === 0 ? (
+          <div className="px-5 pb-5 text-center text-slate-400 text-sm py-8">
+            <p className="text-3xl mb-2">🎉</p>
+            <p>No follow-ups in this section</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-t border-slate-100">
+                <tr>
+                  {['Name / School', 'Phone', isAdmin && 'Agent', 'Product', 'Status', 'Follow-up Date', 'Notes', 'Actions']
+                    .filter(Boolean).map(h => (
+                    <th key={h} className="text-left px-4 py-3 text-xs text-slate-500 font-semibold uppercase whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {items.map((item, i) => {
+                  const overdue = item.followup_type === 'overdue'
+                  const days = overdue ? daysOverdue(item.follow_up_date) : 0
+                  return (
+                    <tr key={item.lead_id || i} className={`hover:bg-slate-50 ${overdue ? 'bg-red-50/50' : ''}`}>
+                      <td className="px-4 py-3 font-medium max-w-[160px]">
+                        <p className="truncate">{item.lead_name || item.contact_name || '—'}</p>
+                        {item.school_name && item.school_name !== item.lead_name && (
+                          <p className="text-xs text-slate-400 truncate">{item.school_name}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-blue-600 whitespace-nowrap">
+                        <a href={`tel:${item.phone}`} className="hover:underline">{item.phone || '—'}</a>
+                      </td>
+                      {isAdmin && <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{item.agent_name || '—'}</td>}
+                      <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{item.product_name || '—'}</td>
+                      <td className="px-4 py-3"><StatusBadge status={item.lead_status} /></td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className={`text-xs font-semibold ${overdue ? 'text-red-600' : 'text-slate-600'}`}>
+                          {formatDate(item.follow_up_date)}
+                          {overdue && days > 0 && <span className="ml-1 text-red-500">({days}d overdue ⚠️)</span>}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-400 max-w-[160px]">
+                        <span className="truncate block">{item.notes || '—'}</span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex gap-2">
+                          <a href={`tel:${item.phone}`}
+                            className="px-2.5 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-semibold hover:bg-green-200">
+                            📞 Call
+                          </a>
+                          <a href={`https://wa.me/${(item.phone||'').replace(/[^0-9]/g,'')}`}
+                            target="_blank" rel="noreferrer"
+                            className="px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-200">
+                            💬 WA
+                          </a>
+                          <button onClick={() => onUpdate(item)}
+                            className="px-2.5 py-1 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold hover:bg-indigo-200">
+                            ✏️ Update
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+    </div>
+  )
+}
+
+// ── Main Page ─────────────────────────────────────────────
+export default function FollowUpsPage() {
+  const { user } = useAuth()
+  const isAdmin = user?.role_name === 'admin'
+
+  const [data, setData]           = useState({ today: [], previous: [], next_3_days: [] })
+  const [counts, setCounts]       = useState({ today: 0, previous: 0, next_3_days: 0, total: 0 })
+  const [loading, setLoading]     = useState(true)
+  const [agents, setAgents]       = useState([])
+  const [products, setProducts]   = useState([])
+
+  // Filters
+  const [filterAgent, setFilterAgent]     = useState('')
+  const [filterProduct, setFilterProduct] = useState('')
+  const [filterStatus, setFilterStatus]   = useState('')
+
+  // Update modal
+  const [selected, setSelected]   = useState(null)
+
+  // Load agents + products
+  useEffect(() => {
+    if (isAdmin) {
+      api.get('/users').then(r => {
+        const list = r.data?.data || r.data || []
+        setAgents(Array.isArray(list) ? list.filter(u => ['agent','admin'].includes(u.role_name)) : [])
+      }).catch(() => {
+        api.get('/chat/users').then(r => {
+          setAgents(r.data?.data || r.data || [])
+        }).catch(() => {})
+      })
+    }
+    api.get('/products/active').then(r => {
+      setProducts(r.data?.data || r.data || [])
+    }).catch(() => {})
+  }, [isAdmin])
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams({ section: 'all' })
+      if (isAdmin && filterAgent)   params.set('agent_id',    filterAgent)
+      if (filterProduct) params.set('product_id', filterProduct)
+      if (filterStatus)  params.set('lead_status', filterStatus)
+
+      const r = await api.get(`/followups?${params}`)
+      const d = r.data?.data || {}
+      setData({
+        today:       Array.isArray(d.today)       ? d.today       : [],
+        previous:    Array.isArray(d.previous)    ? d.previous    : [],
+        next_3_days: Array.isArray(d.next_3_days) ? d.next_3_days : [],
+      })
+      setCounts(r.data?.counts || { today: 0, previous: 0, next_3_days: 0, total: 0 })
+    } catch (err) {
+      console.error('Followups error:', err)
+      toast.error('Failed to load follow-ups')
+    } finally { setLoading(false) }
+  }, [isAdmin, filterAgent, filterProduct, filterStatus])
+
+  useEffect(() => { fetchAll() }, [fetchAll])
+
+  // Auto-refresh every 60 seconds
+  useEffect(() => {
+    const t = setInterval(fetchAll, 60000)
+    return () => clearInterval(t)
+  }, [fetchAll])
+
+  const handleUpdate = (item) => setSelected(item)
+  const handleSaved  = () => { setSelected(null); fetchAll() }
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">📅 Follow-ups</h1>
+          <p className="text-slate-500 text-sm">
+            {loading ? 'Loading…' : `${counts.total} total — ${counts.today} today, ${counts.previous} overdue, ${counts.next_3_days} upcoming`}
+          </p>
+        </div>
+        <button onClick={fetchAll} className="px-4 py-2 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 font-medium">
+          🔄 Refresh
+        </button>
       </div>
 
-      {total === 0 ? (
-        <div className="card p-12 text-center text-slate-400">
-          <p className="text-4xl mb-3">✅</p>
-          <p className="font-medium">All caught up! No pending follow-ups.</p>
+      {/* Summary KPI cards */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="card p-4 text-center border-l-4 border-amber-400">
+          <p className="text-3xl font-black text-amber-500">{counts.today}</p>
+          <p className="text-sm font-semibold text-slate-600 mt-1">Today</p>
+          <p className="text-xs text-slate-400">Due today</p>
+        </div>
+        <div className="card p-4 text-center border-l-4 border-red-400">
+          <p className="text-3xl font-black text-red-500">{counts.previous}</p>
+          <p className="text-sm font-semibold text-slate-600 mt-1">Overdue</p>
+          <p className="text-xs text-slate-400">Past due date</p>
+        </div>
+        <div className="card p-4 text-center border-l-4 border-blue-400">
+          <p className="text-3xl font-black text-blue-500">{counts.next_3_days}</p>
+          <p className="text-sm font-semibold text-slate-600 mt-1">Next 3 Days</p>
+          <p className="text-xs text-slate-400">Upcoming</p>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3 bg-white border border-slate-200 rounded-xl p-3">
+        {isAdmin && agents.length > 0 && (
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Agent:</label>
+            <select className="input w-40 text-sm" value={filterAgent} onChange={e => setFilterAgent(e.target.value)}>
+              <option value="">All Agents</option>
+              {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+        )}
+        {products.length > 0 && (
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Product:</label>
+            <select className="input w-44 text-sm" value={filterProduct} onChange={e => setFilterProduct(e.target.value)}>
+              <option value="">All Products</option>
+              {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Status:</label>
+          <select className="input w-40 text-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+            <option value="">All Statuses</option>
+            {ALL_STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
+          </select>
+        </div>
+        {(filterAgent || filterProduct || filterStatus) && (
+          <button onClick={() => { setFilterAgent(''); setFilterProduct(''); setFilterStatus('') }}
+            className="text-xs text-slate-400 hover:text-slate-600 underline">Reset</button>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="card p-16 text-center text-slate-400">
+          <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          Loading follow-ups…
         </div>
       ) : (
-        Object.entries(GROUP_CONFIG).map(([key, config]) => {
-          const items = data[key] || []
-          if (!items.length) return null
-          return (
-            <div key={key}>
-              <div className="flex items-center gap-2 mb-3">
-                <div className={`w-3 h-3 rounded-full ${config.dot}`} />
-                <h2 className={`font-semibold ${config.color}`}>{config.label}</h2>
-                <span className="bg-slate-100 text-slate-600 text-xs font-semibold px-2 py-0.5 rounded-full">{items.length}</span>
-              </div>
-              <div className="space-y-2">
-                {items.map(item => (
-                  <div key={item.id} className={`card p-4 border-l-4 ${config.border}`}>
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-slate-800">{item.school_name || item.contact_name || item.phone}</p>
-                        {item.contact_name && item.school_name && <p className="text-sm text-slate-500">{item.contact_name}</p>}
-                        {item.discussion && (
-                          <p className="text-sm text-slate-500 mt-1 bg-slate-50 rounded px-2 py-1 italic">"{item.discussion}"</p>
-                        )}
-                        <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
-                          <span>📞 {item.phone}</span>
-                          <span>👤 {item.agent_name}</span>
-                          <span>📅 {item.next_followup_date ? format(new Date(item.next_followup_date), 'dd MMM yyyy') : '—'}</span>
-                        </div>
-                      </div>
-                      <div className="flex gap-2 flex-shrink-0">
-                        <span className={`badge-${item.lead_status}`}>{item.lead_status?.replace('_', ' ')}</span>
-                        <button onClick={() => setSelectedLead(item.lead_id)} className="btn-secondary py-1 px-3 text-xs">History</button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )
-        })
+        <div className="space-y-4">
+          {/* Section A: Today */}
+          <Section
+            title={`Today's Follow-ups — ${format(new Date(), 'dd MMM yyyy')}`}
+            icon="⏰"
+            color="#d97706"
+            items={data.today}
+            onUpdate={handleUpdate}
+            isAdmin={isAdmin}
+          />
+
+          {/* Section B: Previous / Overdue */}
+          <Section
+            title="Previous Pending (Overdue)"
+            icon="🔴"
+            color="#dc2626"
+            items={data.previous}
+            onUpdate={handleUpdate}
+            isAdmin={isAdmin}
+          />
+
+          {/* Section C: Next 3 Days */}
+          <Section
+            title="Next 3 Days"
+            icon="📆"
+            color="#2563eb"
+            items={data.next_3_days}
+            onUpdate={handleUpdate}
+            isAdmin={isAdmin}
+          />
+        </div>
       )}
 
-      <LeadDetailModal leadId={selectedLead} onClose={() => setSelectedLead(null)} />
+      {/* Update modal */}
+      {selected && (
+        <UpdateModal
+          followup={selected}
+          agents={agents}
+          products={products}
+          onClose={() => setSelected(null)}
+          onSave={handleSaved}
+        />
+      )}
     </div>
   )
 }
