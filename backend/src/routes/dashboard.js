@@ -73,15 +73,15 @@ router.get('/stats', auth, async (req, res) => {
     const { rows: [totals] } = await db.query(`
       SELECT
         COUNT(*)                                                      AS total_leads,
-        COUNT(CASE WHEN status='hot'            THEN 1 END)          AS hot,
-        COUNT(CASE WHEN status='converted'      THEN 1 END)          AS converted,
+        COUNT(CASE WHEN status='hot'            THEN 1 END)          AS hot_leads,
+        COUNT(CASE WHEN status='converted'      THEN 1 END)          AS converted_leads,
         COUNT(CASE WHEN status NOT IN ('converted','not_interested')
               AND updated_at < NOW()-INTERVAL '5 days'  THEN 1 END)  AS unattended,
         COUNT(CASE WHEN status='new'            THEN 1 END)          AS new_leads,
-        COUNT(CASE WHEN status='warm'           THEN 1 END)          AS warm,
-        COUNT(CASE WHEN status='cold'           THEN 1 END)          AS cold,
-        COUNT(CASE WHEN status='call_back'      THEN 1 END)          AS call_back,
-        COUNT(CASE WHEN status='not_interested' THEN 1 END)          AS not_interested
+        COUNT(CASE WHEN status='warm'           THEN 1 END)          AS warm_leads,
+        COUNT(CASE WHEN status='cold'           THEN 1 END)          AS cold_leads,
+        COUNT(CASE WHEN status='call_back'      THEN 1 END)          AS call_back_leads,
+        COUNT(CASE WHEN status='not_interested' THEN 1 END)          AS not_interested_leads
       FROM leads l WHERE 1=1 ${scope}
     `)
     res.json({ success: true, data: { totals } })
