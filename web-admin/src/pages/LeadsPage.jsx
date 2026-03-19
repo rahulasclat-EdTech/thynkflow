@@ -639,11 +639,14 @@ export default function LeadsPage() {
           <option value="">All Products</option>
           {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-        <select value={filterAgent} onChange={e => { setFilterAgent(e.target.value); setPage(1) }}
-          className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-          <option value="">All Agents</option>
-          {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-        </select>
+        {/* Agent filter — admin only */}
+        {isAdmin && (
+          <select value={filterAgent} onChange={e => { setFilterAgent(e.target.value); setPage(1) }}
+            className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+            <option value="">All Agents</option>
+            {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        )}
         <select value={filterSchool} onChange={e => { setFilterSchool(e.target.value); setPage(1) }}
           className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
           <option value="">All Schools</option>
@@ -885,7 +888,7 @@ export default function LeadsPage() {
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-500 mb-1">Assign To</label>
-                          <select value={editForm.assigned_to || user?.id || ''} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))}
+                          <select value={editForm.assigned_to || user?.id || ''} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))} disabled={!isAdmin}
                             className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
                             <option value={user?.id || ''}>{user?.name || 'Me'} (me — default)</option>
                             {agents.filter(a => a.id !== user?.id).map(a => <option key={a.id} value={a.id}>{a.name} — {a.role_name}</option>)}
