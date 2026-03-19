@@ -150,7 +150,11 @@ export default function LeadsPage() {
       const [leadsRes, prodRes, agentRes, settRes] = await Promise.all([
         api.get(`/leads?${params}`),
         api.get('/products/active'),
-        api.get('/chat/users').catch(() => ({ data: { data: [] } })),
+        // Try /chat/users first (works for all roles), fallback to /users
+        api.get('/chat/users')
+          .then(r => r)
+          .catch(() => api.get('/users').catch(() => ({ data: { data: [] } })))
+          .then(r => r),
         api.get('/settings'),
       ])
       // Leads endpoint may return { data, total } or just array
@@ -161,7 +165,8 @@ export default function LeadsPage() {
         setLeads(raw.data || []); setTotalCount(raw.total || 0)
       }
       setProducts(prodRes.data?.data || prodRes.data || [])
-      setAgents(Array.isArray(agentRes.data?.data) ? agentRes.data.data : (Array.isArray(agentRes.data) ? agentRes.data : []))
+      const agentList = Array.isArray(agentRes.data?.data) ? agentRes.data.data : (Array.isArray(agentRes.data) ? agentRes.data : [])
+      setAgents(agentList)
       // settings returns { statuses, sources, cities } or similar
       const s = settRes.data?.data || settRes.data || {}
       const schoolList = (s.school_name || s.schools || [])
@@ -169,6 +174,16 @@ export default function LeadsPage() {
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b))
       setSchools(schoolList)
+      // Also fetch distinct school names from leads as backup
+      api.get('/leads', { params: { per_page: 500, fields: 'school_name' } })
+        .then(r => {
+          const leadList = Array.isArray(r.data) ? r.data : (r.data?.data || [])
+          const fromLeads = [...new Set(leadList.map(l => l.school_name).filter(Boolean))]
+            .sort((a, b) => a.localeCompare(b))
+          if (fromLeads.length > 0) {
+            setSchools(prev => [...new Set([...prev, ...fromLeads])].sort((a,b) => a.localeCompare(b)))
+          }
+        }).catch(() => {})
       setSettings({
         statuses:   s.lead_status || s.statuses || s.status || [],
         sources:    s.lead_source || s.sources  || s.source  || [],
@@ -588,13 +603,11 @@ export default function LeadsPage() {
           <option value="">All Agents</option>
           {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
-        {schools.length > 0 && (
-          <select value={filterSchool} onChange={e => { setFilterSchool(e.target.value); setPage(1) }}
-            className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-            <option value="">All Schools</option>
-            {schools.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        )}
+        <select value={filterSchool} onChange={e => { setFilterSchool(e.target.value); setPage(1) }}
+          className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+          <option value="">All Schools</option>
+          {schools.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
       </div>
 
       {/* ── Leads Table ────────────────────────────────────── */}
