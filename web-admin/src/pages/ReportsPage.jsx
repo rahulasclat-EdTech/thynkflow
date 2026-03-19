@@ -206,6 +206,12 @@ export default function ReportsPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  // Auto-refresh every 60 seconds — reports stay current without manual reload
+  useEffect(() => {
+    const t = setInterval(fetchData, 60000)
+    return () => clearInterval(t)
+  }, [fetchData])
+
   const openDrill = async (title, params) => {
     try {
       const r = await api.get('/leads', { params: { ...params, per_page: 200 } })
