@@ -1,14 +1,5 @@
 // web-admin/src/pages/ProductDashboardPage.jsx
-// Admin: 5 tabs — Earning Potential / Actual Earned / Earning Lost / Still To Earn / All
-//        View dropdown: By Product / By Agent / Product + Agent
-// Agent: 4 tabs — Earning Potential / Actual Earned / Earning Lost / Still To Earn
-//
-// Earning Formulas:
-//   Potential  = leads (excl. not_interested) * per_closure_earning
-//   Actual     = converted * per_closure_earning
-//   Lost       = not_interested * per_closure_earning
-//   Still To   = leads (excl. converted & not_interested) * per_closure_earning
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 
@@ -34,21 +25,21 @@ function ProgressBar({ value, max, color = '#16a34a' }) {
 }
 
 const VIEW_OPTIONS = [
-  { value: 'all',          label: '📦 + 👤 All (Product + Agent)' },
-  { value: 'products',     label: '📦 By Product' },
-  { value: 'agents',       label: '👤 By Agent' },
+  { value: 'all',      label: '📦 + 👤 All (Product + Agent)' },
+  { value: 'products', label: '📦 By Product' },
+  { value: 'agents',   label: '👤 By Agent' },
 ]
 
 export default function ProductDashboardPage() {
   const { user } = useAuth()
   const isAdmin = user?.role_name === 'admin'
 
-  const [data, setData]           = useState(null)
-  const [loading, setLoading]     = useState(true)
-  const [viewMode, setViewMode]   = useState('all')
-  const [agents, setAgents]       = useState([])
-  const [products, setProducts]   = useState([])
-  const [filterAgent, setFilterAgent]   = useState('')
+  const [data, setData]             = useState(null)
+  const [loading, setLoading]       = useState(true)
+  const [viewMode, setViewMode]     = useState('all')
+  const [agents, setAgents]         = useState([])
+  const [products, setProducts]     = useState([])
+  const [filterAgent, setFilterAgent]     = useState('')
   const [filterProduct, setFilterProduct] = useState('')
 
   useEffect(() => {
@@ -59,29 +50,29 @@ export default function ProductDashboardPage() {
       }).catch(() => {})
     }
     api.get('/products/active').then(r => {
-      const plist = r.data?.data || r.data || []
-      setProducts(Array.isArray(plist) ? plist : [])
+      const list = r.data?.data || r.data || []
+      setProducts(Array.isArray(list) ? list : [])
     }).catch(() => {})
   }, [isAdmin])
 
-  const fetchData = useCallback(async () => {
+  const fetchData = async (agentF, productF) => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
-      if (isAdmin && filterAgent)   params.set('agent_id',   filterAgent)
-      if (filterProduct) params.set('product_id', filterProduct)
-      const r = await api.get(`/products/dashboard?${params}`)
-      setData(r.data?.data || r.data || {})
+      if (isAdmin && agentF) params.set('agent_id',   agentF)
+      if (productF)          params.set('product_id', productF)
+      const res = await api.get(`/products/dashboard?${params}`)
+      setData(res.data?.data || res.data || {})
     } catch (err) {
       console.error('Products dashboard error:', err)
     } finally { setLoading(false) }
-  }, [isAdmin, filterAgent, filterProduct])
+  }
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => { fetchData(filterAgent, filterProduct) }, [filterAgent, filterProduct])
   useEffect(() => {
-    const t = setInterval(fetchData, 60000)
+    const t = setInterval(() => fetchData(filterAgent, filterProduct), 60000)
     return () => clearInterval(t)
-  }, [fetchData])
+  }, [filterAgent, filterProduct])
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -92,7 +83,6 @@ export default function ProductDashboardPage() {
   const productStats   = data?.product_stats   || []
   const agentBreakdown = data?.agent_breakdown  || []
 
-  // Build agent map from agent_breakdown
   const agentMap = {}
   agentBreakdown.forEach(row => {
     if (!agentMap[row.agent_id]) {
@@ -114,12 +104,10 @@ export default function ProductDashboardPage() {
   })
   const agentList = Object.values(agentMap).sort((a, b) => b.earned - a.earned)
 
-  const totalPotential = parseFloat(data?.total_potential    || 0)
+  const totalPotential = parseFloat(data?.total_potential     || 0)
   const totalEarned    = parseFloat(data?.total_actual_earned || 0)
   const totalLost      = parseFloat(data?.total_earning_lost  || 0)
   const totalStill     = parseFloat(data?.total_still_to_earn || 0)
-
-  // Tabs available — agent sees all 4, admin same
 
   return (
     <div className="space-y-5">
@@ -129,7 +117,8 @@ export default function ProductDashboardPage() {
           <h1 className="text-2xl font-bold text-slate-800">📦 Products Dashboard</h1>
           <p className="text-slate-500 text-sm">{isAdmin ? 'All products & agent performance' : 'Your product performance'}</p>
         </div>
-        <button onClick={fetchData} className="px-4 py-2 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 font-medium">
+        <button onClick={() => fetchData(filterAgent, filterProduct)}
+          className="px-4 py-2 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 font-medium">
           🔄 Refresh
         </button>
       </div>
@@ -168,14 +157,14 @@ export default function ProductDashboardPage() {
         </div>
       )}
 
-      {/* Summary KPI cards */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Earning Potential', val: totalPotential, color: '#7c3aed', bg: '#f5f3ff', icon: '💰' },
-          { label: 'Actual Earned',     val: totalEarned,    color: '#16a34a', bg: '#f0fdf4', icon: '✅' },
-          { label: 'Earning Lost',      val: totalLost,      color: '#dc2626', bg: '#fef2f2', icon: '❌' },
-          { label: 'Still To Earn',     val: totalStill,     color: '#d97706', bg: '#fffbeb', icon: '⏳' },
-        ].map(({ label, val, color, bg, icon }) => (
+          { label: 'Earning Potential', val: totalPotential, color: '#7c3aed', icon: '💰' },
+          { label: 'Actual Earned',     val: totalEarned,    color: '#16a34a', icon: '✅' },
+          { label: 'Earning Lost',      val: totalLost,      color: '#dc2626', icon: '❌' },
+          { label: 'Still To Earn',     val: totalStill,     color: '#d97706', icon: '⏳' },
+        ].map(({ label, val, color, icon }) => (
           <div key={label} className="card p-4" style={{ borderLeft: `4px solid ${color}` }}>
             <div className="flex items-center gap-2 mb-1">
               <span className="text-lg">{icon}</span>
@@ -186,7 +175,7 @@ export default function ProductDashboardPage() {
         ))}
       </div>
 
-      {/* Achievement summary bar */}
+      {/* Achievement bar */}
       {totalPotential > 0 && (
         <div className="card p-4">
           <div className="flex items-center justify-between mb-2">
@@ -194,8 +183,8 @@ export default function ProductDashboardPage() {
             <p className="text-sm font-black text-green-600">{pct(totalEarned, totalPotential)}%</p>
           </div>
           <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden flex">
-            <div className="h-full bg-green-500 transition-all" style={{ width: `${pct(totalEarned, totalPotential)}%` }} title="Earned" />
-            <div className="h-full bg-red-400 transition-all" style={{ width: `${pct(totalLost, totalPotential)}%` }} title="Lost" />
+            <div className="h-full bg-green-500" style={{ width: `${pct(totalEarned, totalPotential)}%` }} />
+            <div className="h-full bg-red-400"   style={{ width: `${pct(totalLost, totalPotential)}%` }} />
           </div>
           <div className="flex gap-4 mt-2 text-xs text-slate-500">
             <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"/>Earned {pct(totalEarned,totalPotential)}%</span>
@@ -205,7 +194,7 @@ export default function ProductDashboardPage() {
         </div>
       )}
 
-      {/* ── BY PRODUCT ── */}
+      {/* By Product */}
       {(viewMode === 'products' || viewMode === 'all') && (
         <div className="card overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
@@ -219,8 +208,8 @@ export default function ProductDashboardPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
-                    {['Product', 'Type', '₹/Closure', 'Total Leads', 'Converted', 'Not Int.', 'Hot', 'Warm',
-                      'Potential', 'Earned', 'Lost', 'Still To Earn', 'Achievement'].map(h => (
+                    {['Product','Type','₹/Closure','Total Leads','Converted','Not Int.','Hot','Warm',
+                      'Potential','Earned','Lost','Still To Earn','Achievement'].map(h => (
                       <th key={h} className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -232,8 +221,8 @@ export default function ProductDashboardPage() {
                       <tr key={p.product_id} className="hover:bg-slate-50">
                         <td className="px-3 py-3 font-semibold text-slate-800 whitespace-nowrap">{p.product_name}</td>
                         <td className="px-3 py-3">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${p.product_type === 'B2B' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
-                            {p.product_type || 'B2C'}
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${p.product_type==='B2B' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
+                            {p.product_type||'B2C'}
                           </span>
                         </td>
                         <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{fmtMoney(p.per_closure_earning)}</td>
@@ -249,9 +238,9 @@ export default function ProductDashboardPage() {
                         <td className="px-3 py-3 min-w-[100px]">
                           <div className="flex items-center gap-2">
                             <ProgressBar value={p.actual_earned} max={p.total_potential_earning}
-                              color={achPct >= 70 ? '#16a34a' : achPct >= 40 ? '#d97706' : '#dc2626'} />
+                              color={achPct>=70?'#16a34a':achPct>=40?'#d97706':'#dc2626'} />
                             <span className="text-xs font-bold whitespace-nowrap"
-                              style={{ color: achPct >= 70 ? '#16a34a' : achPct >= 40 ? '#d97706' : '#dc2626' }}>
+                              style={{color:achPct>=70?'#16a34a':achPct>=40?'#d97706':'#dc2626'}}>
                               {achPct}%
                             </span>
                           </div>
@@ -263,15 +252,15 @@ export default function ProductDashboardPage() {
                 <tfoot className="bg-slate-50 border-t font-bold">
                   <tr>
                     <td className="px-3 py-3 font-bold" colSpan={3}>Total</td>
-                    <td className="px-3 py-3 text-blue-600">{data?.total_leads || 0}</td>
-                    <td className="px-3 py-3 text-green-600">{data?.total_converted || 0}</td>
-                    <td className="px-3 py-3 text-red-500">{data?.total_not_interested || 0}</td>
+                    <td className="px-3 py-3 text-blue-600">{data?.total_leads||0}</td>
+                    <td className="px-3 py-3 text-green-600">{data?.total_converted||0}</td>
+                    <td className="px-3 py-3 text-red-500">{data?.total_not_interested||0}</td>
                     <td className="px-3 py-3" colSpan={2}/>
                     <td className="px-3 py-3 text-purple-600 whitespace-nowrap">{fmtMoney(totalPotential)}</td>
                     <td className="px-3 py-3 text-green-600 whitespace-nowrap">{fmtMoney(totalEarned)}</td>
                     <td className="px-3 py-3 text-red-500 whitespace-nowrap">{fmtMoney(totalLost)}</td>
                     <td className="px-3 py-3 text-amber-600 whitespace-nowrap">{fmtMoney(totalStill)}</td>
-                    <td className="px-3 py-3">{pct(totalEarned, totalPotential)}%</td>
+                    <td className="px-3 py-3">{pct(totalEarned,totalPotential)}%</td>
                   </tr>
                 </tfoot>
               </table>
@@ -280,7 +269,7 @@ export default function ProductDashboardPage() {
         </div>
       )}
 
-      {/* ── BY AGENT ── */}
+      {/* By Agent */}
       {(viewMode === 'agents' || viewMode === 'all') && (
         <div className="card overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
@@ -294,7 +283,7 @@ export default function ProductDashboardPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
-                    {['Agent', 'Leads', 'Converted', 'Not Int.', 'Conv %', 'Potential', 'Earned', 'Lost', 'Still To Earn', 'Achievement'].map(h => (
+                    {['Agent','Leads','Converted','Not Int.','Conv %','Potential','Earned','Lost','Still To Earn','Achievement'].map(h => (
                       <th key={h} className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -308,17 +297,17 @@ export default function ProductDashboardPage() {
                         <td className="px-3 py-3 font-semibold whitespace-nowrap">
                           <div className="flex items-center gap-2">
                             <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                              style={{ background: i < 3 ? '#4f46e5' : '#9ca3af' }}>
+                              style={{background: i<3?'#4f46e5':'#9ca3af'}}>
                               {a.agent_name?.charAt(0)?.toUpperCase()}
                             </div>
-                            {['🥇','🥈','🥉'][i] || ''} {a.agent_name}
+                            {['🥇','🥈','🥉'][i]||''} {a.agent_name}
                           </div>
                         </td>
                         <td className="px-3 py-3 font-bold text-blue-600">{a.total_leads}</td>
                         <td className="px-3 py-3 font-bold text-green-600">{a.converted}</td>
                         <td className="px-3 py-3 text-red-500">{a.not_interested}</td>
                         <td className="px-3 py-3">
-                          <span className={`font-bold text-sm ${convRate >= 20 ? 'text-green-600' : convRate >= 10 ? 'text-amber-500' : 'text-red-400'}`}>
+                          <span className={`font-bold text-sm ${convRate>=20?'text-green-600':convRate>=10?'text-amber-500':'text-red-400'}`}>
                             {convRate}%
                           </span>
                         </td>
@@ -329,9 +318,9 @@ export default function ProductDashboardPage() {
                         <td className="px-3 py-3 min-w-[100px]">
                           <div className="flex items-center gap-2">
                             <ProgressBar value={a.earned} max={a.potential}
-                              color={achPct >= 70 ? '#16a34a' : achPct >= 40 ? '#d97706' : '#dc2626'} />
+                              color={achPct>=70?'#16a34a':achPct>=40?'#d97706':'#dc2626'} />
                             <span className="text-xs font-bold whitespace-nowrap"
-                              style={{ color: achPct >= 70 ? '#16a34a' : achPct >= 40 ? '#d97706' : '#dc2626' }}>
+                              style={{color:achPct>=70?'#16a34a':achPct>=40?'#d97706':'#dc2626'}}>
                               {achPct}%
                             </span>
                           </div>
@@ -360,7 +349,7 @@ export default function ProductDashboardPage() {
         </div>
       )}
 
-      {/* ── PRODUCT + AGENT (combined) ── */}
+      {/* Product x Agent breakdown */}
       {viewMode === 'all' && agentBreakdown.length > 0 && (
         <div className="card overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100">
@@ -371,7 +360,7 @@ export default function ProductDashboardPage() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50">
                 <tr>
-                  {['Agent', 'Product', 'Leads', 'Converted', 'Not Int.', 'Potential', 'Earned', 'Lost', 'Still To Earn'].map(h => (
+                  {['Agent','Product','Leads','Converted','Not Int.','Potential','Earned','Lost','Still To Earn'].map(h => (
                     <th key={h} className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
