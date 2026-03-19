@@ -455,18 +455,18 @@ export default function ChatPage() {
       </div>
 
       {/* ── Chat area ────────────────────────────────────── */}
-      {activeConvId && activeConv ? (
+      {activeConvId ? (
         <div className="flex-1 flex flex-col">
           {/* Chat header */}
           <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-100 bg-white">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${activeConv.type === 'broadcast' ? 'bg-orange-100' : activeConv.type === 'group' ? 'bg-purple-100' : 'bg-blue-100'}`}>
-              {TYPE_ICONS[activeConv.type]}
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${activeConv?.type === 'broadcast' ? 'bg-orange-100' : activeConv?.type === 'group' ? 'bg-purple-100' : 'bg-blue-100'}`}>
+              {TYPE_ICONS[activeConv?.type] || '💬'}
             </div>
             <div>
-              <p className="font-bold text-slate-800">{getConvTitle(activeConv)}</p>
+              <p className="font-bold text-slate-800">{activeConv ? getConvTitle(activeConv) : 'Chat'}</p>
               <p className="text-xs text-slate-400">
-                {TYPE_LABELS[activeConv.type]} ·{' '}
-                {(activeConv.members || []).length} members
+                {activeConv ? TYPE_LABELS[activeConv.type] : ''}{activeConv ? ' · ' : ''}
+                {(activeConv?.members || []).length} members
               </p>
             </div>
           </div>
@@ -486,7 +486,7 @@ export default function ChatPage() {
                 lastSender = msg.sender_id
                 return (
                   <MessageBubble key={msg.id} msg={msg} isMine={isMine}
-                    showName={showName && activeConv.type !== 'direct'}
+                    showName={showName && activeConv?.type !== 'direct'}
                     onDelete={handleDelete} />
                 )
               })
@@ -552,9 +552,9 @@ export default function ChatPage() {
           isAdmin={isAdmin}
           currentUserId={user?.id}
           onClose={() => setShowNew(false)}
-          onCreated={async (id) => {
-            await loadConversations()
+          onCreated={(id) => {
             setActiveConvId(id)
+            loadConversations()
           }} />
       )}
     </div>
