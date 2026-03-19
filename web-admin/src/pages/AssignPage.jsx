@@ -48,17 +48,27 @@ export default function AssignPage() {
 
   // Load agents + schools
   useEffect(() => {
-    Promise.all([
-      api.get('/chat/users').catch(() => api.get('/users').catch(() => ({ data: { data: [] } }))),
-      api.get('/settings').catch(() => ({ data: {} })),
-    ]).then(([uRes, sRes]) => {
-      const list = Array.isArray(uRes.data?.data) ? uRes.data.data : (Array.isArray(uRes.data) ? uRes.data : [])
-      setAgents(list)
+    // Load agents
+    ;(async () => {
+      try {
+        const r = await api.get('/chat/users')
+        const list = Array.isArray(r.data?.data) ? r.data.data : (Array.isArray(r.data) ? r.data : [])
+        setAgents(list)
+      } catch {
+        try {
+          const r = await api.get('/users')
+          const list = Array.isArray(r.data?.data) ? r.data.data : (Array.isArray(r.data) ? r.data : [])
+          setAgents(list)
+        } catch {}
+      }
+    })()
+    // Load school names from settings
+    api.get('/settings').then(sRes => {
       const s = sRes.data?.data || sRes.data || {}
       const schoolList = (s.school_name || s.schools || [])
         .map(x => typeof x === 'string' ? x : (x.label || x.value || x))
         .filter(Boolean).sort((a, b) => a.localeCompare(b))
-      setSchools(schoolList)
+      if (schoolList.length) setSchools(schoolList)
     }).catch(() => {})
   }, [])
 
@@ -80,7 +90,7 @@ export default function AssignPage() {
 
   useEffect(() => { fetchLeads() }, [fetchLeads])
 
-  // Also load schools from leads
+  // Load schools from leads directly (most reliable source)
   useEffect(() => {
     api.get('/leads', { params: { per_page: 500 } })
       .then(r => {
@@ -88,7 +98,7 @@ export default function AssignPage() {
         const fromLeads = [...new Set(rows.map(l => l.school_name).filter(Boolean))].sort((a,b) => a.localeCompare(b))
         if (fromLeads.length) setSchools(prev => [...new Set([...prev, ...fromLeads])].sort((a,b) => a.localeCompare(b)))
       }).catch(() => {})
-  }, [])
+  }, []) // Run once on mount - gets schools from actual lead data
 
   const toggleSelect = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
   const toggleAll    = () => setSelected(selected.length === leads.length ? [] : leads.map(l => l.id))
