@@ -28,7 +28,6 @@ export default function LeadsScreen({ navigation }) {
   const [leads, setLeads]             = useState([])
   const [products, setProducts]       = useState([])
   const [agents, setAgents]           = useState([])
-  const [leadTypes, setLeadTypes]     = useState([])
   const [leadTypes, setLeadTypes]     = useState([{label:'B2B',key:'b2b'},{label:'B2C',key:'b2c'}])
   const [loading, setLoading]         = useState(true)
   const [refreshing, setRefreshing]   = useState(false)
