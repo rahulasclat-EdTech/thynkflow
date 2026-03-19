@@ -208,9 +208,10 @@ router.post('/assign', auth, async (req, res) => {
     if (!assigned_to)
       return res.status(400).json({ success: false, message: 'assigned_to is required' })
 
+    // assigned_to = null means UNASSIGN
     await db.query(
       `UPDATE leads SET assigned_to = $1, updated_at = NOW() WHERE id = ANY($2::uuid[])`,
-      [assigned_to, lead_ids]
+      [assigned_to || null, lead_ids]
     )
     res.json({ success: true, updated: lead_ids.length })
   } catch (err) {
