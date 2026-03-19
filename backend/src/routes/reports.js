@@ -1,6 +1,9 @@
-// backend/src/routes/reports.js  — COMPLETE REPLACEMENT
-// Fixes: correct field names, agent scope, weekly/monthly comparison,
-//        daily detailed report, call stats, follow-up date column, pipeline
+// backend/src/routes/reports.js  — FIXED
+// Key changes vs previous version:
+//   - ALL references to non-existent `followups` table replaced with call_logs.next_followup_date
+//   - agent-wise: fallback for communication_logs vs call_logs
+//   - daily-calls, daily-summary, weekly-comparison: removed followups JOIN
+//   - pending-followups, upcoming-followups: rewritten using call_logs
 const express = require('express')
 const db = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
@@ -49,6 +52,21 @@ router.get('/status-wise', auth, async (req, res) => {
 router.get('/agent-wise', auth, async (req, res) => {
   try {
     const scopeFilter = req.user.role_name !== 'admin' ? `AND l.assigned_to = '${req.user.id}'` : ''
+
+    // Try communication_logs first, fallback to call_logs for call counts
+    let callsSubquery = `
+      SELECT cl.sender_id AS agent_id, COUNT(*) AS total_calls
+      FROM communication_logs cl WHERE cl.type='call'
+      GROUP BY cl.sender_id`
+    try {
+      await db.query(`SELECT 1 FROM communication_logs LIMIT 1`)
+    } catch {
+      callsSubquery = `
+        SELECT cl.user_id AS agent_id, COUNT(*) AS total_calls
+        FROM call_logs cl
+        GROUP BY cl.user_id`
+    }
+
     const { rows } = await db.query(`
       SELECT
         u.id AS agent_id, u.name AS agent_name,
@@ -65,11 +83,7 @@ router.get('/agent-wise', auth, async (req, res) => {
         COALESCE(c.total_calls, 0)                              AS total_calls
       FROM users u
       LEFT JOIN leads l ON l.assigned_to = u.id ${scopeFilter}
-      LEFT JOIN (
-        SELECT cl.sender_id AS agent_id, COUNT(*) AS total_calls
-        FROM communication_logs cl WHERE cl.type='call'
-        GROUP BY cl.sender_id
-      ) c ON c.agent_id = u.id
+      LEFT JOIN (${callsSubquery}) c ON c.agent_id = u.id
       WHERE u.role_name = 'agent' OR (u.role_name = 'admin' AND u.id = '${req.user.id}')
       GROUP BY u.id, u.name, c.total_calls
       HAVING COUNT(l.id) > 0
@@ -85,31 +99,55 @@ router.get('/daily-calls', auth, async (req, res) => {
     const { date, agent_id } = req.query
     const targetDate = date || new Date().toISOString().split('T')[0]
     let scope = agentScope(req.user)
-    // Admin can filter by specific agent
     if (req.user.role_name === 'admin' && agent_id) {
       scope = `AND l.assigned_to = '${agent_id}'`
     }
 
-    const { rows } = await db.query(`
-      SELECT
-        cl.id, cl.note AS discussion, cl.created_at AS called_at,
-        COALESCE(l.contact_name, l.school_name) AS school_name,
-        l.contact_name, l.phone, l.status,
-        u.name AS agent_name, l.id AS lead_id,
-        CASE WHEN f.id IS NOT NULL THEN true ELSE false END AS followup_created
-      FROM communication_logs cl
-      JOIN leads l ON l.id = cl.lead_id
-      LEFT JOIN users u ON cl.sender_id = u.id
-      LEFT JOIN followups f ON f.lead_id = l.id AND DATE(f.created_at) = $1
-      WHERE cl.type = 'call' AND DATE(cl.created_at) = $1 ${scope}
-      ORDER BY cl.created_at DESC
-    `, [targetDate])
-
+    // Try communication_logs, fallback to call_logs
+    let rows = []
+    try {
+      const r = await db.query(`
+        SELECT
+          cl.id, cl.note AS discussion, cl.created_at AS called_at,
+          COALESCE(l.contact_name, l.school_name) AS school_name,
+          l.contact_name, l.phone, l.status,
+          u.name AS agent_name, l.id AS lead_id,
+          latest_fu.next_followup_date,
+          CASE WHEN latest_fu.next_followup_date IS NOT NULL THEN true ELSE false END AS followup_created
+        FROM communication_logs cl
+        JOIN leads l ON l.id = cl.lead_id
+        LEFT JOIN users u ON cl.sender_id = u.id
+        LEFT JOIN (
+          SELECT DISTINCT ON (lead_id) lead_id, next_followup_date
+          FROM call_logs WHERE next_followup_date IS NOT NULL
+          ORDER BY lead_id, called_at DESC
+        ) latest_fu ON latest_fu.lead_id = l.id
+        WHERE cl.type = 'call' AND DATE(cl.created_at) = $1 ${scope}
+        ORDER BY cl.created_at DESC
+      `, [targetDate])
+      rows = r.rows
+    } catch {
+      const r = await db.query(`
+        SELECT
+          cl.id, cl.discussion, cl.called_at,
+          COALESCE(l.contact_name, l.school_name) AS school_name,
+          l.contact_name, l.phone, l.status,
+          u.name AS agent_name, l.id AS lead_id,
+          cl.next_followup_date,
+          CASE WHEN cl.next_followup_date IS NOT NULL THEN true ELSE false END AS followup_created
+        FROM call_logs cl
+        JOIN leads l ON l.id = cl.lead_id
+        LEFT JOIN users u ON cl.user_id = u.id
+        WHERE DATE(cl.called_at) = $1 ${scope}
+        ORDER BY cl.called_at DESC
+      `, [targetDate])
+      rows = r.rows
+    }
     res.json({ success: true, data: rows })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Daily summary (day-wise stats for range) ──────────────
+// ── Daily summary ─────────────────────────────────────────
 router.get('/daily-summary', auth, async (req, res) => {
   try {
     const { from, to } = req.query
@@ -117,28 +155,43 @@ router.get('/daily-summary', auth, async (req, res) => {
     const dateTo   = to   || new Date().toISOString().split('T')[0]
     const scope = agentScope(req.user)
 
-    const { rows } = await db.query(`
-      SELECT
-        DATE(cl.created_at)                                          AS call_date,
-        COUNT(DISTINCT cl.id)                                        AS total_calls,
-        COUNT(DISTINCT l.id)                                         AS leads_contacted,
-        COUNT(DISTINCT CASE WHEN l.status='new'      THEN l.id END) AS fresh_calls,
-        COUNT(DISTINCT CASE WHEN l.status='hot'      THEN l.id END) AS hot_calls,
-        COUNT(DISTINCT CASE WHEN l.status='warm'     THEN l.id END) AS warm_calls,
-        COUNT(DISTINCT CASE WHEN l.status='converted'THEN l.id END) AS converted,
-        COUNT(DISTINCT f.id)                                         AS followups_created,
-        COUNT(DISTINCT CASE WHEN f.follow_up_date < CURRENT_DATE
-              AND (f.status='pending' OR f.status IS NULL)
-              THEN f.id END)                                         AS followups_missed
-      FROM communication_logs cl
-      JOIN leads l ON l.id = cl.lead_id
-      LEFT JOIN followups f ON f.lead_id = l.id AND DATE(f.created_at) = DATE(cl.created_at)
-      WHERE cl.type='call'
-        AND DATE(cl.created_at) BETWEEN $1 AND $2 ${scope}
-      GROUP BY DATE(cl.created_at)
-      ORDER BY call_date DESC
-    `, [dateFrom, dateTo])
-
+    let rows = []
+    try {
+      const r = await db.query(`
+        SELECT
+          DATE(cl.created_at)                                          AS call_date,
+          COUNT(DISTINCT cl.id)                                        AS total_calls,
+          COUNT(DISTINCT l.id)                                         AS leads_contacted,
+          COUNT(DISTINCT CASE WHEN l.status='new'       THEN l.id END) AS fresh_calls,
+          COUNT(DISTINCT CASE WHEN l.status='hot'       THEN l.id END) AS hot_calls,
+          COUNT(DISTINCT CASE WHEN l.status='warm'      THEN l.id END) AS warm_calls,
+          COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END) AS converted
+        FROM communication_logs cl
+        JOIN leads l ON l.id = cl.lead_id
+        WHERE cl.type='call'
+          AND DATE(cl.created_at) BETWEEN $1 AND $2 ${scope}
+        GROUP BY DATE(cl.created_at)
+        ORDER BY call_date DESC
+      `, [dateFrom, dateTo])
+      rows = r.rows
+    } catch {
+      const r = await db.query(`
+        SELECT
+          DATE(cl.called_at)                                           AS call_date,
+          COUNT(DISTINCT cl.id)                                        AS total_calls,
+          COUNT(DISTINCT l.id)                                         AS leads_contacted,
+          COUNT(DISTINCT CASE WHEN l.status='new'       THEN l.id END) AS fresh_calls,
+          COUNT(DISTINCT CASE WHEN l.status='hot'       THEN l.id END) AS hot_calls,
+          COUNT(DISTINCT CASE WHEN l.status='warm'      THEN l.id END) AS warm_calls,
+          COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END) AS converted
+        FROM call_logs cl
+        JOIN leads l ON l.id = cl.lead_id
+        WHERE DATE(cl.called_at) BETWEEN $1 AND $2 ${scope}
+        GROUP BY DATE(cl.called_at)
+        ORDER BY call_date DESC
+      `, [dateFrom, dateTo])
+      rows = r.rows
+    }
     res.json({ success: true, data: rows })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
@@ -147,23 +200,40 @@ router.get('/daily-summary', auth, async (req, res) => {
 router.get('/weekly-comparison', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
-    const { rows } = await db.query(`
-      SELECT
-        DATE_TRUNC('week', cl.created_at)                       AS week_start,
-        COUNT(DISTINCT cl.id)                                   AS total_calls,
-        COUNT(DISTINCT l.id)                                    AS leads_contacted,
-        COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END) AS converted,
-        COUNT(DISTINCT CASE WHEN l.status='hot'  THEN l.id END) AS hot,
-        COUNT(DISTINCT CASE WHEN l.status='warm' THEN l.id END) AS warm,
-        COUNT(DISTINCT f.id)                                    AS followups_created
-      FROM communication_logs cl
-      JOIN leads l ON l.id = cl.lead_id
-      LEFT JOIN followups f ON f.lead_id = l.id
-        AND DATE_TRUNC('week', f.created_at) = DATE_TRUNC('week', cl.created_at)
-      WHERE cl.type='call' AND cl.created_at >= NOW()-INTERVAL '28 days' ${scope}
-      GROUP BY DATE_TRUNC('week', cl.created_at)
-      ORDER BY week_start DESC LIMIT 4
-    `)
+    let rows = []
+    try {
+      const r = await db.query(`
+        SELECT
+          DATE_TRUNC('week', cl.created_at)                            AS week_start,
+          COUNT(DISTINCT cl.id)                                        AS total_calls,
+          COUNT(DISTINCT l.id)                                         AS leads_contacted,
+          COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END) AS converted,
+          COUNT(DISTINCT CASE WHEN l.status='hot'  THEN l.id END)      AS hot,
+          COUNT(DISTINCT CASE WHEN l.status='warm' THEN l.id END)      AS warm
+        FROM communication_logs cl
+        JOIN leads l ON l.id = cl.lead_id
+        WHERE cl.type='call' AND cl.created_at >= NOW()-INTERVAL '28 days' ${scope}
+        GROUP BY DATE_TRUNC('week', cl.created_at)
+        ORDER BY week_start DESC LIMIT 4
+      `)
+      rows = r.rows
+    } catch {
+      const r = await db.query(`
+        SELECT
+          DATE_TRUNC('week', cl.called_at)                             AS week_start,
+          COUNT(DISTINCT cl.id)                                        AS total_calls,
+          COUNT(DISTINCT l.id)                                         AS leads_contacted,
+          COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END) AS converted,
+          COUNT(DISTINCT CASE WHEN l.status='hot'  THEN l.id END)      AS hot,
+          COUNT(DISTINCT CASE WHEN l.status='warm' THEN l.id END)      AS warm
+        FROM call_logs cl
+        JOIN leads l ON l.id = cl.lead_id
+        WHERE cl.called_at >= NOW()-INTERVAL '28 days' ${scope}
+        GROUP BY DATE_TRUNC('week', cl.called_at)
+        ORDER BY week_start DESC LIMIT 4
+      `)
+      rows = r.rows
+    }
     res.json({ success: true, data: rows })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
@@ -172,23 +242,42 @@ router.get('/weekly-comparison', auth, async (req, res) => {
 router.get('/monthly-comparison', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
-    const { rows } = await db.query(`
-      SELECT
-        TO_CHAR(DATE_TRUNC('month', cl.created_at), 'Mon YYYY') AS month_label,
-        DATE_TRUNC('month', cl.created_at)                      AS month_start,
-        COUNT(DISTINCT cl.id)                                   AS total_calls,
-        COUNT(DISTINCT l.id)                                    AS leads_contacted,
-        COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END) AS converted,
-        COUNT(DISTINCT CASE WHEN l.status='hot'  THEN l.id END) AS hot,
-        COUNT(DISTINCT CASE WHEN l.status='warm' THEN l.id END) AS warm,
-        COUNT(DISTINCT CASE WHEN DATE_TRUNC('month', l.created_at) =
-              DATE_TRUNC('month', cl.created_at) THEN l.id END) AS new_leads
-      FROM communication_logs cl
-      JOIN leads l ON l.id = cl.lead_id
-      WHERE cl.type='call' AND cl.created_at >= NOW()-INTERVAL '90 days' ${scope}
-      GROUP BY DATE_TRUNC('month', cl.created_at)
-      ORDER BY month_start DESC LIMIT 3
-    `)
+    let rows = []
+    try {
+      const r = await db.query(`
+        SELECT
+          TO_CHAR(DATE_TRUNC('month', cl.created_at), 'Mon YYYY')      AS month_label,
+          DATE_TRUNC('month', cl.created_at)                           AS month_start,
+          COUNT(DISTINCT cl.id)                                        AS total_calls,
+          COUNT(DISTINCT l.id)                                         AS leads_contacted,
+          COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END) AS converted,
+          COUNT(DISTINCT CASE WHEN l.status='hot'  THEN l.id END)      AS hot,
+          COUNT(DISTINCT CASE WHEN l.status='warm' THEN l.id END)      AS warm
+        FROM communication_logs cl
+        JOIN leads l ON l.id = cl.lead_id
+        WHERE cl.type='call' AND cl.created_at >= NOW()-INTERVAL '90 days' ${scope}
+        GROUP BY DATE_TRUNC('month', cl.created_at)
+        ORDER BY month_start DESC LIMIT 3
+      `)
+      rows = r.rows
+    } catch {
+      const r = await db.query(`
+        SELECT
+          TO_CHAR(DATE_TRUNC('month', cl.called_at), 'Mon YYYY')       AS month_label,
+          DATE_TRUNC('month', cl.called_at)                            AS month_start,
+          COUNT(DISTINCT cl.id)                                        AS total_calls,
+          COUNT(DISTINCT l.id)                                         AS leads_contacted,
+          COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END) AS converted,
+          COUNT(DISTINCT CASE WHEN l.status='hot'  THEN l.id END)      AS hot,
+          COUNT(DISTINCT CASE WHEN l.status='warm' THEN l.id END)      AS warm
+        FROM call_logs cl
+        JOIN leads l ON l.id = cl.lead_id
+        WHERE cl.called_at >= NOW()-INTERVAL '90 days' ${scope}
+        GROUP BY DATE_TRUNC('month', cl.called_at)
+        ORDER BY month_start DESC LIMIT 3
+      `)
+      rows = r.rows
+    }
     res.json({ success: true, data: rows })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
@@ -196,17 +285,32 @@ router.get('/monthly-comparison', auth, async (req, res) => {
 // ── Call stats summary ────────────────────────────────────
 router.get('/call-stats', auth, async (req, res) => {
   try {
-    const scope = agentScope(req.user, 'cl')
-    const { rows: [r] } = await db.query(`
-      SELECT
-        COUNT(CASE WHEN DATE(cl.created_at)=CURRENT_DATE      THEN 1 END) AS today,
-        COUNT(CASE WHEN cl.created_at>=NOW()-INTERVAL '7 days' THEN 1 END) AS this_week,
-        COUNT(CASE WHEN cl.created_at>=NOW()-INTERVAL '30 days'THEN 1 END) AS this_month,
-        COUNT(*) AS total_all_time
-      FROM communication_logs cl
-      JOIN leads l ON l.id = cl.lead_id
-      WHERE cl.type='call' ${scope}
-    `)
+    const scope = agentScope(req.user)
+    let r = { today: 0, this_week: 0, this_month: 0, total_all_time: 0 }
+    try {
+      const { rows: [row] } = await db.query(`
+        SELECT
+          COUNT(CASE WHEN DATE(cl.created_at)=CURRENT_DATE       THEN 1 END) AS today,
+          COUNT(CASE WHEN cl.created_at>=NOW()-INTERVAL '7 days'  THEN 1 END) AS this_week,
+          COUNT(CASE WHEN cl.created_at>=NOW()-INTERVAL '30 days' THEN 1 END) AS this_month,
+          COUNT(*) AS total_all_time
+        FROM communication_logs cl
+        JOIN leads l ON l.id = cl.lead_id
+        WHERE cl.type='call' ${scope}
+      `)
+      r = row
+    } catch {
+      const { rows: [row] } = await db.query(`
+        SELECT
+          COUNT(CASE WHEN DATE(cl.called_at)=CURRENT_DATE        THEN 1 END) AS today,
+          COUNT(CASE WHEN cl.called_at>=NOW()-INTERVAL '7 days'  THEN 1 END) AS this_week,
+          COUNT(CASE WHEN cl.called_at>=NOW()-INTERVAL '30 days' THEN 1 END) AS this_month,
+          COUNT(*) AS total_all_time
+        FROM call_logs cl
+        JOIN leads l ON l.id = cl.lead_id WHERE 1=1 ${scope}
+      `)
+      r = row
+    }
     res.json({ success: true, data: r })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
@@ -216,30 +320,27 @@ router.get('/pipeline', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
 
-    // Status wise
     const { rows: byStatus } = await db.query(`
       SELECT status, COUNT(*) AS count FROM leads l WHERE 1=1 ${scope}
       GROUP BY status ORDER BY count DESC
     `)
 
-    // Agent wise
     const { rows: byAgent } = await db.query(`
       SELECT u.name AS agent_name, u.id AS agent_id,
         COUNT(l.id) AS total,
-        COUNT(CASE WHEN l.status='hot'  THEN 1 END) AS hot,
-        COUNT(CASE WHEN l.status='warm' THEN 1 END) AS warm,
+        COUNT(CASE WHEN l.status='hot'       THEN 1 END) AS hot,
+        COUNT(CASE WHEN l.status='warm'      THEN 1 END) AS warm,
         COUNT(CASE WHEN l.status='converted' THEN 1 END) AS converted,
-        COUNT(CASE WHEN l.status='new'  THEN 1 END) AS new_leads
+        COUNT(CASE WHEN l.status='new'       THEN 1 END) AS new_leads
       FROM leads l JOIN users u ON l.assigned_to = u.id WHERE 1=1 ${scope}
       GROUP BY u.id, u.name ORDER BY total DESC
     `)
 
-    // Product wise
     const { rows: byProduct } = await db.query(`
       SELECT p.name AS product_name, p.id AS product_id,
         COUNT(l.id) AS total,
         COUNT(CASE WHEN l.status='converted' THEN 1 END) AS converted,
-        COUNT(CASE WHEN l.status='hot'  THEN 1 END) AS hot
+        COUNT(CASE WHEN l.status='hot'       THEN 1 END) AS hot
       FROM leads l JOIN products p ON l.product_id = p.id WHERE 1=1 ${scope}
       GROUP BY p.id, p.name ORDER BY total DESC
     `)
@@ -248,41 +349,57 @@ router.get('/pipeline', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Pending follow-ups ────────────────────────────────────
+// ── Pending follow-ups (uses call_logs.next_followup_date) ─
 router.get('/pending-followups', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
     const { rows } = await db.query(`
-      SELECT f.id, f.follow_up_date, f.notes,
+      SELECT
+        latest.lead_id AS id,
+        latest.next_followup_date AS follow_up_date,
+        latest.discussion AS notes,
         COALESCE(l.contact_name, l.school_name) AS school_name,
         l.contact_name, l.phone, l.status AS lead_status,
         u.name AS agent_name,
-        CASE WHEN f.follow_up_date < CURRENT_DATE THEN 'missed' ELSE 'pending' END AS followup_type
-      FROM followups f
-      JOIN leads l ON l.id = f.lead_id
+        CASE WHEN latest.next_followup_date < CURRENT_DATE THEN 'missed' ELSE 'pending' END AS followup_type
+      FROM (
+        SELECT DISTINCT ON (cl.lead_id) cl.lead_id, cl.next_followup_date, cl.discussion
+        FROM call_logs cl
+        WHERE cl.next_followup_date IS NOT NULL
+        ORDER BY cl.lead_id, cl.called_at DESC
+      ) latest
+      JOIN leads l ON l.id = latest.lead_id
       LEFT JOIN users u ON l.assigned_to = u.id
-      WHERE (f.status IS NULL OR f.status='pending') ${scope}
-      ORDER BY f.follow_up_date ASC LIMIT 200
+      WHERE l.status NOT IN ('converted','not_interested') ${scope}
+      ORDER BY latest.next_followup_date ASC LIMIT 200
     `)
     res.json({ success: true, data: rows })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Upcoming follow-ups ───────────────────────────────────
+// ── Upcoming follow-ups (uses call_logs.next_followup_date) ─
 router.get('/upcoming-followups', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
     const { rows } = await db.query(`
-      SELECT f.id, f.follow_up_date AS next_followup_date, f.notes,
+      SELECT
+        latest.lead_id AS id,
+        latest.next_followup_date,
+        latest.discussion AS notes,
         COALESCE(l.contact_name, l.school_name) AS school_name,
         l.contact_name, l.phone, l.status AS lead_status,
         u.name AS agent_name
-      FROM followups f
-      JOIN leads l ON l.id = f.lead_id
+      FROM (
+        SELECT DISTINCT ON (cl.lead_id) cl.lead_id, cl.next_followup_date, cl.discussion
+        FROM call_logs cl
+        WHERE cl.next_followup_date IS NOT NULL
+        ORDER BY cl.lead_id, cl.called_at DESC
+      ) latest
+      JOIN leads l ON l.id = latest.lead_id
       LEFT JOIN users u ON l.assigned_to = u.id
-      WHERE f.follow_up_date >= CURRENT_DATE
-        AND (f.status IS NULL OR f.status='pending') ${scope}
-      ORDER BY f.follow_up_date ASC LIMIT 200
+      WHERE latest.next_followup_date >= CURRENT_DATE
+        AND l.status NOT IN ('converted','not_interested') ${scope}
+      ORDER BY latest.next_followup_date ASC LIMIT 200
     `)
     res.json({ success: true, data: rows })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
@@ -302,13 +419,16 @@ router.get('/conversion', auth, async (req, res) => {
               AND l.updated_at < NOW()-INTERVAL '5 days' THEN 1 END) AS unattended,
         COALESCE(c.total_calls, 0) AS total_calls,
         ROUND(
-          CASE WHEN COUNT(l.id)>0 THEN COUNT(CASE WHEN l.status='converted' THEN 1 END)::numeric/COUNT(l.id)*100
+          CASE WHEN COUNT(l.id)>0
+            THEN COUNT(CASE WHEN l.status='converted' THEN 1 END)::numeric/COUNT(l.id)*100
           ELSE 0 END, 1
         ) AS conversion_rate
       FROM users u
       LEFT JOIN leads l ON l.assigned_to = u.id ${scopeFilter}
-      LEFT JOIN (SELECT sender_id, COUNT(*) AS total_calls FROM communication_logs WHERE type='call' GROUP BY sender_id) c
-        ON c.sender_id = u.id
+      LEFT JOIN (
+        SELECT sender_id, COUNT(*) AS total_calls
+        FROM communication_logs WHERE type='call' GROUP BY sender_id
+      ) c ON c.sender_id = u.id
       WHERE u.role_name IN ('agent','admin')
       GROUP BY u.id, u.name, c.total_calls HAVING COUNT(l.id)>0
       ORDER BY conversion_rate DESC
