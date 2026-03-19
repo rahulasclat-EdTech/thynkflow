@@ -67,6 +67,12 @@ router.get('/agent-wise', auth, async (req, res) => {
         GROUP BY cl.user_id`
     }
 
+    // For agent login: show only their own row
+    // For admin: show all agents with leads
+    const userFilter = req.user.role_name === 'admin'
+      ? `WHERE u.role_name = 'agent' OR (u.role_name = 'admin')`
+      : `WHERE u.id = '${req.user.id}'`
+
     const { rows } = await db.query(`
       SELECT
         u.id AS agent_id, u.name AS agent_name,
@@ -84,9 +90,8 @@ router.get('/agent-wise', auth, async (req, res) => {
       FROM users u
       LEFT JOIN leads l ON l.assigned_to = u.id ${scopeFilter}
       LEFT JOIN (${callsSubquery}) c ON c.agent_id = u.id
-      WHERE u.role_name = 'agent' OR (u.role_name = 'admin' AND u.id = '${req.user.id}')
+      ${userFilter}
       GROUP BY u.id, u.name, c.total_calls
-      HAVING COUNT(l.id) > 0
       ORDER BY total_leads DESC
     `)
     res.json({ success: true, data: rows })
