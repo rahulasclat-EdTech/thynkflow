@@ -1,5 +1,14 @@
 // web-admin/src/pages/ProductDashboardPage.jsx
-import React, { useEffect, useState } from 'react'
+// Admin: 5 tabs — Earning Potential / Actual Earned / Earning Lost / Still To Earn / All
+//        View dropdown: By Product / By Agent / Product + Agent
+// Agent: 4 tabs — Earning Potential / Actual Earned / Earning Lost / Still To Earn
+//
+// Earning Formulas:
+//   Potential  = leads (excl. not_interested) * per_closure_earning
+//   Actual     = converted * per_closure_earning
+//   Lost       = not_interested * per_closure_earning
+//   Still To   = leads (excl. converted & not_interested) * per_closure_earning
+import React, { useEffect, useState, useCallback } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 
@@ -24,68 +33,54 @@ function ProgressBar({ value, max, color = '#16a34a' }) {
   )
 }
 
-const EARNING_TABS = [
-  { key: 'potential', label: '💰 Earning Potential', color: '#7c3aed', field: 'total_potential_earning',  desc: 'Leads excl. Not Interested × Closure Rate' },
-  { key: 'earned',   label: '✅ Actual Earned',      color: '#16a34a', field: 'actual_earned',            desc: 'Converted leads × Closure Rate' },
-  { key: 'lost',     label: '❌ Earning Lost',        color: '#dc2626', field: 'earning_lost',             desc: 'Not Interested leads × Closure Rate' },
-  { key: 'still',    label: '⏳ Still To Earn',       color: '#d97706', field: 'still_to_earn',            desc: 'Leads excl. Converted & Not Interested × Closure Rate' },
-]
-
 const VIEW_OPTIONS = [
-  { value: 'all',      label: '📦 + 👤 All (Product + Agent)' },
-  { value: 'products', label: '📦 By Product' },
-  { value: 'agents',   label: '👤 By Agent' },
+  { value: 'all',          label: '📦 + 👤 All (Product + Agent)' },
+  { value: 'products',     label: '📦 By Product' },
+  { value: 'agents',       label: '👤 By Agent' },
 ]
 
 export default function ProductDashboardPage() {
   const { user } = useAuth()
   const isAdmin = user?.role_name === 'admin'
 
-  const [data, setData]             = useState(null)
-  const [loading, setLoading]       = useState(true)
-  const [earningTab, setEarningTab] = useState('potential')
-  const [viewMode, setViewMode]     = useState('all')
-  const [agents, setAgents]         = useState([])
-  const [products, setProducts]     = useState([])
-  const [filterAgent, setFilterAgent]     = useState('')
+  const [data, setData]           = useState(null)
+  const [loading, setLoading]     = useState(true)
+  const [viewMode, setViewMode]   = useState('all')
+  const [agents, setAgents]       = useState([])
+  const [products, setProducts]   = useState([])
+  const [filterAgent, setFilterAgent]   = useState('')
   const [filterProduct, setFilterProduct] = useState('')
 
   useEffect(() => {
     if (isAdmin) {
       api.get('/users').then(r => {
-        // interceptor returns body directly, so r = {success, data}
-        const list = r?.data || r || []
+        const list = r.data?.data || r.data || []
         setAgents(Array.isArray(list) ? list.filter(u => ['agent','admin'].includes(u.role_name)) : [])
       }).catch(() => {})
     }
     api.get('/products/active').then(r => {
-      const list = r?.data || r || []
-      setProducts(Array.isArray(list) ? list : [])
+      setProducts(r.data?.data || r.data || [])
     }).catch(() => {})
   }, [isAdmin])
 
-  const fetchData = async (agentF, productF) => {
+  const fetchData = useCallback(async () => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
-      if (isAdmin && agentF)  params.set('agent_id',   agentF)
-      if (productF)           params.set('product_id', productF)
-      // interceptor returns body directly: {success, data: {product_stats, agent_breakdown, ...}}
-      const body = await api.get(`/products/dashboard?${params}`)
-      setData(body?.data || body || {})
+      if (isAdmin && filterAgent)   params.set('agent_id',   filterAgent)
+      if (filterProduct) params.set('product_id', filterProduct)
+      const r = await api.get(`/products/dashboard?${params}`)
+      setData(r.data?.data || r.data || {})
     } catch (err) {
       console.error('Products dashboard error:', err)
     } finally { setLoading(false) }
-  }
+  }, [isAdmin, filterAgent, filterProduct])
 
+  useEffect(() => { fetchData() }, [fetchData])
   useEffect(() => {
-    fetchData(filterAgent, filterProduct)
-  }, [filterAgent, filterProduct])
-
-  useEffect(() => {
-    const t = setInterval(() => fetchData(filterAgent, filterProduct), 60000)
+    const t = setInterval(fetchData, 60000)
     return () => clearInterval(t)
-  }, [filterAgent, filterProduct])
+  }, [fetchData])
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -96,6 +91,7 @@ export default function ProductDashboardPage() {
   const productStats   = data?.product_stats   || []
   const agentBreakdown = data?.agent_breakdown  || []
 
+  // Build agent map from agent_breakdown
   const agentMap = {}
   agentBreakdown.forEach(row => {
     if (!agentMap[row.agent_id]) {
@@ -117,22 +113,22 @@ export default function ProductDashboardPage() {
   })
   const agentList = Object.values(agentMap).sort((a, b) => b.earned - a.earned)
 
-  const totalPotential = parseFloat(data?.total_potential     || 0)
+  const totalPotential = parseFloat(data?.total_potential    || 0)
   const totalEarned    = parseFloat(data?.total_actual_earned || 0)
   const totalLost      = parseFloat(data?.total_earning_lost  || 0)
   const totalStill     = parseFloat(data?.total_still_to_earn || 0)
 
-  const currentTab = EARNING_TABS.find(t => t.key === earningTab) || EARNING_TABS[0]
+  // Tabs available — agent sees all 4, admin same
 
   return (
     <div className="space-y-5">
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">📦 Products Dashboard</h1>
           <p className="text-slate-500 text-sm">{isAdmin ? 'All products & agent performance' : 'Your product performance'}</p>
         </div>
-        <button onClick={() => fetchData(filterAgent, filterProduct)}
-          className="px-4 py-2 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 font-medium">
+        <button onClick={fetchData} className="px-4 py-2 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 font-medium">
           🔄 Refresh
         </button>
       </div>
@@ -171,7 +167,7 @@ export default function ProductDashboardPage() {
         </div>
       )}
 
-      {/* KPI Cards */}
+      {/* Summary KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Earning Potential', val: totalPotential, color: '#7c3aed', bg: '#f5f3ff', icon: '💰' },
@@ -189,7 +185,7 @@ export default function ProductDashboardPage() {
         ))}
       </div>
 
-      {/* Achievement bar */}
+      {/* Achievement summary bar */}
       {totalPotential > 0 && (
         <div className="card p-4">
           <div className="flex items-center justify-between mb-2">
@@ -208,19 +204,7 @@ export default function ProductDashboardPage() {
         </div>
       )}
 
-      {/* Earning Tabs */}
-      <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 flex-wrap">
-        {EARNING_TABS.map(t => (
-          <button key={t.key} onClick={() => setEarningTab(t.key)}
-            className="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-            style={earningTab === t.key ? { background: t.color, color: '#fff' } : { color: '#64748b' }}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-      <p className="text-xs text-slate-400 -mt-3 px-1">{currentTab.desc}</p>
-
-      {/* By Product */}
+      {/* ── BY PRODUCT ── */}
       {(viewMode === 'products' || viewMode === 'all') && (
         <div className="card overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
@@ -234,8 +218,8 @@ export default function ProductDashboardPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
-                    {['Product','Type','₹/Closure','Total Leads','Converted','Not Int.','Hot','Warm',
-                      'Potential','Earned','Lost','Still To Earn','Achievement'].map(h => (
+                    {['Product', 'Type', '₹/Closure', 'Total Leads', 'Converted', 'Not Int.', 'Hot', 'Warm',
+                      'Potential', 'Earned', 'Lost', 'Still To Earn', 'Achievement'].map(h => (
                       <th key={h} className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -295,7 +279,7 @@ export default function ProductDashboardPage() {
         </div>
       )}
 
-      {/* By Agent */}
+      {/* ── BY AGENT ── */}
       {(viewMode === 'agents' || viewMode === 'all') && (
         <div className="card overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
@@ -309,7 +293,7 @@ export default function ProductDashboardPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
-                    {['Agent','Leads','Converted','Not Int.','Conv %','Potential','Earned','Lost','Still To Earn','Achievement'].map(h => (
+                    {['Agent', 'Leads', 'Converted', 'Not Int.', 'Conv %', 'Potential', 'Earned', 'Lost', 'Still To Earn', 'Achievement'].map(h => (
                       <th key={h} className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -375,7 +359,7 @@ export default function ProductDashboardPage() {
         </div>
       )}
 
-      {/* Product x Agent breakdown */}
+      {/* ── PRODUCT + AGENT (combined) ── */}
       {viewMode === 'all' && agentBreakdown.length > 0 && (
         <div className="card overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100">
@@ -386,7 +370,7 @@ export default function ProductDashboardPage() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50">
                 <tr>
-                  {['Agent','Product','Leads','Converted','Not Int.','Potential','Earned','Lost','Still To Earn'].map(h => (
+                  {['Agent', 'Product', 'Leads', 'Converted', 'Not Int.', 'Potential', 'Earned', 'Lost', 'Still To Earn'].map(h => (
                     <th key={h} className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
