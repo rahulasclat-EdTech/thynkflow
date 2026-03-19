@@ -96,17 +96,38 @@ export default function DashboardPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [dashRes, critRes, agentRes, fuRes] = await Promise.all([
+      const [ovRes, callRes, dashRes, critRes, agentRes, fuRes] = await Promise.all([
+        api.get('/reports/overview').catch(() => ({ data: {} })),
+        api.get('/reports/call-stats').catch(() => ({ data: {} })),
         api.get('/dashboard').catch(() => ({ data: {} })),
         api.get('/dashboard/critical').catch(() => ({ data: {} })),
         api.get('/reports/agent-wise').catch(() => ({ data: [] })),
         api.get('/reports/upcoming-followups').catch(() => ({ data: [] })),
       ])
 
-      // /dashboard returns { success, data: { totals: { total_leads, hot_leads, warm_leads,
-      //   cold_leads, converted, not_interested, call_back, new_leads, unattended,
-      //   today_calls, week_calls, month_calls } } }
-      const rawTotals = dashRes.data?.data?.totals || {}
+      // Primary: /reports/overview returns flat { total_leads, hot_leads, ... converted_leads, call_back_leads }
+      // Fallback: /dashboard returns { data: { totals: { ... converted, call_back (no _leads suffix) } } }
+      const ov        = ovRes.data?.data || ovRes.data || {}
+      const dashTotals = dashRes.data?.data?.totals || {}
+      const calls     = callRes.data?.data || callRes.data || {}
+
+      // Merge: prefer overview fields, fill gaps from dashboard totals, add call stats
+      const rawTotals = {
+        total_leads:    ov.total_leads    || dashTotals.total_leads    || 0,
+        new_leads:      ov.new_leads      || dashTotals.new_leads      || 0,
+        hot_leads:      ov.hot_leads      || dashTotals.hot_leads      || 0,
+        warm_leads:     ov.warm_leads     || dashTotals.warm_leads     || 0,
+        cold_leads:     ov.cold_leads     || dashTotals.cold_leads     || 0,
+        // overview uses _leads suffix, dashboard uses no suffix — handle both
+        converted:      ov.converted_leads      || ov.converted      || dashTotals.converted      || 0,
+        not_interested: ov.not_interested_leads  || ov.not_interested  || dashTotals.not_interested  || 0,
+        call_back:      ov.call_back_leads       || ov.call_back       || dashTotals.call_back       || 0,
+        unattended:     ov.unattended     || dashTotals.unattended     || 0,
+        // call counts come from /reports/call-stats
+        today_calls:    calls.today       || dashTotals.today_calls    || 0,
+        week_calls:     calls.this_week   || dashTotals.week_calls     || 0,
+        month_calls:    calls.this_month  || dashTotals.month_calls    || 0,
+      }
       setStats(rawTotals)
 
       setCritical(critRes.data?.data || {})
