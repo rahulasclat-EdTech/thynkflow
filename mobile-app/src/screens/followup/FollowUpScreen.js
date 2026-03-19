@@ -66,10 +66,21 @@ export default function FollowUpScreen({ navigation }) {
   const fetchFollowups = useCallback(async () => {
     try {
       const r = await api.get('/followups?section=all')
+      console.log('FollowUp response counts:', JSON.stringify(r.data?.counts))
       const d = r.data?.data || {}
-      const today      = Array.isArray(d.today)       ? d.today       : []
-      const previous   = Array.isArray(d.previous)    ? d.previous    : []
-      const next3      = Array.isArray(d.next_3_days) ? d.next_3_days : []
+
+      let today = [], previous = [], next3 = []
+      if (Array.isArray(r.data?.data)) {
+        // Flat array — categorise client-side
+        const all = r.data.data
+        today    = all.filter(x => x.followup_type === 'today')
+        previous = all.filter(x => x.followup_type === 'overdue')
+        next3    = all.filter(x => x.followup_type === 'upcoming')
+      } else {
+        today    = Array.isArray(d.today)       ? d.today       : []
+        previous = Array.isArray(d.previous)    ? d.previous    : []
+        next3    = Array.isArray(d.next_3_days) ? d.next_3_days : []
+      }
 
       const built = []
       if (today.length > 0)    built.push({ title: `⏰ Today (${today.length})`,                  data: today,    color: '#D97706' })
