@@ -212,6 +212,12 @@ export default function LeadsPage() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
+  // Auto-refresh every 30 seconds — keeps lead list in sync across all users
+  useEffect(() => {
+    const t = setInterval(fetchAll, 30000)
+    return () => clearInterval(t)
+  }, [fetchAll])
+
   // ══════════════════════════════════════════════════════════════
   //  OPEN LEAD DETAIL
   // ══════════════════════════════════════════════════════════════
@@ -517,9 +523,12 @@ export default function LeadsPage() {
       }
       const productNames = [...new Set(importRows.map(r => colAlias(r, 'product', 'course', 'program')).filter(Boolean))]
       let productMap = {}
+      console.log('DEBUG productNames:', productNames)
       if (productNames.length) {
         const res = await api.post('/leads/lookup-products', { names: productNames })
         productMap = res.data?.data || {}
+        console.log('DEBUG productMap:', productMap)
+        console.log('DEBUG lookup response:', JSON.stringify(res.data))
       }
       const payload = importRows.map(r => ({
         name:             colAlias(r, 'name', 'full name', 'student name'),
