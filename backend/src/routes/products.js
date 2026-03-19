@@ -1,9 +1,4 @@
-// backend/src/routes/products.js — COMPLETE REWRITE
-// Earnings formulas:
-//   Potential  = leads (excl. not_interested) * per_closure_earning
-//   Actual     = converted * per_closure_earning
-//   Lost       = not_interested * per_closure_earning
-//   Still To   = leads (excl. converted & not_interested) * per_closure_earning
+// backend/src/routes/products.js
 const express = require('express')
 const db      = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
@@ -13,7 +8,6 @@ function agentScope(user, alias = 'l') {
   return user.role_name === 'admin' ? '' : `AND ${alias}.assigned_to = '${user.id}'`
 }
 
-// ── GET /api/products/active — for dropdowns ─────────────
 router.get('/active', auth, async (req, res) => {
   try {
     const { rows } = await db.query(
@@ -23,9 +17,6 @@ router.get('/active', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── GET /api/products/dashboard — main stats ─────────────
-// ?agent_id=   filter by agent (admin only)
-// ?product_id= filter by product
 router.get('/dashboard', auth, async (req, res) => {
   try {
     const { agent_id, product_id } = req.query
@@ -33,39 +24,21 @@ router.get('/dashboard', auth, async (req, res) => {
     if (req.user.role_name === 'admin' && agent_id) scope += ` AND l.assigned_to = '${agent_id}'`
     if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
 
-    // ── Product-wise stats ────────────────────────────────
     const { rows: productStats } = await db.query(`
       SELECT
-        p.id                                                               AS product_id,
-        p.name                                                             AS product_name,
-        p.type                                                             AS product_type,
-        p.per_closure_earning,
-
-        COUNT(l.id)                                                        AS total_leads,
-        COUNT(CASE WHEN l.status='hot'            THEN 1 END)             AS hot_leads,
-        COUNT(CASE WHEN l.status='warm'           THEN 1 END)             AS warm_leads,
-        COUNT(CASE WHEN l.status='cold'           THEN 1 END)             AS cold_leads,
-        COUNT(CASE WHEN l.status='new'            THEN 1 END)             AS new_leads,
-        COUNT(CASE WHEN l.status='call_back'      THEN 1 END)             AS call_back_leads,
-        COUNT(CASE WHEN l.status='converted'      THEN 1 END)             AS converted_leads,
-        COUNT(CASE WHEN l.status='not_interested' THEN 1 END)             AS not_interested_leads,
-
-        -- Potential  = excl. not_interested
-        COUNT(CASE WHEN l.status != 'not_interested' THEN 1 END)
-          * p.per_closure_earning                                          AS total_potential_earning,
-
-        -- Actual earned = converted
-        COUNT(CASE WHEN l.status='converted' THEN 1 END)
-          * p.per_closure_earning                                          AS actual_earned,
-
-        -- Lost = not_interested
-        COUNT(CASE WHEN l.status='not_interested' THEN 1 END)
-          * p.per_closure_earning                                          AS earning_lost,
-
-        -- Still to earn = excl. converted & not_interested
-        COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END)
-          * p.per_closure_earning                                          AS still_to_earn
-
+        p.id AS product_id, p.name AS product_name, p.type AS product_type, p.per_closure_earning,
+        COUNT(l.id) AS total_leads,
+        COUNT(CASE WHEN l.status='hot'            THEN 1 END) AS hot_leads,
+        COUNT(CASE WHEN l.status='warm'           THEN 1 END) AS warm_leads,
+        COUNT(CASE WHEN l.status='cold'           THEN 1 END) AS cold_leads,
+        COUNT(CASE WHEN l.status='new'            THEN 1 END) AS new_leads,
+        COUNT(CASE WHEN l.status='call_back'      THEN 1 END) AS call_back_leads,
+        COUNT(CASE WHEN l.status='converted'      THEN 1 END) AS converted_leads,
+        COUNT(CASE WHEN l.status='not_interested' THEN 1 END) AS not_interested_leads,
+        COUNT(CASE WHEN l.status != 'not_interested' THEN 1 END) * p.per_closure_earning AS total_potential_earning,
+        COUNT(CASE WHEN l.status='converted' THEN 1 END) * p.per_closure_earning AS actual_earned,
+        COUNT(CASE WHEN l.status='not_interested' THEN 1 END) * p.per_closure_earning AS earning_lost,
+        COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END) * p.per_closure_earning AS still_to_earn
       FROM products p
       LEFT JOIN leads l ON l.product_id = p.id AND l.id IS NOT NULL ${scope}
       WHERE p.is_active = true
@@ -73,78 +46,67 @@ router.get('/dashboard', auth, async (req, res) => {
       ORDER BY total_leads DESC
     `)
 
-    // ── Agent + Product breakdown ─────────────────────────
     const { rows: agentBreakdown } = await db.query(`
       SELECT
-        u.id                                                               AS agent_id,
-        u.name                                                             AS agent_name,
-        p.id                                                               AS product_id,
-        p.name                                                             AS product_name,
-        p.per_closure_earning,
-
-        COUNT(l.id)                                                        AS total_leads,
-        COUNT(CASE WHEN l.status='converted'      THEN 1 END)             AS converted,
-        COUNT(CASE WHEN l.status='not_interested' THEN 1 END)             AS not_interested,
+        u.id AS agent_id, u.name AS agent_name,
+        p.id AS product_id, p.name AS product_name, p.per_closure_earning,
+        COUNT(l.id) AS total_leads,
+        COUNT(CASE WHEN l.status='converted'      THEN 1 END) AS converted,
+        COUNT(CASE WHEN l.status='not_interested' THEN 1 END) AS not_interested,
         COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END) AS still_to_earn_count,
-
-        COUNT(CASE WHEN l.status != 'not_interested' THEN 1 END)
-          * p.per_closure_earning                                          AS potential,
-        COUNT(CASE WHEN l.status='converted' THEN 1 END)
-          * p.per_closure_earning                                          AS earned,
-        COUNT(CASE WHEN l.status='not_interested' THEN 1 END)
-          * p.per_closure_earning                                          AS lost,
-        COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END)
-          * p.per_closure_earning                                          AS still_to_earn
-
+        COUNT(CASE WHEN l.status != 'not_interested' THEN 1 END) * p.per_closure_earning AS potential,
+        COUNT(CASE WHEN l.status='converted' THEN 1 END) * p.per_closure_earning AS earned,
+        COUNT(CASE WHEN l.status='not_interested' THEN 1 END) * p.per_closure_earning AS lost,
+        COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END) * p.per_closure_earning AS still_to_earn
       FROM users u
       JOIN leads l ON l.assigned_to = u.id ${scope}
       JOIN products p ON l.product_id = p.id
-      WHERE u.role_name IN ('agent','admin') AND p.is_active = true
+      -- FIX: use role_id join instead of role_name column
+      WHERE u.role_id IN (SELECT id FROM roles WHERE name IN ('agent','admin'))
+        AND p.is_active = true
       GROUP BY u.id, u.name, p.id, p.name, p.per_closure_earning
       ORDER BY u.name, earned DESC
     `)
 
-    // ── Totals ────────────────────────────────────────────
     const totals = productStats.reduce((acc, p) => ({
-      total_leads:       acc.total_leads       + parseInt(p.total_leads       || 0),
-      total_potential:   acc.total_potential   + parseFloat(p.total_potential_earning || 0),
-      total_earned:      acc.total_earned      + parseFloat(p.actual_earned   || 0),
-      total_lost:        acc.total_lost        + parseFloat(p.earning_lost    || 0),
-      total_still:       acc.total_still       + parseFloat(p.still_to_earn   || 0),
-      total_converted:   acc.total_converted   + parseInt(p.converted_leads   || 0),
-      total_ni:          acc.total_ni          + parseInt(p.not_interested_leads || 0),
+      total_leads:     acc.total_leads     + parseInt(p.total_leads || 0),
+      total_potential: acc.total_potential + parseFloat(p.total_potential_earning || 0),
+      total_earned:    acc.total_earned    + parseFloat(p.actual_earned || 0),
+      total_lost:      acc.total_lost      + parseFloat(p.earning_lost || 0),
+      total_still:     acc.total_still     + parseFloat(p.still_to_earn || 0),
+      total_converted: acc.total_converted + parseInt(p.converted_leads || 0),
+      total_ni:        acc.total_ni        + parseInt(p.not_interested_leads || 0),
     }), { total_leads:0, total_potential:0, total_earned:0, total_lost:0, total_still:0, total_converted:0, total_ni:0 })
 
     res.json({
       success: true,
       data: {
-        product_stats:      productStats,
-        agent_breakdown:    agentBreakdown,
-        total_potential:    totals.total_potential,
-        total_actual_earned:totals.total_earned,
-        total_earning_lost: totals.total_lost,
-        total_still_to_earn:totals.total_still,
-        total_leads:        totals.total_leads,
-        total_converted:    totals.total_converted,
+        product_stats:        productStats,
+        agent_breakdown:      agentBreakdown,
+        total_potential:      totals.total_potential,
+        total_actual_earned:  totals.total_earned,
+        total_earning_lost:   totals.total_lost,
+        total_still_to_earn:  totals.total_still,
+        total_leads:          totals.total_leads,
+        total_converted:      totals.total_converted,
         total_not_interested: totals.total_ni,
       }
     })
-  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+  } catch (err) {
+    console.error('Products dashboard error:', err.message)
+    res.status(500).json({ success: false, message: err.message })
+  }
 })
 
-// ── GET /api/products — list all (admin only) ───────────
 router.get('/', auth, adminOnly, async (req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT p.*, COUNT(l.id) AS lead_count
-       FROM products p LEFT JOIN leads l ON l.product_id = p.id
-       GROUP BY p.id ORDER BY p.name`
+      `SELECT p.*, COUNT(l.id) AS lead_count FROM products p LEFT JOIN leads l ON l.product_id = p.id GROUP BY p.id ORDER BY p.name`
     )
     res.json({ success: true, data: rows })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── POST /api/products — create (admin only) ────────────
 router.post('/', auth, adminOnly, async (req, res) => {
   try {
     const { name, type, per_closure_earning } = req.body
@@ -156,7 +118,6 @@ router.post('/', auth, adminOnly, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── PUT /api/products/:id — update (admin only) ─────────
 router.put('/:id', auth, adminOnly, async (req, res) => {
   try {
     const { name, type, per_closure_earning, is_active } = req.body
@@ -169,7 +130,6 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── DELETE /api/products/:id — deactivate (admin only) ──
 router.delete('/:id', auth, adminOnly, async (req, res) => {
   try {
     await db.query(`UPDATE products SET is_active=false WHERE id=$1`, [req.params.id])
