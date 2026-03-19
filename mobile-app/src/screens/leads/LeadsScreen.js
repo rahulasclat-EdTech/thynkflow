@@ -28,6 +28,8 @@ export default function LeadsScreen({ navigation }) {
   const [leads, setLeads]             = useState([])
   const [products, setProducts]       = useState([])
   const [agents, setAgents]           = useState([])
+  const [leadTypes, setLeadTypes]     = useState([])
+  const [leadTypes, setLeadTypes]     = useState([{label:'B2B',key:'b2b'},{label:'B2C',key:'b2c'}])
   const [loading, setLoading]         = useState(true)
   const [refreshing, setRefreshing]   = useState(false)
   const [search, setSearch]           = useState('')
@@ -75,9 +77,13 @@ export default function LeadsScreen({ navigation }) {
   useEffect(() => { setPage(1); fetchLeads(1) }, [fetchLeads])
 
   useEffect(() => {
-    Promise.all([api.get('/products/active'), api.get('/users')]).then(([p, u]) => {
+    Promise.all([api.get('/products/active'), api.get('/chat/users'), api.get('/settings')]).then(([p, u, s]) => {
       setProducts(p.data?.data || p.data || [])
-      setAgents(Array.isArray(u.data) ? u.data : (u.data?.data || []))
+      setAgents(Array.isArray(u.data?.data) ? u.data.data : (Array.isArray(u.data) ? u.data : []))
+      const sData = s.data?.data || s.data || {}
+      setLeadTypes(sData.lead_type || sData.leadType || [])
+      const sData = s.data?.data || s.data || {}
+      setLeadTypes(sData.lead_type || sData.lead_types || [{label:'B2B',key:'b2b'},{label:'B2C',key:'b2c'}])
     }).catch(() => {})
   }, [])
 
@@ -102,7 +108,17 @@ export default function LeadsScreen({ navigation }) {
       <TouchableOpacity style={s.card} onPress={() => navigation.navigate('LeadDetail', { lead: item })}>
         <View style={s.cardTop}>
           <View style={{ flex: 1 }}>
-            <Text style={s.leadName}>{item.name || item.contact_name || item.school_name}</Text>
+            <View style={{flexDirection:'row',alignItems:'center',gap:6}}>
+              <Text style={s.leadName}>{item.name || item.contact_name || item.school_name}</Text>
+              {item.lead_type && (
+                <View style={{paddingHorizontal:6,paddingVertical:1,borderRadius:8,backgroundColor:item.lead_type==='B2B'?'#DBEAFE':'#DCFCE7'}}>
+                  <Text style={{fontSize:9,fontWeight:'700',color:item.lead_type==='B2B'?'#1E40AF':'#166534'}}>{item.lead_type}</Text>
+                </View>
+              )}
+            </View>
+            {item.school_name && item.school_name!==item.name && item.school_name!==item.contact_name && (
+              <Text style={{fontSize:11,color:'#9CA3AF',marginTop:1}}>🏫 {item.school_name}</Text>
+            )}
             <Text style={s.leadPhone}>{item.phone}</Text>
             {pname && <View style={s.pBadge}><Ionicons name="cube-outline" size={10} color="#4F46E5" /><Text style={s.pBadgeText}>{pname}</Text></View>}
           </View>
@@ -177,7 +193,7 @@ export default function LeadsScreen({ navigation }) {
       )}
 
       <CreateLeadModal visible={showCreate} onClose={()=>setShowCreate(false)}
-        onSave={()=>{setPage(1);fetchLeads(1)}} products={products} agents={agents} />
+        onSave={()=>{setPage(1);fetchLeads(1)}} products={products} agents={agents} leadTypes={leadTypes} />
 
       <Modal visible={showPostCallPrompt} transparent animationType="slide">
         <View style={s.popupOverlay}>
@@ -200,8 +216,8 @@ export default function LeadsScreen({ navigation }) {
   )
 }
 
-function CreateLeadModal({ visible, onClose, onSave, products, agents }) {
-  const empty = {name:'',phone:'',email:'',city:'',source:'',status:'new',product_id:'',notes:'',follow_up_date:'',assigned_to:''}
+function CreateLeadModal({ visible, onClose, onSave, products, agents, leadTypes = [{label:'B2B',key:'b2b'},{label:'B2C',key:'b2c'}] }) {
+  const empty = {name:'',phone:'',email:'',city:'',source:'',school_name:'',lead_type:'',creation_comment:'',status:'new',product_id:'',notes:'',follow_up_date:'',assigned_to:''}
   const [form, setForm]       = useState(empty)
   const [saving, setSaving]   = useState(false)
   const [showCal, setShowCal] = useState(false)
@@ -214,8 +230,11 @@ function CreateLeadModal({ visible, onClose, onSave, products, agents }) {
     try {
       const res = await api.post('/leads', {
         name:form.name.trim(), contact_name:form.name.trim(),
+        school_name:form.school_name?.trim()||null,
         phone:form.phone.trim(), email:form.email||null, city:form.city||null,
-        source:form.source||null, status:form.status,
+        source:form.source||null, lead_type:form.lead_type||null,
+        creation_comment:form.creation_comment?.trim()||null,
+        status:form.status,
         product_id:form.product_id||null, admin_remark:form.notes||null,
         assigned_to:form.assigned_to||null,
       })
@@ -261,6 +280,28 @@ function CreateLeadModal({ visible, onClose, onSave, products, agents }) {
               <TextInput value={form.city} onChangeText={f('city')} placeholder="Delhi" style={s.inp} placeholderTextColor="#9CA3AF" />
             </View>
           </View>
+          {/* School Name */}
+          <View style={{marginBottom:14}}>
+            <Text style={s.lbl}>School / Organisation Name</Text>
+            <TextInput value={form.school_name} onChangeText={t=>setForm(f=>({...f,school_name:t}))}
+              placeholder="e.g. Delhi Public School" style={s.inp} placeholderTextColor="#9CA3AF" />
+          </View>
+
+          {/* Lead Type */}
+          <View style={{marginBottom:14}}>
+            <Text style={s.lbl}>Lead Type</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {[{label:'',key:''},...leadTypes].map(t=>{
+                const lbl = t?.label||t
+                const sel = form.lead_type === lbl
+                return <TouchableOpacity key={t?.key||lbl||'none'} onPress={()=>setForm(f=>({...f,lead_type:lbl}))}
+                  style={[s.chip, sel&&s.chipActive, {marginRight:6}]}>
+                  <Text style={[s.chipTxt, sel&&s.chipTxtActive]}>{lbl||'None'}</Text>
+                </TouchableOpacity>
+              })}
+            </ScrollView>
+          </View>
+
           {/* Status - horizontal tab chips */}
           <View style={{marginBottom:14}}>
             <Text style={s.lbl}>Status</Text>
@@ -320,6 +361,14 @@ function CreateLeadModal({ visible, onClose, onSave, products, agents }) {
               })}
             </View>
           </View>}
+          {/* Creation Comment */}
+          <View style={{marginBottom:14}}>
+            <Text style={s.lbl}>Creation Comment</Text>
+            <TextInput value={form.creation_comment} onChangeText={t=>setForm(f=>({...f,creation_comment:t}))}
+              placeholder="e.g. April batch upload, Cold calling list…"
+              style={s.inp} placeholderTextColor="#9CA3AF" />
+          </View>
+
           {/* Notes */}
           <View style={{marginBottom:14}}>
             <Text style={s.lbl}>Notes</Text>
