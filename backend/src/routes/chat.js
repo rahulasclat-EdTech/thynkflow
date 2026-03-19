@@ -43,6 +43,7 @@ const path    = require('path')
 const fs      = require('fs')
 const db      = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
+const { createNotif } = require('./notifications')
 
 const router = express.Router()
 
@@ -196,6 +197,26 @@ router.post('/conversations/:id/messages', auth, upload.single('file'), async (r
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [id, req.user.id, message?.trim()||null, fileUrl, fileName, fileType, fileSize])
     await db.query(`UPDATE conversations SET updated_at=NOW() WHERE id=$1`, [id])
+
+    // Notify all other members of this conversation
+    try {
+      const { rows: members } = await db.query(
+        `SELECT cm.user_id, u.name, c.type, c.name AS conv_name
+         FROM conversation_members cm
+         JOIN users u ON u.id = cm.user_id
+         JOIN conversations c ON c.id = cm.conversation_id
+         WHERE cm.conversation_id = $1 AND cm.user_id != $2`,
+        [id, req.user.id]
+      )
+      const preview = (message?.trim() || '📎 File').substring(0, 60)
+      for (const m of members) {
+        await createNotif(
+          m.user_id, 'new_message', `💬 New message from ${req.user.name}`,
+          preview, null
+        )
+      }
+    } catch {}
+
     res.status(201).json({ success: true, data: { ...rows[0], sender_name: req.user.name } })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
