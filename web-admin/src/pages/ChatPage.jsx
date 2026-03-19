@@ -55,7 +55,13 @@ function NewChatModal({ onClose, onCreated, isAdmin }) {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    api.get('/chat/users').then(r => setUsers(r.data?.data || [])).catch(() => {})
+    setUsers([])
+    api.get('/chat/users')
+      .then(r => {
+        const list = r.data?.data || r.data || []
+        setUsers(Array.isArray(list) ? list : [])
+      })
+      .catch(() => setUsers([]))
   }, [])
 
   const filtered = users.filter(u =>
@@ -129,6 +135,14 @@ function NewChatModal({ onClose, onCreated, isAdmin }) {
                 placeholder="Search users…"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
               <div className="space-y-1 max-h-48 overflow-y-auto">
+                {users.length === 0 ? (
+                  <div className="text-center py-6 text-slate-400">
+                    <p className="text-sm">Loading users…</p>
+                    <p className="text-xs mt-1">If this persists, check your connection</p>
+                  </div>
+                ) : filtered.length === 0 ? (
+                  <div className="text-center py-6 text-slate-400 text-sm">No users match your search</div>
+                ) : null}
                 {filtered.map(u => (
                   <button key={u.id} onClick={() => mode === 'direct' ? setSelected([u.id]) : toggle(u.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-colors ${(mode === 'direct' ? selected[0] === u.id : selected.includes(u.id)) ? 'bg-blue-50 border border-blue-200' : 'hover:bg-slate-50'}`}>
