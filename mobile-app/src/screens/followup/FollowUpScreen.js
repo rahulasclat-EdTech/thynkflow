@@ -42,6 +42,7 @@ export default function FollowUpScreen({ navigation }) {
   const [counts, setCounts]         = useState({ today: 0, previous: 0, next_3_days: 0, total: 0 })
   const [loading, setLoading]       = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [error, setError]           = useState(null)   // FIX: surface errors
   const [selectedFU, setSelectedFU] = useState(null)
   const [showUpdate, setShowUpdate] = useState(false)
 
@@ -64,14 +65,13 @@ export default function FollowUpScreen({ navigation }) {
   }, [])
 
   const fetchFollowups = useCallback(async () => {
+    setError(null)
     try {
       const r = await api.get('/followups?section=all')
-      console.log('FollowUp response counts:', JSON.stringify(r.data?.counts))
       const d = r.data?.data || {}
 
       let today = [], previous = [], next3 = []
       if (Array.isArray(r.data?.data)) {
-        // Flat array — categorise client-side
         const all = r.data.data
         today    = all.filter(x => x.followup_type === 'today')
         previous = all.filter(x => x.followup_type === 'overdue')
@@ -83,16 +83,22 @@ export default function FollowUpScreen({ navigation }) {
       }
 
       const built = []
-      if (today.length > 0)    built.push({ title: `⏰ Today (${today.length})`,                  data: today,    color: '#D97706' })
-      if (previous.length > 0) built.push({ title: `🔴 Overdue (${previous.length})`,             data: previous, color: '#DC2626' })
-      if (next3.length > 0)    built.push({ title: `📆 Next 3 Days (${next3.length})`,             data: next3,    color: '#2563EB' })
-
-      if (built.length === 0)  built.push({ title: 'No follow-ups', data: [], color: '#9CA3AF' })
+      if (today.length > 0)    built.push({ title: `⏰ Today (${today.length})`,         data: today,    color: '#D97706' })
+      if (previous.length > 0) built.push({ title: `🔴 Overdue (${previous.length})`,    data: previous, color: '#DC2626' })
+      if (next3.length > 0)    built.push({ title: `📆 Next 3 Days (${next3.length})`,   data: next3,    color: '#2563EB' })
 
       setSections(built)
-      setCounts(r.data?.counts || { today: today.length, previous: previous.length, next_3_days: next3.length, total: today.length + previous.length + next3.length })
+      setCounts(r.data?.counts || {
+        today:       today.length,
+        previous:    previous.length,
+        next_3_days: next3.length,
+        total:       today.length + previous.length + next3.length,
+      })
     } catch (e) {
-      console.log('FollowUp fetch error:', e.message)
+      const msg = e?.response?.data?.message || e.message || 'Failed to load follow-ups'
+      console.error('FollowUp fetch error:', msg, e)
+      setError(msg)
+      Alert.alert('Error', `Could not load follow-ups:\n${msg}`)
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -106,7 +112,8 @@ export default function FollowUpScreen({ navigation }) {
     if (!phone) return Alert.alert('No phone number')
     calledLeadRef.current = { id: fu.lead_id, name: fu.lead_name || fu.contact_name, phone }
     Linking.openURL(`tel:${phone}`)
-    api.post(`/leads/${fu.lead_id}/communications`, { type:'call', direction:'outbound', note:'Follow-up call' }).catch(() => {})
+    api.post(`/leads/${fu.lead_id}/communications`, { type:'call', direction:'outbound', note:'Follow-up call' })
+      .catch(e => console.warn('Log call failed:', e.message))
   }
 
   const handleWhatsApp = (fu) => {
@@ -195,6 +202,17 @@ export default function FollowUpScreen({ navigation }) {
         </View>
       </View>
 
+      {/* Error banner */}
+      {error && !loading && (
+        <View style={s.errorBanner}>
+          <Ionicons name="warning-outline" size={16} color="#DC2626" />
+          <Text style={s.errorText} numberOfLines={2}>{error}</Text>
+          <TouchableOpacity onPress={() => { setLoading(true); fetchFollowups() }}>
+            <Text style={s.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {loading ? (
         <View style={s.center}><ActivityIndicator size="large" color={COLORS.primary} /></View>
       ) : (
@@ -277,10 +295,13 @@ function UpdateFollowUpModal({ visible, followup, onClose, onSave }) {
         await api.patch(`/leads/${followup.lead_id}/status`, { status })
       }
       if (followUpDate) {
-        await api.post('/followups', { lead_id: followup.lead_id, follow_up_date: followUpDate, notes: discussion }).catch(() => {})
+        await api.post('/followups', { lead_id: followup.lead_id, follow_up_date: followUpDate, notes: discussion })
+          .catch(e => console.warn('Schedule next followup failed:', e.message))
       }
       Alert.alert('✅ Saved', 'Follow-up updated', [{ text:'OK', onPress:onSave }])
-    } catch(e) { Alert.alert('Error', e.message || 'Failed') }
+    } catch(e) {
+      Alert.alert('Error', e?.response?.data?.message || e.message || 'Failed')
+    }
     finally { setSaving(false) }
   }
 
@@ -306,7 +327,6 @@ function UpdateFollowUpModal({ visible, followup, onClose, onSave }) {
             )}
           </View>
 
-          {/* Discussion */}
           <View style={s.section}>
             <Text style={s.secTitle}>📝 Call Discussion *</Text>
             <TextInput value={discussion} onChangeText={setDiscussion}
@@ -316,7 +336,6 @@ function UpdateFollowUpModal({ visible, followup, onClose, onSave }) {
               placeholderTextColor="#9CA3AF" />
           </View>
 
-          {/* Status */}
           <View style={s.section}>
             <Text style={s.secTitle}>📊 Update Status</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -334,7 +353,6 @@ function UpdateFollowUpModal({ visible, followup, onClose, onSave }) {
             </ScrollView>
           </View>
 
-          {/* Next follow-up */}
           <View style={s.section}>
             <Text style={s.secTitle}>📅 Next Follow-up</Text>
             <TouchableOpacity onPress={() => setShowCal(true)} style={s.dateBtn}>
@@ -378,6 +396,9 @@ const s = StyleSheet.create({
   pill:         { flex:1, borderRadius:12, padding:10, alignItems:'center' },
   pillNum:      { fontSize:22, fontWeight:'800' },
   pillLabel:    { fontSize:11, fontWeight:'600', marginTop:2 },
+  errorBanner:  { flexDirection:'row', alignItems:'center', gap:8, backgroundColor:'#FEF2F2', borderWidth:1, borderColor:'#FECACA', marginHorizontal:12, marginTop:8, borderRadius:10, padding:10 },
+  errorText:    { flex:1, fontSize:12, color:'#DC2626' },
+  retryText:    { fontSize:12, color:'#DC2626', fontWeight:'700', textDecorationLine:'underline' },
   sectionHeader:{ marginHorizontal:0, marginTop:12, marginBottom:4, paddingHorizontal:12, paddingVertical:8, borderLeftWidth:4, backgroundColor:'#fff' },
   sectionTitle: { fontSize:13, fontWeight:'700', textTransform:'uppercase', letterSpacing:0.5 },
   card:         { backgroundColor:'#fff', borderRadius:14, padding:14, marginBottom:8, marginHorizontal:0, shadowColor:'#000', shadowOffset:{width:0,height:1}, shadowOpacity:0.06, shadowRadius:4, elevation:2 },
