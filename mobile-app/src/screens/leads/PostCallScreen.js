@@ -24,6 +24,9 @@ const STATUS_COLORS = {
 export default function PostCallScreen({ route, navigation }) {
   const { lead } = route.params || {}
   const [status, setStatus]             = useState(lead?.status || 'new')
+  const [leadType, setLeadType]         = useState(lead?.lead_type || 'B2C')
+  const [schoolName, setSchoolName]     = useState(lead?.school_name || '')
+  const [leadTypes, setLeadTypes]       = useState([])
   const [discussion, setDiscussion]     = useState('')
   const [followUpDate, setFollowUpDate] = useState('')
   const [productId, setProductId]       = useState(String(lead?.product_id || ''))
@@ -35,9 +38,11 @@ export default function PostCallScreen({ route, navigation }) {
   const [showCal, setShowCal]           = useState(false)
 
   useEffect(() => {
-    Promise.all([api.get('/products/active'), api.get('/users')]).then(([p, u]) => {
+    Promise.all([api.get('/products/active'), api.get('/chat/users'), api.get('/settings')]).then(([p, u, s]) => {
       setProducts(p.data?.data || p.data || [])
-      setAgents(Array.isArray(u.data) ? u.data : (u.data?.data || []))
+      setAgents(Array.isArray(u.data?.data) ? u.data.data : (Array.isArray(u.data) ? u.data : []))
+      const sData = s.data?.data || s.data || {}
+      setLeadTypes(sData.lead_type || sData.leadType || [])
     }).catch(() => {})
   }, [])
 
@@ -47,6 +52,10 @@ export default function PostCallScreen({ route, navigation }) {
     try {
       await api.post(`/leads/${lead.id}/communications`, { type:'call', direction:'outbound', note:discussion })
       await api.patch(`/leads/${lead.id}/status`, { status })
+      // Update lead_type and school_name if changed
+      if (leadType !== (lead?.lead_type||'B2C') || schoolName !== (lead?.school_name||'')) {
+        await api.put(`/leads/${lead.id}`, { ...lead, lead_type: leadType, school_name: schoolName }).catch(()=>{})
+      }
       if (productId !== String(lead?.product_id||'') || productDetail !== (lead?.product_detail||'')) {
         await api.patch(`/leads/${lead.id}/product`, { product_id:productId||null, product_detail:productDetail||null })
       }
@@ -106,6 +115,33 @@ export default function PostCallScreen({ route, navigation }) {
               )
             })}
           </ScrollView>
+        </View>
+
+        {/* ── Lead Type ───────────────────────────── */}
+        <View style={s.section}>
+          <Text style={s.secTitle}>🏢 Lead Type</Text>
+          <View style={{flexDirection:'row',gap:8}}>
+            {(leadTypes.length > 0
+              ? leadTypes.map(t=>typeof t==='string'?t:(t.label||t.value||t))
+              : ['B2B','B2C']
+            ).map(lt=>(
+              <TouchableOpacity key={lt} onPress={()=>setLeadType(lt)}
+                style={{flex:1,padding:10,borderRadius:10,borderWidth:2,alignItems:'center',
+                  borderColor:leadType===lt?'#4F46E5':'#E5E7EB',
+                  backgroundColor:leadType===lt?'#4F46E5':'#fff'}}>
+                <Text style={{fontWeight:'700',fontSize:14,color:leadType===lt?'#fff':'#374151'}}>{lt}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* ── School Name ──────────────────────────── */}
+        <View style={s.section}>
+          <Text style={s.secTitle}>🏫 School / Organisation</Text>
+          <TextInput value={schoolName} onChangeText={setSchoolName}
+            placeholder="Enter school or company name"
+            placeholderTextColor="#9CA3AF"
+            style={s.input} />
         </View>
 
         {/* ── Product Dropdown ────────────────────── */}
