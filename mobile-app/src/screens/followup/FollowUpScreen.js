@@ -1,11 +1,8 @@
 // mobile-app/src/screens/followup/FollowUpScreen.js
-// 3 sections: Today / Overdue / Next 3 Days
-// Uses /api/followups?section=all — scoped by role automatically
-import React, { useEffect, useState, useCallback, useRef } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import {
-  View, Text, FlatList, TouchableOpacity, TextInput,
-  RefreshControl, ActivityIndicator, StyleSheet,
-  Linking, Modal, ScrollView, Alert, AppState, SectionList
+  View, Text, TouchableOpacity, RefreshControl, ActivityIndicator,
+  StyleSheet, Linking, Modal, ScrollView, Alert, AppState, SectionList, TextInput
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../../context/AuthContext'
@@ -38,18 +35,17 @@ function daysOverdue(d) {
 
 export default function FollowUpScreen({ navigation }) {
   const { user } = useAuth()
-  const [sections, setSections]     = useState([])
-  const [counts, setCounts]         = useState({ today: 0, previous: 0, next_3_days: 0, total: 0 })
-  const [loading, setLoading]       = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError]           = useState(null)   // FIX: surface errors
-  const [selectedFU, setSelectedFU] = useState(null)
-  const [showUpdate, setShowUpdate] = useState(false)
+  const [sections, setSections]         = useState([])
+  const [counts, setCounts]             = useState({ today: 0, previous: 0, next_3_days: 0, total: 0 })
+  const [loading, setLoading]           = useState(true)
+  const [refreshing, setRefreshing]     = useState(false)
+  const [error, setError]               = useState(null)
+  const [selectedFU, setSelectedFU]     = useState(null)
+  const [showUpdate, setShowUpdate]     = useState(false)
 
-  // Post-call detection
   const appStateRef   = useRef(AppState.currentState)
   const calledLeadRef = useRef(null)
-  const [callLead, setCallLead]     = useState(null)
+  const [callLead, setCallLead]         = useState(null)
   const [showPostCall, setShowPostCall] = useState(false)
 
   useEffect(() => {
@@ -64,18 +60,18 @@ export default function FollowUpScreen({ navigation }) {
     return () => sub.remove()
   }, [])
 
-  const fetchFollowups = useCallback(async () => {
+  const fetchFollowups = async () => {
     setError(null)
     try {
-      const r = await api.get('/followups?section=all')
-      const d = r.data?.data || {}
+      const resp = await api.get('/followups?section=all')
+      const body = resp.data || {}
+      const d    = body.data || {}
 
       let today = [], previous = [], next3 = []
-      if (Array.isArray(r.data?.data)) {
-        const all = r.data.data
-        today    = all.filter(x => x.followup_type === 'today')
-        previous = all.filter(x => x.followup_type === 'overdue')
-        next3    = all.filter(x => x.followup_type === 'upcoming')
+      if (Array.isArray(body.data)) {
+        today    = body.data.filter(x => x.followup_type === 'today')
+        previous = body.data.filter(x => x.followup_type === 'overdue')
+        next3    = body.data.filter(x => x.followup_type === 'upcoming')
       } else {
         today    = Array.isArray(d.today)       ? d.today       : []
         previous = Array.isArray(d.previous)    ? d.previous    : []
@@ -83,12 +79,12 @@ export default function FollowUpScreen({ navigation }) {
       }
 
       const built = []
-      if (today.length > 0)    built.push({ title: `⏰ Today (${today.length})`,         data: today,    color: '#D97706' })
-      if (previous.length > 0) built.push({ title: `🔴 Overdue (${previous.length})`,    data: previous, color: '#DC2626' })
-      if (next3.length > 0)    built.push({ title: `📆 Next 3 Days (${next3.length})`,   data: next3,    color: '#2563EB' })
+      if (today.length > 0)    built.push({ title: `⏰ Today (${today.length})`,       data: today,    color: '#D97706' })
+      if (previous.length > 0) built.push({ title: `🔴 Overdue (${previous.length})`,  data: previous, color: '#DC2626' })
+      if (next3.length > 0)    built.push({ title: `📆 Next 3 Days (${next3.length})`, data: next3,    color: '#2563EB' })
 
       setSections(built)
-      setCounts(r.data?.counts || {
+      setCounts(body.counts || {
         today:       today.length,
         previous:    previous.length,
         next_3_days: next3.length,
@@ -96,16 +92,17 @@ export default function FollowUpScreen({ navigation }) {
       })
     } catch (e) {
       const msg = e?.response?.data?.message || e.message || 'Failed to load follow-ups'
-      console.error('FollowUp fetch error:', msg, e)
       setError(msg)
-      Alert.alert('Error', `Could not load follow-ups:\n${msg}`)
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [])
+  }
 
-  useEffect(() => { setLoading(true); fetchFollowups() }, [fetchFollowups])
+  useEffect(() => {
+    setLoading(true)
+    fetchFollowups()
+  }, [])
 
   const handleCall = (fu) => {
     const phone = (fu.phone || fu.lead_phone || '').replace(/\s+/g, '')
@@ -180,13 +177,11 @@ export default function FollowUpScreen({ navigation }) {
 
   return (
     <View style={s.container}>
-      {/* Header */}
       <View style={s.header}>
         <Text style={s.title}>Follow-ups</Text>
         <Text style={s.count}>{counts.total} total</Text>
       </View>
 
-      {/* Summary pills */}
       <View style={s.summaryRow}>
         <View style={[s.pill, { backgroundColor:'#FEF3C7' }]}>
           <Text style={[s.pillNum, { color:'#D97706' }]}>{counts.today}</Text>
@@ -202,7 +197,6 @@ export default function FollowUpScreen({ navigation }) {
         </View>
       </View>
 
-      {/* Error banner */}
       {error && !loading && (
         <View style={s.errorBanner}>
           <Ionicons name="warning-outline" size={16} color="#DC2626" />
@@ -241,7 +235,6 @@ export default function FollowUpScreen({ navigation }) {
         />
       )}
 
-      {/* Update modal */}
       {selectedFU && (
         <UpdateFollowUpModal
           visible={showUpdate}
@@ -251,7 +244,6 @@ export default function FollowUpScreen({ navigation }) {
         />
       )}
 
-      {/* Post-call popup */}
       <Modal visible={showPostCall} transparent animationType="slide">
         <View style={s.popupOverlay}>
           <View style={s.popupCard}>
@@ -278,13 +270,12 @@ export default function FollowUpScreen({ navigation }) {
   )
 }
 
-// ── Update Modal ──────────────────────────────────────────
 function UpdateFollowUpModal({ visible, followup, onClose, onSave }) {
-  const [status, setStatus]         = useState(followup.lead_status || 'new')
-  const [discussion, setDiscussion] = useState('')
+  const [status, setStatus]             = useState(followup.lead_status || 'new')
+  const [discussion, setDiscussion]     = useState('')
   const [followUpDate, setFollowUpDate] = useState('')
-  const [saving, setSaving]         = useState(false)
-  const [showCal, setShowCal]       = useState(false)
+  const [saving, setSaving]             = useState(false)
+  const [showCal, setShowCal]           = useState(false)
 
   const handleSave = async () => {
     if (!discussion.trim()) return Alert.alert('Required', 'Add call discussion notes')
@@ -301,8 +292,7 @@ function UpdateFollowUpModal({ visible, followup, onClose, onSave }) {
       Alert.alert('✅ Saved', 'Follow-up updated', [{ text:'OK', onPress:onSave }])
     } catch(e) {
       Alert.alert('Error', e?.response?.data?.message || e.message || 'Failed')
-    }
-    finally { setSaving(false) }
+    } finally { setSaving(false) }
   }
 
   return (
@@ -315,7 +305,6 @@ function UpdateFollowUpModal({ visible, followup, onClose, onSave }) {
             <Text style={{ color:'#fff', fontWeight:'700', fontSize:14 }}>{saving ? '…' : 'Save'}</Text>
           </TouchableOpacity>
         </View>
-
         <ScrollView contentContainerStyle={{ padding:16, paddingBottom:40, gap:14 }}>
           <View style={{ backgroundColor:'#F9FAFB', borderRadius:12, padding:12 }}>
             <Text style={{ fontSize:15, fontWeight:'700', color:'#111827' }}>
@@ -326,7 +315,6 @@ function UpdateFollowUpModal({ visible, followup, onClose, onSave }) {
               <Text style={{ fontSize:12, color:'#6B7280', marginTop:2 }}>👤 {followup.agent_name}</Text>
             )}
           </View>
-
           <View style={s.section}>
             <Text style={s.secTitle}>📝 Call Discussion *</Text>
             <TextInput value={discussion} onChangeText={setDiscussion}
@@ -335,7 +323,6 @@ function UpdateFollowUpModal({ visible, followup, onClose, onSave }) {
               style={[s.input, { minHeight:100, textAlignVertical:'top' }]}
               placeholderTextColor="#9CA3AF" />
           </View>
-
           <View style={s.section}>
             <Text style={s.secTitle}>📊 Update Status</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -352,7 +339,6 @@ function UpdateFollowUpModal({ visible, followup, onClose, onSave }) {
               })}
             </ScrollView>
           </View>
-
           <View style={s.section}>
             <Text style={s.secTitle}>📅 Next Follow-up</Text>
             <TouchableOpacity onPress={() => setShowCal(true)} style={s.dateBtn}>
@@ -371,7 +357,6 @@ function UpdateFollowUpModal({ visible, followup, onClose, onSave }) {
             )}
           </View>
         </ScrollView>
-
         <Modal visible={showCal} transparent animationType="fade">
           <View style={{ flex:1, backgroundColor:'rgba(0,0,0,0.5)', alignItems:'center', justifyContent:'center' }}>
             <CalendarPicker
@@ -401,7 +386,7 @@ const s = StyleSheet.create({
   retryText:    { fontSize:12, color:'#DC2626', fontWeight:'700', textDecorationLine:'underline' },
   sectionHeader:{ marginHorizontal:0, marginTop:12, marginBottom:4, paddingHorizontal:12, paddingVertical:8, borderLeftWidth:4, backgroundColor:'#fff' },
   sectionTitle: { fontSize:13, fontWeight:'700', textTransform:'uppercase', letterSpacing:0.5 },
-  card:         { backgroundColor:'#fff', borderRadius:14, padding:14, marginBottom:8, marginHorizontal:0, shadowColor:'#000', shadowOffset:{width:0,height:1}, shadowOpacity:0.06, shadowRadius:4, elevation:2 },
+  card:         { backgroundColor:'#fff', borderRadius:14, padding:14, marginBottom:8, shadowColor:'#000', shadowOffset:{width:0,height:1}, shadowOpacity:0.06, shadowRadius:4, elevation:2 },
   cardOverdue:  { borderWidth:1.5, borderColor:'#FCA5A5', backgroundColor:'#FFF5F5' },
   cardTop:      { flexDirection:'row', alignItems:'flex-start', marginBottom:10 },
   leadName:     { fontSize:15, fontWeight:'700', color:'#111827' },
