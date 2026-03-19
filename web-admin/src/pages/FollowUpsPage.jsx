@@ -258,7 +258,7 @@ export default function FollowUpsPage() {
       if (filterProduct)           params.set('product_id',  filterProduct)
       if (filterStatus)            params.set('lead_status', filterStatus)
 
-      const r = await api.get(`/followups?${params}`)
+     const r = await api.get(`/followups?${params.toString()}`)
       const d = r.data?.data || {}
 
       // Handle both {today:[], previous:[], next_3_days:[]} and flat array response
