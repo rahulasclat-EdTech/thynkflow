@@ -1,21 +1,51 @@
-// backend/src/routes/followups.js — FIXED v2
-// Fixes vs previous version:
-//   1. module.exports moved to END of file (was cutting off /debug route)
-//   2. Timezone-safe date comparison using AT TIME ZONE 'Asia/Kolkata'
-//   3. 'previous' section now correctly captures overdue leads (< today IST)
-//   4. Added proper error logging so silent failures become visible
-//   5. /debug route now actually registered (was dead code before)
+// backend/src/routes/followups.js — FIXED v3
+// Fixes vs v2:
+//   1. POST /followups now checks call_logs columns dynamically before inserting
+//   2. No more silent failures — all errors surface with real message
+//   3. /schema-check route added to inspect call_logs columns live
+//   4. DISTINCT ON now orders by cl.id DESC (safer than called_at which may not exist)
 
 const express = require('express')
 const db      = require('../config/db')
 const { auth } = require('../middleware/auth')
 const router  = express.Router()
 
-// IST timezone offset helper — uses DB-level timezone so Render UTC != issue
 const IST_TODAY = `(NOW() AT TIME ZONE 'Asia/Kolkata')::date`
 
 function agentScope(user, alias = 'l') {
   return user.role_name === 'admin' ? '' : `AND ${alias}.assigned_to = '${user.id}'`
+}
+
+// ── Schema-aware call_logs insert ─────────────────────────
+// Detects actual columns so it works regardless of migration state
+async function insertCallLog(lead_id, user_id, discussion, next_followup_date) {
+  const { rows: cols } = await db.query(`
+    SELECT column_name FROM information_schema.columns
+    WHERE table_name = 'call_logs' AND table_schema = 'public'
+  `)
+  const colNames = cols.map(c => c.column_name)
+  console.log('[followups] call_logs columns:', colNames.join(', '))
+
+  const insertCols   = ['lead_id']
+  const insertVals   = [lead_id]
+  const placeholders = ['$1']
+  let i = 2
+
+  if (colNames.includes('user_id')) {
+    insertCols.push('user_id'); insertVals.push(user_id); placeholders.push(`$${i++}`)
+  }
+  insertCols.push('discussion');        insertVals.push(discussion || '');       placeholders.push(`$${i++}`)
+  insertCols.push('next_followup_date'); insertVals.push(next_followup_date || null); placeholders.push(`$${i++}`)
+  if (colNames.includes('status')) {
+    insertCols.push('status'); insertVals.push('completed'); placeholders.push(`$${i++}`)
+  }
+  if (colNames.includes('called_at')) {
+    insertCols.push('called_at'); insertVals.push(new Date()); placeholders.push(`$${i++}`)
+  }
+
+  const sql = `INSERT INTO call_logs (${insertCols.join(', ')}) VALUES (${placeholders.join(', ')})`
+  console.log('[followups] INSERT sql:', sql)
+  await db.query(sql, insertVals)
 }
 
 async function getFollowups(user, section = 'all', filters = {}) {
@@ -27,7 +57,6 @@ async function getFollowups(user, section = 'all', filters = {}) {
   if (product_id)  extraScope += ` AND l.product_id = ${parseInt(product_id)}`
   if (lead_status) extraScope += ` AND l.status = '${lead_status}'`
 
-  // All date comparisons use IST date, not UTC date (fixes Render UTC vs IST gap)
   let dateFilter = ''
   if (section === 'today') {
     dateFilter = `AND (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date = ${IST_TODAY}`
@@ -55,26 +84,22 @@ async function getFollowups(user, section = 'all', filters = {}) {
       p.name                        AS product_name,
       u.name                        AS agent_name,
       CASE
-        WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date < ${IST_TODAY}  THEN 'overdue'
-        WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date = ${IST_TODAY}  THEN 'today'
+        WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date < ${IST_TODAY} THEN 'overdue'
+        WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date = ${IST_TODAY} THEN 'today'
         ELSE 'upcoming'
-      END                           AS followup_type,
-      (${IST_TODAY} - (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date)::int  AS days_overdue
+      END AS followup_type,
+      (${IST_TODAY} - (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date)::int AS days_overdue
     FROM (
       SELECT DISTINCT ON (cl.lead_id)
-        cl.lead_id,
-        cl.next_followup_date,
-        cl.discussion
+        cl.lead_id, cl.next_followup_date, cl.discussion
       FROM call_logs cl
       WHERE cl.next_followup_date IS NOT NULL
-      ORDER BY cl.lead_id, COALESCE(cl.called_at, cl.created_at, NOW()) DESC
+      ORDER BY cl.lead_id, cl.id DESC
     ) latest
-    JOIN  leads    l ON l.id            = latest.lead_id
-    LEFT JOIN users    u ON u.id        = l.assigned_to
-    LEFT JOIN products p ON p.id        = l.product_id
-    WHERE 1=1
-      ${dateFilter}
-      ${extraScope}
+    JOIN  leads    l ON l.id     = latest.lead_id
+    LEFT JOIN users    u ON u.id = l.assigned_to
+    LEFT JOIN products p ON p.id = l.product_id
+    WHERE 1=1 ${dateFilter} ${extraScope}
     ORDER BY (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date ASC
     LIMIT 500
   `)
@@ -92,7 +117,6 @@ router.get('/', auth, async (req, res) => {
       return res.json({ success: true, data: rows, total: rows.length })
     }
 
-    // All 3 sections in parallel
     const [today, previous, next3] = await Promise.all([
       getFollowups(req.user, 'today',       filters),
       getFollowups(req.user, 'previous',    filters),
@@ -121,15 +145,15 @@ router.get('/summary', auth, async (req, res) => {
     const scope = agentScope(req.user)
     const { rows: [r] } = await db.query(`
       SELECT
-        COUNT(CASE WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date = ${IST_TODAY}              THEN 1 END) AS today,
-        COUNT(CASE WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date < ${IST_TODAY}              THEN 1 END) AS overdue,
+        COUNT(CASE WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date = ${IST_TODAY} THEN 1 END) AS today,
+        COUNT(CASE WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date < ${IST_TODAY} THEN 1 END) AS overdue,
         COUNT(CASE WHEN (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date > ${IST_TODAY}
                     AND  (latest.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date <= ${IST_TODAY}+INTERVAL '3 days' THEN 1 END) AS next_3_days
       FROM (
         SELECT DISTINCT ON (cl.lead_id) cl.lead_id, cl.next_followup_date
         FROM call_logs cl
         WHERE cl.next_followup_date IS NOT NULL
-        ORDER BY cl.lead_id, COALESCE(cl.called_at, cl.created_at, NOW()) DESC
+        ORDER BY cl.lead_id, cl.id DESC
       ) latest
       JOIN leads l ON l.id = latest.lead_id
       WHERE 1=1 ${scope}
@@ -145,15 +169,16 @@ router.get('/summary', auth, async (req, res) => {
 router.post('/', auth, async (req, res) => {
   try {
     const { lead_id, follow_up_date, notes } = req.body
-    if (!lead_id) return res.status(400).json({ success: false, message: 'lead_id required' })
-    await db.query(
-      `INSERT INTO call_logs (lead_id, user_id, discussion, next_followup_date, called_at)
-       VALUES ($1, $2, $3, $4, NOW())`,
-      [lead_id, req.user.id, notes || '', follow_up_date || null]
-    )
+    if (!lead_id)        return res.status(400).json({ success: false, message: 'lead_id required' })
+    if (!follow_up_date) return res.status(400).json({ success: false, message: 'follow_up_date required' })
+
+    const { rows: leadCheck } = await db.query(`SELECT id FROM leads WHERE id = $1`, [lead_id])
+    if (!leadCheck.length) return res.status(404).json({ success: false, message: 'Lead not found' })
+
+    await insertCallLog(lead_id, req.user.id, notes || '', follow_up_date)
     res.status(201).json({ success: true })
   } catch (err) {
-    console.error('Followups POST / error:', err.message)
+    console.error('Followups POST / error:', err.message, err.stack)
     res.status(500).json({ success: false, message: err.message })
   }
 })
@@ -163,17 +188,10 @@ router.patch('/:leadId', auth, async (req, res) => {
   try {
     const { status, follow_up_date, notes } = req.body
     if (notes || follow_up_date) {
-      await db.query(
-        `INSERT INTO call_logs (lead_id, user_id, discussion, next_followup_date, called_at)
-         VALUES ($1, $2, $3, $4, NOW())`,
-        [req.params.leadId, req.user.id, notes || '', follow_up_date || null]
-      )
+      await insertCallLog(req.params.leadId, req.user.id, notes || '', follow_up_date || null)
     }
     if (status) {
-      await db.query(
-        `UPDATE leads SET status = $1, updated_at = NOW() WHERE id = $2`,
-        [status, req.params.leadId]
-      )
+      await db.query(`UPDATE leads SET status = $1, updated_at = NOW() WHERE id = $2`, [status, req.params.leadId])
     }
     res.json({ success: true })
   } catch (err) {
@@ -182,23 +200,33 @@ router.patch('/:leadId', auth, async (req, res) => {
   }
 })
 
-// ── GET /api/followups/debug — verify raw data (remove in prod) ──
+// ── GET /api/followups/schema-check — inspect call_logs ──
+router.get('/schema-check', auth, async (req, res) => {
+  try {
+    const { rows: cols }   = await db.query(`
+      SELECT column_name, data_type, is_nullable
+      FROM information_schema.columns
+      WHERE table_name = 'call_logs' AND table_schema = 'public'
+      ORDER BY ordinal_position
+    `)
+    const { rows: sample } = await db.query(`SELECT * FROM call_logs LIMIT 3`)
+    const { rows: cnt }    = await db.query(`SELECT COUNT(*) AS total FROM call_logs`)
+    res.json({ success: true, columns: cols, sample, total: cnt[0].total })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
+// ── GET /api/followups/debug ──────────────────────────────
 router.get('/debug', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
-    const { rows: raw } = await db.query(`
+    const { rows } = await db.query(`
       SELECT
-        cl.lead_id,
-        cl.next_followup_date,
-        cl.called_at,
-        cl.discussion,
-        -- Show both UTC date and IST date so you can compare
-        DATE(cl.next_followup_date)                                              AS utc_date,
-        (cl.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date               AS ist_date,
-        ${IST_TODAY}                                                              AS server_ist_today,
-        CURRENT_DATE                                                              AS server_utc_today,
-        (cl.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date = ${IST_TODAY} AS is_today_ist,
-        (cl.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date < ${IST_TODAY} AS is_overdue_ist,
+        cl.lead_id, cl.next_followup_date, cl.discussion,
+        (cl.next_followup_date AT TIME ZONE 'Asia/Kolkata')::date AS ist_date,
+        ${IST_TODAY}                                               AS server_ist_today,
+        CURRENT_DATE                                               AS server_utc_today,
         l.status AS lead_status, l.contact_name, l.school_name,
         u.name AS agent_name
       FROM call_logs cl
@@ -209,17 +237,15 @@ router.get('/debug', auth, async (req, res) => {
       LIMIT 20
     `)
     res.json({
-      success:      true,
-      server_utc:   new Date().toISOString(),
-      server_ist:   new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
-      data:         raw,
-      count:        raw.length
+      success:    true,
+      server_utc: new Date().toISOString(),
+      server_ist: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+      data:       rows,
+      count:      rows.length
     })
   } catch (err) {
-    console.error('Followups GET /debug error:', err.message)
     res.status(500).json({ success: false, message: err.message })
   }
 })
 
-// ── MUST be at the very end ───────────────────────────────
 module.exports = router
