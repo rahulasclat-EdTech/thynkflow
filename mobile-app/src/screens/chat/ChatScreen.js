@@ -73,18 +73,28 @@ function NewChatModal({ visible, onClose, onCreated, isAdmin }) {
   const handleCreate = async () => {
     setLoading(true)
     try {
+      // Mobile interceptor returns body directly: r = {success, data:{id:X}}
+      // so r.data = {id:X}, NOT r.data.data
+      const getConvId = (r) => r?.data?.id ?? r?.data?.data?.id ?? null
+
       if (mode === 'direct') {
         if (!selected.length) return Alert.alert('Select a user')
         const r = await api.post('/chat/conversations/direct', { target_user_id: selected[0] })
-        onCreated(r.data.data.id); onClose()
+        const convId = getConvId(r)
+        if (!convId) throw new Error('Could not get conversation ID')
+        onCreated(convId); onClose()
       } else if (mode === 'group') {
         if (!groupName.trim()) return Alert.alert('Enter group name')
         if (!selected.length)  return Alert.alert('Add at least 1 member')
         const r = await api.post('/chat/conversations/group', { name: groupName, member_ids: selected })
-        onCreated(r.data.data.id); onClose()
+        const convId = getConvId(r)
+        if (!convId) throw new Error('Could not get conversation ID')
+        onCreated(convId); onClose()
       } else {
         const r = await api.post('/chat/conversations/broadcast', {})
-        onCreated(r.data.data.id); onClose()
+        const convId = getConvId(r)
+        if (!convId) throw new Error('Could not get conversation ID')
+        onCreated(convId); onClose()
       }
     } catch (e) { Alert.alert('Error', e.message||'Failed') }
     finally { setLoading(false) }
