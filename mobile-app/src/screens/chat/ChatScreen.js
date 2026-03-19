@@ -73,9 +73,8 @@ function NewChatModal({ visible, onClose, onCreated, isAdmin }) {
   const handleCreate = async () => {
     setLoading(true)
     try {
-      // Mobile interceptor returns body directly: r = {success, data:{id:X}}
-      // so r.data = {id:X}, NOT r.data.data
-      const getConvId = (r) => r?.data?.id ?? r?.data?.data?.id ?? null
+      // Standard axios: r.data = {success, data:{id:X}}, so r.data.data.id is correct
+      const getConvId = (r) => r?.data?.data?.id ?? r?.data?.id ?? null
 
       if (mode === 'direct') {
         if (!selected.length) return Alert.alert('Select a user')
