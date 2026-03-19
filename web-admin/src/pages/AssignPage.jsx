@@ -96,6 +96,12 @@ export default function AssignPage() {
 
   useEffect(() => { fetchLeads() }, [fetchLeads])
 
+  // Auto-refresh every 45 seconds
+  useEffect(() => {
+    const t = setInterval(fetchLeads, 45000)
+    return () => clearInterval(t)
+  }, [fetchLeads])
+
   const toggleSelect  = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
   const toggleAll     = () => setSelected(selected.length === leads.length ? [] : leads.map(l => l.id))
   const selectPage    = () => setSelected(leads.map(l => l.id))
