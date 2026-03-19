@@ -243,6 +243,9 @@ export default function LeadsPage() {
       status:       lead.status || 'new',
       assigned_to:  lead.assigned_to || '',
       admin_remark: lead.admin_remark || '',
+      follow_up_date: lead.next_followup_date
+        ? new Date(lead.next_followup_date).toISOString().split('T')[0]
+        : '',
     })
     setShowDetailModal(true)
     fetchCommLogs(lead.id)
@@ -260,6 +263,14 @@ export default function LeadsPage() {
       }
       setSelectedLead(updated)
       setLeads(prev => prev.map(l => l.id === updated.id ? { ...l, ...updated } : l))
+      // Save follow-up date if set
+      if (editForm.follow_up_date) {
+        api.post('/followups', {
+          lead_id: selectedLead.id,
+          follow_up_date: editForm.follow_up_date,
+          notes: editForm.admin_remark || ''
+        }).catch(() => {})
+      }
       setEditingInfo(false)
       toast.success('Lead updated')
       // Auto-add school name to settings if new
@@ -838,16 +849,7 @@ export default function LeadsPage() {
                             {settings.sources.map(s => <option key={s?.key||s} value={s?.label||s}>{s?.label||s}</option>)}
                           </select>
                         </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-500 mb-1">Lead Type</label>
-                          <select value={editForm.lead_type || ''} onChange={e => setEditForm(f => ({ ...f, lead_type: e.target.value }))}
-                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-                            <option value="">— Select type —</option>
-                            {settings.lead_types?.length > 0
-                              ? settings.lead_types.map(t => <option key={t?.key||t} value={t?.label||t}>{t?.label||t}</option>)
-                              : [['B2B','B2B'],['B2C','B2C']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
-                          </select>
-                        </div>
+
                         <div>
                           <label className="block text-xs font-medium text-gray-500 mb-1">School / Organisation</label>
                           <input value={editForm.school_name || ''} onChange={e => setEditForm(f => ({ ...f, school_name: e.target.value }))}
@@ -886,19 +888,34 @@ export default function LeadsPage() {
                             {Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
                           </select>
                         </div>
+                        {isAdmin && (
                         <div>
                           <label className="block text-xs font-medium text-gray-500 mb-1">Assign To</label>
-                          <select value={editForm.assigned_to || user?.id || ''} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))} disabled={!isAdmin}
+                          <select value={editForm.assigned_to || ''} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))}
                             className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-                            <option value={user?.id || ''}>{user?.name || 'Me'} (me — default)</option>
-                            {agents.filter(a => a.id !== user?.id).map(a => <option key={a.id} value={a.id}>{a.name} — {a.role_name}</option>)}
+                            <option value="">— Select agent —</option>
+                            {agents.map(a => <option key={a.id} value={a.id}>{a.name} — {a.role_name}</option>)}
                           </select>
                         </div>
+                        )}
                         <div className="col-span-2">
                           <label className="block text-xs font-medium text-gray-500 mb-1">Admin Remark</label>
                           <textarea rows={2} value={editForm.admin_remark}
                             onChange={e => setEditForm(f => ({ ...f, admin_remark: e.target.value }))}
                             className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">📅 Next Follow-up Date</label>
+                          <input type="date"
+                            value={editForm.follow_up_date || ''}
+                            min={new Date().toISOString().split('T')[0]}
+                            onChange={e => setEditForm(f => ({ ...f, follow_up_date: e.target.value }))}
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                          {editForm.follow_up_date && (
+                            <p className="text-xs text-indigo-500 mt-1">
+                              ✅ Follow-up set for {new Date(editForm.follow_up_date).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className="flex gap-2 pt-1">
