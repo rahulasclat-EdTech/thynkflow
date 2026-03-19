@@ -45,7 +45,7 @@ function fmtSize(bytes) {
 }
 
 // ── New Conversation Modal ────────────────────────────────
-function NewChatModal({ onClose, onCreated, isAdmin }) {
+function NewChatModal({ onClose, onCreated, isAdmin, currentUserId }) {
   const [mode, setMode]         = useState('direct')
   const [users, setUsers]       = useState([])
   const [usersLoading, setUsersLoading] = useState(true)
@@ -75,7 +75,9 @@ function NewChatModal({ onClose, onCreated, isAdmin }) {
         try {
           const r2 = await api.get('/users')
           const list2 = r2.data?.data || r2.data || []
-          setUsers(Array.isArray(list2) ? list2.filter(u => u.id !== undefined) : [])
+          // /users may include self — filter out any without id and deduplicate
+          const validList = Array.isArray(list2) ? list2.filter(u => u.id && u.id !== currentUserId) : []
+          setUsers(validList)
         } catch (e) {
           setUsersError('Could not load users. Please refresh.')
         }
@@ -96,21 +98,27 @@ function NewChatModal({ onClose, onCreated, isAdmin }) {
   const handleCreate = async () => {
     setLoading(true)
     try {
+      let convId = null
       if (mode === 'direct') {
-        if (!selected.length) return toast.error('Select a user')
+        if (!selected.length) { toast.error('Select a user'); setLoading(false); return }
         const res = await api.post('/chat/conversations/direct', { target_user_id: selected[0] })
-        onCreated(res.data.data.id)
+        // Handle both { data: { id } } and { id } response shapes
+        convId = res.data?.data?.id ?? res.data?.id
       } else if (mode === 'group') {
-        if (!groupName.trim()) return toast.error('Enter group name')
-        if (!selected.length) return toast.error('Add at least 1 member')
+        if (!groupName.trim()) { toast.error('Enter group name'); setLoading(false); return }
+        if (!selected.length) { toast.error('Add at least 1 member'); setLoading(false); return }
         const res = await api.post('/chat/conversations/group', { name: groupName, member_ids: selected })
-        onCreated(res.data.data.id)
+        convId = res.data?.data?.id ?? res.data?.id
       } else {
         const res = await api.post('/chat/conversations/broadcast', { name: bcastName })
-        onCreated(res.data.data.id)
+        convId = res.data?.data?.id ?? res.data?.id
       }
+      if (!convId) throw new Error('Could not get conversation ID from server response')
+      onCreated(convId)
       onClose()
-    } catch (err) { toast.error(err.message || 'Failed') }
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to create conversation')
+    }
     finally { setLoading(false) }
   }
 
@@ -542,6 +550,7 @@ export default function ChatPage() {
       {showNew && (
         <NewChatModal
           isAdmin={isAdmin}
+          currentUserId={user?.id}
           onClose={() => setShowNew(false)}
           onCreated={(id) => { setActiveConvId(id); loadConversations() }} />
       )}
