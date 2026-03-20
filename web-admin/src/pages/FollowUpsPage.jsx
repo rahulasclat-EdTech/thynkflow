@@ -1,11 +1,10 @@
-// web-admin/src/pages/FollowUpsPage.jsx — PREMIUM REDESIGN
+// web-admin/src/pages/FollowUpsPage.jsx — FIXED VISUAL
 import React, { useEffect, useState } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 
-// ── Status config ─────────────────────────────────────────
 const STATUS_META = {
   new:            { bg:'#EFF6FF', text:'#1D4ED8', dot:'#3B82F6', glow:'59,130,246',   label:'New'            },
   hot:            { bg:'#FFF1F2', text:'#BE123C', dot:'#F43F5E', glow:'244,63,94',    label:'Hot'            },
@@ -17,163 +16,113 @@ const STATUS_META = {
 }
 const ALL_STATUSES = Object.keys(STATUS_META)
 
-// ── Styles ────────────────────────────────────────────────
 const STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+  .fup * { box-sizing: border-box; }
+  .fup { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+  .fup-mono { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace !important; }
 
-  :root {
-    --ink:       #0A0F1E;
-    --ink2:      #1E2640;
-    --surface:   #F4F6FB;
-    --card:      #FFFFFF;
-    --border:    #E8ECF4;
-    --muted:     #8892A4;
-    --accent:    #4F46E5;
-    --accent2:   #7C3AED;
-    --danger:    #EF4444;
-    --warn:      #F59E0B;
-    --success:   #10B981;
-  }
+  .fup-card-hover { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+  .fup-card-hover:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(0,0,0,0.12) !important; }
 
-  .fp  { font-family: 'DM Sans', sans-serif; color: var(--ink); }
-  .fp-display { font-family: 'Syne', sans-serif; }
-  .fp-mono    { font-family: 'JetBrains Mono', monospace !important; }
+  .fup-btn { transition: all 0.15s ease; cursor: pointer; }
+  .fup-btn:hover  { transform: translateY(-1px) scale(1.04); filter: brightness(1.06); }
+  .fup-btn:active { transform: scale(0.96); }
 
-  .fp-card-hover {
-    transition: transform 0.22s cubic-bezier(.34,1.4,.64,1), box-shadow 0.22s ease, border-color 0.18s;
-  }
-  .fp-card-hover:hover {
-    transform: translateY(-3px) scale(1.005);
-    box-shadow: 0 16px 48px rgba(10,15,30,0.12) !important;
-  }
+  .fup-input:focus { outline: none; border-color: #4F46E5 !important; box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
 
-  .fp-btn {
-    transition: all 0.18s cubic-bezier(.34,1.4,.64,1);
-    cursor: pointer;
-  }
-  .fp-btn:hover  { transform: translateY(-2px) scale(1.04); filter: brightness(1.07); }
-  .fp-btn:active { transform: scale(0.95); }
+  .fup-stat { transition: all 0.2s ease; cursor: pointer; }
+  .fup-stat:hover { transform: translateY(-2px); }
+  .fup-stat:active { transform: scale(0.97); }
 
-  .fp-input { transition: all 0.2s; }
-  .fp-input:focus {
-    outline: none;
-    border-color: var(--accent) !important;
-    box-shadow: 0 0 0 4px rgba(79,70,229,0.12);
-  }
+  @keyframes fup-spin   { to { transform: rotate(360deg); } }
+  @keyframes fup-pulse  { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.4)} }
+  @keyframes fup-float  { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+  @keyframes fup-in     { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
 
-  .fp-tag { transition: all 0.14s ease; cursor: pointer; }
-  .fp-tag:hover { transform: scale(1.06); filter: brightness(0.95); }
-
-  .fp-stat-card {
-    transition: all 0.25s cubic-bezier(.34,1.4,.64,1);
-    cursor: pointer;
-    position: relative;
-    overflow: hidden;
-  }
-  .fp-stat-card:hover {
-    transform: translateY(-5px) scale(1.02);
-  }
-  .fp-stat-card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
-  .fp-stat-card:hover::before { opacity: 1; }
-
-  .fp-section-toggle { transition: all 0.2s ease; }
-  .fp-section-toggle:hover { filter: brightness(0.97); }
-
-  @keyframes fp-spin    { to { transform: rotate(360deg); } }
-  @keyframes fp-pulse   { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.5);opacity:0.5} }
-  @keyframes fp-float   { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
-  @keyframes fp-in      { from{opacity:0;transform:translateY(20px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} }
-  @keyframes fp-glow    { 0%,100%{opacity:0.6} 50%{opacity:1} }
-  @keyframes fp-bar-grow{ from{width:0} to{width:var(--w)} }
-
-  .fp-animate { animation: fp-in 0.38s cubic-bezier(.34,1.2,.64,1) both; }
-  .fp-float   { animation: fp-float 3.5s ease-in-out infinite; }
-  .fp-glow    { animation: fp-glow 2s ease-in-out infinite; }
+  .fup-animate { animation: fup-in 0.3s ease both; }
+  .fup-float   { animation: fup-float 3s ease-in-out infinite; }
 `
 
-// ── Helpers ───────────────────────────────────────────────
 const fmt   = d => { try { return format(new Date(d), 'dd MMM yyyy') } catch { return '—' } }
 const daysO = d => d ? Math.floor((new Date() - new Date(d)) / 86400000) : 0
 
-// ── Status Badge ──────────────────────────────────────────
 function SBadge({ status }) {
   const c = STATUS_META[status] || STATUS_META.cold
-  const pulse = status === 'hot' || status === 'new'
   return (
     <span style={{
       background: c.bg, color: c.text,
       display: 'inline-flex', alignItems: 'center', gap: 5,
-      padding: '3px 11px 3px 8px', borderRadius: 20,
+      padding: '3px 10px', borderRadius: 20,
       fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
-      boxShadow: `0 2px 10px rgba(${c.glow},0.22)`,
-      border: `1px solid rgba(${c.glow},0.18)`,
+      border: `1px solid rgba(${c.glow},0.2)`,
     }}>
       <span style={{
         width: 6, height: 6, borderRadius: '50%', background: c.dot, flexShrink: 0,
-        animation: pulse ? 'fp-pulse 1.6s ease infinite' : 'none',
-        boxShadow: pulse ? `0 0 8px rgba(${c.glow},0.7)` : 'none',
+        animation: (status==='hot'||status==='new') ? 'fup-pulse 1.5s ease infinite' : 'none',
       }} />
       {c.label}
     </span>
   )
 }
 
-// ── Summary Stat Card ─────────────────────────────────────
-function StatCard({ icon, label, value, sublabel, color, glow, active, onClick }) {
+// ── Compact Stat Card ─────────────────────────────────────
+function StatCard({ icon, label, value, sublabel, solidColor, glowRGB, active, onClick }) {
   return (
-    <button onClick={onClick} className="fp-stat-card"
-      style={{
-        flex: '1 1 130px', minWidth: 120,
-        background: active
-          ? `linear-gradient(135deg, rgba(${glow},0.92) 0%, rgba(${glow},0.72) 100%)`
-          : '#fff',
-        border: active ? `2px solid rgba(${glow},0.5)` : '2px solid #EEF0F6',
-        borderRadius: 20,
-        padding: '18px 18px 16px',
-        textAlign: 'left',
-        boxShadow: active
-          ? `0 12px 40px rgba(${glow},0.35), 0 2px 8px rgba(${glow},0.2)`
-          : '0 2px 12px rgba(10,15,30,0.06)',
-        fontFamily: 'DM Sans, sans-serif',
-      }}>
-      {/* Shine effect */}
-      <div style={{ position:'absolute', top:0, left:0, right:0, height:'50%', borderRadius:'20px 20px 0 0',
-        background: 'linear-gradient(to bottom, rgba(255,255,255,0.18), transparent)', pointerEvents:'none' }} />
+    <button onClick={onClick} className="fup-stat" style={{
+      display: 'flex', alignItems: 'center', gap: 12,
+      padding: '14px 18px',
+      borderRadius: 16,
+      border: active ? `2px solid ${solidColor}` : '2px solid #E8ECF4',
+      background: active
+        ? `linear-gradient(135deg, ${solidColor} 0%, ${solidColor}cc 100%)`
+        : '#fff',
+      boxShadow: active
+        ? `0 8px 28px rgba(${glowRGB},0.35)`
+        : '0 1px 8px rgba(0,0,0,0.06)',
+      minWidth: 0, flex: '1 1 0',
+      fontFamily: 'inherit', cursor: 'pointer',
+      position: 'relative', overflow: 'hidden',
+    }}>
+      {/* Icon box */}
+      <div style={{
+        width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 20,
+        background: active ? 'rgba(255,255,255,0.2)' : `rgba(${glowRGB},0.1)`,
+        border: active ? '1.5px solid rgba(255,255,255,0.3)' : `1.5px solid rgba(${glowRGB},0.15)`,
+      }}>{icon}</div>
 
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom: 12 }}>
+      {/* Text */}
+      <div style={{ textAlign: 'left', minWidth: 0 }}>
         <div style={{
-          width: 38, height: 38, borderRadius: 12,
-          background: active ? 'rgba(255,255,255,0.22)' : `rgba(${glow},0.1)`,
-          border: active ? '1.5px solid rgba(255,255,255,0.3)' : `1.5px solid rgba(${glow},0.2)`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 18, flexShrink: 0,
-        }}>{icon}</div>
-        {active && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff',
-          boxShadow: '0 0 12px rgba(255,255,255,0.8)', animation: 'fp-pulse 1.5s ease infinite' }} />}
+          fontSize: 28, fontWeight: 900, lineHeight: 1,
+          color: active ? '#fff' : solidColor,
+          letterSpacing: -1,
+          fontVariantNumeric: 'tabular-nums',
+        }}>
+          {String(value ?? 0)}
+        </div>
+        <div style={{
+          fontSize: 11, fontWeight: 700,
+          color: active ? 'rgba(255,255,255,0.85)' : '#374151',
+          textTransform: 'uppercase', letterSpacing: 0.5,
+          marginTop: 2, lineHeight: 1.2,
+        }}>{label}</div>
+        {sublabel && (
+          <div style={{
+            fontSize: 10, color: active ? 'rgba(255,255,255,0.6)' : '#9CA3AF',
+            marginTop: 1, fontWeight: 500,
+          }}>{sublabel}</div>
+        )}
       </div>
 
-      <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 34, fontWeight: 800, lineHeight: 1,
-        color: active ? '#fff' : color,
-        textShadow: active ? `0 0 30px rgba(255,255,255,0.3)` : 'none',
-        marginBottom: 6 }}>
-        {value ?? 0}
-      </div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: active ? 'rgba(255,255,255,0.8)' : '#64748B',
-        textTransform: 'uppercase', letterSpacing: 0.8, lineHeight: 1.2 }}>
-        {label}
-      </div>
-      {sublabel && (
-        <div style={{ fontSize: 10, color: active ? 'rgba(255,255,255,0.6)' : '#94A3B8',
-          marginTop: 3, fontWeight: 500 }}>
-          {sublabel}
-        </div>
+      {active && (
+        <div style={{
+          position: 'absolute', top: 8, right: 10,
+          width: 7, height: 7, borderRadius: '50%',
+          background: '#fff', opacity: 0.8,
+          animation: 'fup-pulse 1.5s ease infinite',
+        }} />
       )}
     </button>
   )
@@ -185,7 +134,6 @@ function UpdateModal({ followup, onClose, onSave }) {
   const [discussion, setDiscussion] = useState('')
   const [nextDate, setNextDate]     = useState('')
   const [saving, setSaving]         = useState(false)
-
   const sc = STATUS_META[newStatus] || STATUS_META.cold
 
   const handleSave = async () => {
@@ -203,130 +151,98 @@ function UpdateModal({ followup, onClose, onSave }) {
 
   return (
     <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, zIndex: 100,
-      background: 'rgba(10,15,30,0.82)', backdropFilter: 'blur(16px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+      position:'fixed', inset:0, zIndex:200,
+      background:'rgba(10,15,30,0.78)', backdropFilter:'blur(12px)',
+      display:'flex', alignItems:'center', justifyContent:'center', padding:20,
     }}>
-      <div onClick={e => e.stopPropagation()} className="fp fp-animate" style={{
-        background: '#fff', borderRadius: 28, width: '100%', maxWidth: 560,
-        overflow: 'hidden',
-        boxShadow: '0 60px 120px rgba(0,0,0,0.5), 0 0 0 1.5px rgba(255,255,255,0.08)',
+      <div onClick={e=>e.stopPropagation()} className="fup fup-animate" style={{
+        background:'#fff', borderRadius:24, width:'100%', maxWidth:520,
+        overflow:'hidden',
+        boxShadow:'0 40px 100px rgba(0,0,0,0.4)',
       }}>
-
-        {/* Dynamic header */}
+        {/* Header — colour shifts with status */}
         <div style={{
-          background: `linear-gradient(135deg, rgba(${sc.glow},1) 0%, rgba(${sc.glow},0.65) 100%)`,
-          padding: '28px 28px 24px', position: 'relative', overflow: 'hidden',
+          background:`linear-gradient(135deg, rgba(${sc.glow},1) 0%, rgba(${sc.glow},0.7) 100%)`,
+          padding:'24px 26px 20px', position:'relative', overflow:'hidden',
         }}>
-          <div style={{ position:'absolute', top:-60, right:-40, width:200, height:200, borderRadius:'50%', background:'rgba(255,255,255,0.1)' }}/>
-          <div style={{ position:'absolute', bottom:-40, left:60, width:140, height:140, borderRadius:'50%', background:'rgba(255,255,255,0.07)' }}/>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', position:'relative' }}>
+          <div style={{position:'absolute',top:-50,right:-40,width:180,height:180,borderRadius:'50%',background:'rgba(255,255,255,0.1)'}}/>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',position:'relative'}}>
             <div>
-              <div style={{ color:'rgba(255,255,255,0.65)', fontSize:10, fontWeight:800, letterSpacing:2.5, textTransform:'uppercase', marginBottom:6, fontFamily:'Syne,sans-serif' }}>
-                Update Follow-up
+              <div style={{color:'rgba(255,255,255,0.65)',fontSize:10,fontWeight:800,letterSpacing:2.5,textTransform:'uppercase',marginBottom:5}}>
+                ✏️ Update Follow-up
               </div>
-              <div style={{ color:'#fff', fontSize:22, fontWeight:800, letterSpacing:-0.5, marginBottom:8, fontFamily:'Syne,sans-serif' }}>
-                {followup.lead_name || followup.contact_name || '—'}
+              <div style={{color:'#fff',fontSize:20,fontWeight:800,marginBottom:6,letterSpacing:-0.3}}>
+                {followup.lead_name||followup.contact_name||'—'}
               </div>
-              <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
-                {followup.phone && (
-                  <span style={{ background:'rgba(255,255,255,0.18)', color:'#fff', fontSize:12, fontWeight:600,
-                    padding:'4px 12px', borderRadius:8, backdropFilter:'blur(8px)', border:'1px solid rgba(255,255,255,0.2)' }}>
-                    📞 {followup.phone}
-                  </span>
-                )}
-                {followup.school_name && (
-                  <span style={{ background:'rgba(255,255,255,0.15)', color:'rgba(255,255,255,0.9)', fontSize:12,
-                    fontWeight:600, padding:'4px 12px', borderRadius:8 }}>
-                    🏫 {followup.school_name}
-                  </span>
-                )}
-                {followup.product_name && (
-                  <span style={{ background:'rgba(255,255,255,0.15)', color:'rgba(255,255,255,0.9)', fontSize:12,
-                    fontWeight:600, padding:'4px 12px', borderRadius:8 }}>
-                    📦 {followup.product_name}
-                  </span>
-                )}
+              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                {followup.phone && <span style={{background:'rgba(255,255,255,0.18)',color:'#fff',fontSize:12,fontWeight:600,padding:'3px 11px',borderRadius:8}}>📞 {followup.phone}</span>}
+                {followup.school_name && <span style={{background:'rgba(255,255,255,0.14)',color:'rgba(255,255,255,0.9)',fontSize:12,fontWeight:600,padding:'3px 11px',borderRadius:8}}>🏫 {followup.school_name}</span>}
+                {followup.product_name && <span style={{background:'rgba(255,255,255,0.14)',color:'rgba(255,255,255,0.9)',fontSize:12,fontWeight:600,padding:'3px 11px',borderRadius:8}}>📦 {followup.product_name}</span>}
               </div>
             </div>
-            <button onClick={onClose} className="fp-btn" style={{
-              width:36, height:36, borderRadius:12, border:'none', background:'rgba(255,255,255,0.2)',
-              color:'#fff', fontSize:16, backdropFilter:'blur(8px)', display:'flex',
-              alignItems:'center', justifyContent:'center', flexShrink:0,
-              fontFamily:'DM Sans,sans-serif',
+            <button onClick={onClose} className="fup-btn" style={{
+              width:34,height:34,borderRadius:10,border:'none',background:'rgba(255,255,255,0.2)',
+              color:'#fff',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center',
+              fontFamily:'inherit',flexShrink:0,
             }}>✕</button>
           </div>
         </div>
 
-        <div style={{ padding:'24px 28px', display:'flex', flexDirection:'column', gap:22 }}>
-
-          {/* Notes */}
+        <div style={{padding:'20px 26px',display:'flex',flexDirection:'column',gap:18}}>
           <div>
-            <label style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10,
-              fontSize:11, fontWeight:800, color:'#475569', textTransform:'uppercase', letterSpacing:1.2 }}>
-              <span style={{ width:22, height:22, borderRadius:7, background:'#EEF2FF',
-                display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:12 }}>📝</span>
-              Call Notes <span style={{ color:'#EF4444' }}>*</span>
+            <label style={{display:'block',fontSize:11,fontWeight:800,color:'#6B7280',textTransform:'uppercase',letterSpacing:1,marginBottom:8}}>
+              📝 Call Notes *
             </label>
-            <textarea value={discussion} onChange={e => setDiscussion(e.target.value)} rows={3}
-              autoFocus placeholder="What was discussed? Key objections, interest level, next steps…"
-              className="fp-input" style={{
-                width:'100%', border:'2px solid #E8ECF4', borderRadius:16, padding:'14px 16px',
-                fontSize:14, color:'#0A0F1E', resize:'none', fontFamily:'DM Sans,sans-serif',
-                lineHeight:1.7, background:'#FAFBFD',
-              }} />
+            <textarea value={discussion} onChange={e=>setDiscussion(e.target.value)} rows={3} autoFocus
+              placeholder="What was discussed? Key objections, interest level, next steps…"
+              className="fup-input"
+              style={{width:'100%',border:'2px solid #E5E7EB',borderRadius:12,padding:'12px 14px',
+                fontSize:14,color:'#111827',resize:'none',fontFamily:'inherit',lineHeight:1.6,background:'#FAFAFA'}}/>
           </div>
 
-          {/* Status picker */}
           <div>
-            <label style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10,
-              fontSize:11, fontWeight:800, color:'#475569', textTransform:'uppercase', letterSpacing:1.2 }}>
-              <span style={{ width:22, height:22, borderRadius:7, background:'#F0FDF4',
-                display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:12 }}>📊</span>
-              Update Lead Status
+            <label style={{display:'block',fontSize:11,fontWeight:800,color:'#6B7280',textTransform:'uppercase',letterSpacing:1,marginBottom:8}}>
+              📊 Update Status
             </label>
-            <div style={{ display:'flex', flexWrap:'wrap', gap:7 }}>
-              {ALL_STATUSES.map(s => {
-                const c = STATUS_META[s]; const active = newStatus === s
+            <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+              {ALL_STATUSES.map(s=>{
+                const c=STATUS_META[s]; const active=newStatus===s
                 return (
-                  <button key={s} onClick={() => setNewStatus(s)} className="fp-tag" style={{
-                    padding:'7px 15px', borderRadius:22,
-                    border: active ? 'none' : `1.5px solid rgba(${c.glow},0.2)`,
-                    background: active ? c.dot : c.bg, color: active ? '#fff' : c.text,
-                    fontSize:12, fontWeight:700, fontFamily:'DM Sans,sans-serif',
-                    boxShadow: active ? `0 6px 20px rgba(${c.glow},0.45)` : 'none',
+                  <button key={s} onClick={()=>setNewStatus(s)} className="fup-btn" style={{
+                    padding:'6px 14px',borderRadius:20,
+                    border:active?'none':`1.5px solid ${c.bg}`,
+                    background:active?c.dot:c.bg,
+                    color:active?'#fff':c.text,
+                    fontSize:12,fontWeight:700,fontFamily:'inherit',
+                    boxShadow:active?`0 4px 14px rgba(${c.glow},0.4)`:'none',
                   }}>{c.label}</button>
                 )
               })}
             </div>
           </div>
 
-          {/* Next followup */}
           <div>
-            <label style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10,
-              fontSize:11, fontWeight:800, color:'#475569', textTransform:'uppercase', letterSpacing:1.2 }}>
-              <span style={{ width:22, height:22, borderRadius:7, background:'#FFF7ED',
-                display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:12 }}>📅</span>
-              Schedule Next Follow-up
+            <label style={{display:'block',fontSize:11,fontWeight:800,color:'#6B7280',textTransform:'uppercase',letterSpacing:1,marginBottom:8}}>
+              📅 Next Follow-up Date
             </label>
-            <input type="date" value={nextDate} onChange={e => setNextDate(e.target.value)}
-              min={new Date().toISOString().split('T')[0]} className="fp-input"
-              style={{ width:'100%', border:'2px solid #E8ECF4', borderRadius:16, padding:'13px 16px',
-                fontSize:14, color:'#0A0F1E', fontFamily:'DM Sans,sans-serif', background:'#FAFBFD' }} />
+            <input type="date" value={nextDate} onChange={e=>setNextDate(e.target.value)}
+              min={new Date().toISOString().split('T')[0]} className="fup-input"
+              style={{width:'100%',border:'2px solid #E5E7EB',borderRadius:12,padding:'11px 14px',
+                fontSize:14,color:'#111827',fontFamily:'inherit',background:'#FAFAFA'}}/>
           </div>
         </div>
 
-        <div style={{ padding:'0 28px 28px', display:'flex', gap:10 }}>
-          <button onClick={onClose} className="fp-btn" style={{
-            flex:1, padding:'14px 0', border:'2px solid #E8ECF4', borderRadius:16,
-            color:'#64748B', fontSize:14, fontWeight:700, background:'#F8FAFC', fontFamily:'DM Sans,sans-serif',
+        <div style={{padding:'0 26px 24px',display:'flex',gap:10}}>
+          <button onClick={onClose} className="fup-btn" style={{
+            flex:1,padding:'13px 0',border:'2px solid #E5E7EB',borderRadius:14,
+            color:'#6B7280',fontSize:14,fontWeight:700,background:'#F9FAFB',fontFamily:'inherit',
           }}>Cancel</button>
-          <button onClick={handleSave} disabled={saving} className="fp-btn" style={{
-            flex:2.5, padding:'14px 0', border:'none', borderRadius:16,
-            background:`linear-gradient(135deg,rgba(${sc.glow},1),rgba(${sc.glow},0.7))`,
-            color:'#fff', fontSize:14, fontWeight:800, fontFamily:'DM Sans,sans-serif',
-            boxShadow:`0 12px 32px rgba(${sc.glow},0.45)`, opacity: saving ? 0.7 : 1,
-          }}>{saving ? '⏳ Saving…' : '✓ Save & Close'}</button>
+          <button onClick={handleSave} disabled={saving} className="fup-btn" style={{
+            flex:2.5,padding:'13px 0',border:'none',borderRadius:14,
+            background:`linear-gradient(135deg,rgba(${sc.glow},1),rgba(${sc.glow},0.72))`,
+            color:'#fff',fontSize:14,fontWeight:800,fontFamily:'inherit',
+            boxShadow:`0 8px 24px rgba(${sc.glow},0.4)`,opacity:saving?0.7:1,
+          }}>{saving?'⏳ Saving…':'✓ Save & Close'}</button>
         </div>
       </div>
     </div>
@@ -340,177 +256,146 @@ function LeadCard({ item, onUpdate, isAdmin, index }) {
   const days    = overdue ? daysO(item.follow_up_date) : 0
   const c       = STATUS_META[item.lead_status] || STATUS_META.cold
   const name    = item.lead_name || item.contact_name || '?'
-  const initials = name.substring(0, 2).toUpperCase()
-
-  const accentColor = overdue ? '239,68,68' : today ? '245,158,11' : c.glow
-  const accentHex   = overdue ? '#EF4444'   : today ? '#F59E0B'    : c.dot
+  const initials = name.substring(0,2).toUpperCase()
+  const accentRGB = overdue ? '239,68,68' : today ? '245,158,11' : c.glow
+  const accentHex = overdue ? '#EF4444'   : today ? '#F59E0B'    : c.dot
 
   return (
-    <div className="fp fp-card-hover" style={{
-      background: '#fff',
-      border: overdue
-        ? '1.5px solid #FECACA'
-        : today
-        ? '1.5px solid #FDE68A'
-        : '1.5px solid #EEF0F6',
-      borderRadius: 20,
-      padding: '18px 20px',
-      display: 'grid',
-      gridTemplateColumns: 'auto 1fr auto',
-      gap: 16,
-      alignItems: 'center',
-      position: 'relative',
-      overflow: 'hidden',
-      animationDelay: `${index * 55}ms`,
+    <div className="fup fup-card-hover" style={{
+      background:'#fff',
+      border: overdue ? '1.5px solid #FECACA' : today ? '1.5px solid #FDE68A' : '1.5px solid #E8ECF4',
+      borderRadius:18,
+      padding:'16px 18px 16px 22px',
+      display:'grid',
+      gridTemplateColumns:'50px 1fr auto',
+      gap:14,
+      alignItems:'center',
+      position:'relative',
+      overflow:'hidden',
       boxShadow: overdue
-        ? '0 4px 24px rgba(239,68,68,0.08), 0 1px 4px rgba(0,0,0,0.03)'
+        ? '0 2px 16px rgba(239,68,68,0.08)'
         : today
-        ? '0 4px 24px rgba(245,158,11,0.08), 0 1px 4px rgba(0,0,0,0.03)'
-        : '0 2px 8px rgba(10,15,30,0.05)',
+        ? '0 2px 16px rgba(245,158,11,0.08)'
+        : '0 1px 6px rgba(0,0,0,0.04)',
+      animationDelay:`${index*45}ms`,
     }}>
-
-      {/* Left glow bar */}
+      {/* Left accent bar */}
       <div style={{
-        position: 'absolute', left: 0, top: 0, bottom: 0, width: 4,
-        background: `linear-gradient(to bottom, ${accentHex}, ${accentHex}88)`,
-        boxShadow: `3px 0 12px rgba(${accentColor},0.5)`,
-      }} />
+        position:'absolute', left:0, top:8, bottom:8, width:4, borderRadius:'0 3px 3px 0',
+        background:`linear-gradient(to bottom, ${accentHex}, ${accentHex}77)`,
+        boxShadow:`2px 0 10px rgba(${accentRGB},0.45)`,
+      }}/>
 
       {/* Avatar */}
       <div style={{
-        width: 50, height: 50, borderRadius: 16, flexShrink: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 800, letterSpacing: -0.5,
-        background: `linear-gradient(135deg, rgba(${accentColor},0.15), rgba(${accentColor},0.05))`,
+        width:50, height:50, borderRadius:14, flexShrink:0,
+        display:'flex', alignItems:'center', justifyContent:'center',
+        fontSize:15, fontWeight:800, letterSpacing:-0.5,
+        background:`rgba(${accentRGB},0.1)`,
         color: accentHex,
-        border: `2px solid rgba(${accentColor},0.2)`,
-        boxShadow: `0 4px 16px rgba(${accentColor},0.15), inset 0 1px 0 rgba(255,255,255,0.8)`,
-      }}>
-        {initials}
-      </div>
+        border:`2px solid rgba(${accentRGB},0.18)`,
+      }}>{initials}</div>
 
-      {/* Main content */}
-      <div style={{ minWidth: 0 }}>
-        {/* Row 1: Name + badges */}
-        <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:7 }}>
-          <span style={{ fontFamily:'Syne,sans-serif', fontSize:15, fontWeight:800, color:'#0A0F1E', letterSpacing:-0.4 }}>
+      {/* Content */}
+      <div style={{minWidth:0}}>
+        {/* Name row */}
+        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:7}}>
+          <span style={{fontSize:15,fontWeight:800,color:'#111827',letterSpacing:-0.3}}>
             {name}
           </span>
-          <SBadge status={item.lead_status} />
-          {overdue && days > 0 && (
-            <span style={{
-              fontSize: 10, fontWeight: 800, color: '#DC2626',
-              background: '#FEE2E2', padding: '2px 9px', borderRadius: 20,
-              border: '1px solid #FECACA', letterSpacing: 0.4,
-              boxShadow: '0 2px 8px rgba(239,68,68,0.2)',
-            }}>
-              🕐 {days}d overdue
+          <SBadge status={item.lead_status}/>
+          {overdue && days>0 && (
+            <span style={{fontSize:10,fontWeight:800,color:'#DC2626',background:'#FEE2E2',
+              padding:'2px 8px',borderRadius:20,border:'1px solid #FECACA'}}>
+              🕐 {days}d late
             </span>
           )}
           {today && (
-            <span style={{
-              fontSize: 10, fontWeight: 800, color: '#D97706',
-              background: '#FEF3C7', padding: '2px 9px', borderRadius: 20,
-              border: '1px solid #FDE68A', letterSpacing: 0.4,
-            }}>
+            <span style={{fontSize:10,fontWeight:800,color:'#D97706',background:'#FEF3C7',
+              padding:'2px 8px',borderRadius:20,border:'1px solid #FDE68A'}}>
               ⏰ Due Today
             </span>
           )}
         </div>
 
-        {/* Row 2: Info chips */}
-        <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+        {/* Info chips */}
+        <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
           <a href={`tel:${item.phone}`} style={{
-            fontSize: 12, fontWeight: 700, color: '#4F46E5', textDecoration: 'none',
-            background: '#EEF2FF', padding: '4px 11px', borderRadius: 9,
-            border: '1px solid #C7D2FE', display: 'inline-flex', alignItems: 'center', gap: 4,
-            fontFamily: 'JetBrains Mono, monospace',
-            boxShadow: '0 2px 8px rgba(79,70,229,0.1)',
-          }}>
-            📞 {item.phone || '—'}
-          </a>
+            fontSize:12,fontWeight:700,color:'#4338CA',textDecoration:'none',
+            background:'#EEF2FF',padding:'4px 10px',borderRadius:8,border:'1px solid #C7D2FE',
+            display:'inline-flex',alignItems:'center',gap:4,
+            fontFamily:'SF Mono,Fira Code,monospace',
+          }}>📞 {item.phone||'—'}</a>
 
-          {item.school_name && item.school_name !== name && (
-            <span style={{ fontSize:12, fontWeight:600, color:'#64748B', background:'#F8FAFC',
-              padding:'4px 11px', borderRadius:9, border:'1px solid #E8ECF4',
-              display:'inline-flex', alignItems:'center', gap:4 }}>
+          {item.school_name && item.school_name!==name && (
+            <span style={{fontSize:12,fontWeight:600,color:'#374151',background:'#F9FAFB',
+              padding:'4px 10px',borderRadius:8,border:'1px solid #E5E7EB',
+              display:'inline-flex',alignItems:'center',gap:4}}>
               🏫 {item.school_name}
             </span>
           )}
 
           {item.product_name && (
-            <span style={{ fontSize:12, fontWeight:700, color:'#7C3AED', background:'#F5F3FF',
-              padding:'4px 11px', borderRadius:9, border:'1px solid #DDD6FE',
-              display:'inline-flex', alignItems:'center', gap:4 }}>
+            <span style={{fontSize:12,fontWeight:700,color:'#6D28D9',background:'#F5F3FF',
+              padding:'4px 10px',borderRadius:8,border:'1px solid #DDD6FE',
+              display:'inline-flex',alignItems:'center',gap:4}}>
               📦 {item.product_name}
             </span>
           )}
 
           {isAdmin && item.agent_name && (
-            <span style={{ fontSize:12, fontWeight:600, color:'#64748B', background:'#F1F5F9',
-              padding:'4px 11px', borderRadius:9, border:'1px solid #E2E8F0',
-              display:'inline-flex', alignItems:'center', gap:4 }}>
+            <span style={{fontSize:12,fontWeight:600,color:'#4B5563',background:'#F3F4F6',
+              padding:'4px 10px',borderRadius:8,border:'1px solid #E5E7EB',
+              display:'inline-flex',alignItems:'center',gap:4}}>
               👤 {item.agent_name}
             </span>
           )}
         </div>
 
-        {/* Row 3: Notes */}
         {item.notes && (
           <div style={{
-            marginTop: 8, fontSize: 12, color: '#94A3B8', fontStyle: 'italic',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 460,
-            borderLeft: `3px solid rgba(${accentColor},0.25)`, paddingLeft: 10,
-            lineHeight: 1.5,
+            marginTop:7,fontSize:12,color:'#9CA3AF',fontStyle:'italic',
+            overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:440,
+            borderLeft:`3px solid rgba(${accentRGB},0.22)`,paddingLeft:9,
           }}>
             "{item.notes}"
           </div>
         )}
       </div>
 
-      {/* Right side: date + actions */}
-      <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:10, flexShrink:0 }}>
-        {/* Date chip */}
+      {/* Right: date + actions */}
+      <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:9,flexShrink:0}}>
         <div style={{
-          background: overdue ? '#FEF2F2' : today ? '#FFFBEB' : '#EEF2FF',
-          border: overdue ? '1.5px solid #FECACA' : today ? '1.5px solid #FDE68A' : '1.5px solid #C7D2FE',
-          borderRadius: 12, padding: '6px 12px', textAlign: 'center',
-          boxShadow: overdue ? '0 4px 16px rgba(239,68,68,0.12)' : today ? '0 4px 16px rgba(245,158,11,0.12)' : '0 4px 16px rgba(79,70,229,0.08)',
+          background: overdue?'#FEF2F2':today?'#FFFBEB':'#EEF2FF',
+          border: overdue?'1.5px solid #FECACA':today?'1.5px solid #FDE68A':'1.5px solid #C7D2FE',
+          borderRadius:10,padding:'6px 12px',textAlign:'center',
         }}>
-          <div style={{ fontSize: 9, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>
+          <div style={{fontSize:9,fontWeight:800,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:1,marginBottom:2}}>
             FOLLOW-UP
           </div>
-          <div className="fp-mono" style={{
-            fontSize: 11, fontWeight: 600, letterSpacing: 0.3,
-            color: overdue ? '#DC2626' : today ? '#D97706' : '#4F46E5',
-          }}>
-            {fmt(item.follow_up_date)}
-          </div>
+          <div className="fup-mono" style={{
+            fontSize:11,fontWeight:700,letterSpacing:0.2,
+            color: overdue?'#DC2626':today?'#D97706':'#4338CA',
+          }}>{fmt(item.follow_up_date)}</div>
         </div>
 
-        {/* Action buttons */}
-        <div style={{ display:'flex', gap:6 }}>
-          <a href={`tel:${item.phone}`} className="fp-btn" style={{
-            width: 34, height: 34, background: '#F0FDF4', color: '#16A34A',
-            borderRadius: 10, fontSize: 15, textDecoration: 'none',
-            border: '1.5px solid #BBF7D0', display: 'inline-flex',
-            alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 2px 8px rgba(34,197,94,0.18)',
+        <div style={{display:'flex',gap:6}}>
+          <a href={`tel:${item.phone}`} className="fup-btn" style={{
+            width:34,height:34,background:'#F0FDF4',borderRadius:10,fontSize:15,
+            textDecoration:'none',border:'1.5px solid #BBF7D0',
+            display:'inline-flex',alignItems:'center',justifyContent:'center',
           }}>📞</a>
           <a href={`https://wa.me/${(item.phone||'').replace(/[^0-9]/g,'')}`}
-            target="_blank" rel="noreferrer" className="fp-btn"
-            style={{
-              width: 34, height: 34, background: '#DCFCE7', color: '#15803D',
-              borderRadius: 10, fontSize: 15, textDecoration: 'none',
-              border: '1.5px solid #86EFAC', display: 'inline-flex',
-              alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(21,128,61,0.18)',
-            }}>💬</a>
-          <button onClick={() => onUpdate(item)} className="fp-btn" style={{
-            padding: '0 16px', height: 34, borderRadius: 10, border: 'none',
-            background: `linear-gradient(135deg, rgba(${accentColor},1), rgba(${accentColor},0.75))`,
-            color: '#fff', fontSize: 12, fontWeight: 800, fontFamily: 'DM Sans,sans-serif',
-            letterSpacing: 0.2, boxShadow: `0 4px 14px rgba(${accentColor},0.4)`,
+            target="_blank" rel="noreferrer" className="fup-btn" style={{
+            width:34,height:34,background:'#DCFCE7',borderRadius:10,fontSize:15,
+            textDecoration:'none',border:'1.5px solid #86EFAC',
+            display:'inline-flex',alignItems:'center',justifyContent:'center',
+          }}>💬</a>
+          <button onClick={()=>onUpdate(item)} className="fup-btn" style={{
+            padding:'0 14px',height:34,borderRadius:10,border:'none',
+            background:`linear-gradient(135deg,rgba(${accentRGB},1),rgba(${accentRGB},0.75))`,
+            color:'#fff',fontSize:12,fontWeight:800,fontFamily:'inherit',
+            boxShadow:`0 4px 14px rgba(${accentRGB},0.38)`,
           }}>Update →</button>
         </div>
       </div>
@@ -519,102 +404,80 @@ function LeadCard({ item, onUpdate, isAdmin, index }) {
 }
 
 // ── Section ───────────────────────────────────────────────
-function Section({ title, subtitle, icon, glowColor, accentHex, items, onUpdate, isAdmin, defaultOpen = true }) {
+function Section({ title, subtitle, icon, glowRGB, accentHex, items, onUpdate, isAdmin, defaultOpen=true }) {
   const [open, setOpen] = useState(defaultOpen)
 
-  // Status distribution for mini bar chart
   const statusDist = ALL_STATUSES.map(s => ({
     s, count: items.filter(i => i.lead_status === s).length,
   })).filter(x => x.count > 0)
 
   return (
-    <div className="fp" style={{
-      borderRadius: 24, overflow: 'hidden',
-      border: `1.5px solid rgba(${glowColor},0.18)`,
-      boxShadow: `0 4px 32px rgba(${glowColor},0.07), 0 1px 4px rgba(0,0,0,0.03)`,
-      background: '#fff',
+    <div className="fup" style={{
+      borderRadius:22, overflow:'hidden',
+      border:`1.5px solid rgba(${glowRGB},0.18)`,
+      background:'#fff',
+      boxShadow:`0 2px 20px rgba(${glowRGB},0.07), 0 1px 4px rgba(0,0,0,0.03)`,
     }}>
-
-      {/* Section header */}
-      <button onClick={() => setOpen(o => !o)} className="fp fp-section-toggle" style={{
-        width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '20px 24px', border: 'none', cursor: 'pointer',
-        background: `linear-gradient(135deg, rgba(${glowColor},0.07) 0%, rgba(${glowColor},0.02) 100%)`,
-        borderBottom: open ? `1.5px solid rgba(${glowColor},0.12)` : 'none',
-        fontFamily: 'DM Sans, sans-serif',
+      <button onClick={()=>setOpen(o=>!o)} className="fup-btn" style={{
+        width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',
+        padding:'18px 22px',border:'none',cursor:'pointer',fontFamily:'inherit',
+        background:`linear-gradient(135deg,rgba(${glowRGB},0.07),rgba(${glowRGB},0.02))`,
+        borderBottom: open ? `1.5px solid rgba(${glowRGB},0.12)` : 'none',
       }}>
-        <div style={{ display:'flex', alignItems:'center', gap:16 }}>
-          {/* Icon */}
+        <div style={{display:'flex',alignItems:'center',gap:14}}>
           <div style={{
-            width: 50, height: 50, borderRadius: 16, display: 'flex', alignItems: 'center',
-            justifyContent: 'center', fontSize: 24,
-            background: `linear-gradient(135deg, rgba(${glowColor},0.15), rgba(${glowColor},0.05))`,
-            border: `1.5px solid rgba(${glowColor},0.2)`,
-            boxShadow: `0 8px 20px rgba(${glowColor},0.18), inset 0 1px 0 rgba(255,255,255,0.6)`,
+            width:46,height:46,borderRadius:14,display:'flex',alignItems:'center',justifyContent:'center',
+            fontSize:22,background:`rgba(${glowRGB},0.12)`,border:`1.5px solid rgba(${glowRGB},0.2)`,
+            boxShadow:`0 6px 18px rgba(${glowRGB},0.18)`,
           }}>{icon}</div>
 
-          <div style={{ textAlign:'left' }}>
-            <div style={{ fontFamily:'Syne,sans-serif', fontSize:17, fontWeight:800, color:'#0A0F1E', letterSpacing:-0.5 }}>
-              {title}
-            </div>
-            <div style={{ fontSize:12, color:'#64748B', fontWeight:500, marginTop:2 }}>{subtitle}</div>
+          <div style={{textAlign:'left'}}>
+            <div style={{fontSize:16,fontWeight:800,color:'#111827',letterSpacing:-0.4}}>{title}</div>
+            <div style={{fontSize:12,color:'#6B7280',fontWeight:500,marginTop:2}}>{subtitle}</div>
           </div>
 
-          {/* Count badge */}
           <div style={{
-            background: items.length === 0
-              ? '#F1F5F9'
-              : `linear-gradient(135deg, rgba(${glowColor},0.9), rgba(${glowColor},0.7))`,
-            color: items.length === 0 ? '#94A3B8' : '#fff',
-            borderRadius: 14, fontSize: 18, fontWeight: 900, padding: '5px 18px',
-            fontFamily: 'Syne,sans-serif', letterSpacing: -0.5,
-            boxShadow: items.length > 0 ? `0 6px 20px rgba(${glowColor},0.4)` : 'none',
+            background: items.length===0 ? '#F3F4F6' : `linear-gradient(135deg,rgba(${glowRGB},0.9),rgba(${glowRGB},0.7))`,
+            color: items.length===0 ? '#9CA3AF' : '#fff',
+            borderRadius:12,fontSize:16,fontWeight:900,padding:'4px 16px',
+            fontVariantNumeric:'tabular-nums',
+            boxShadow: items.length>0 ? `0 4px 16px rgba(${glowRGB},0.38)` : 'none',
           }}>{items.length}</div>
         </div>
 
-        <div style={{ display:'flex', alignItems:'center', gap:14 }}>
-          {/* Status mini distribution */}
-          {statusDist.length > 0 && (
-            <div style={{ display:'flex', alignItems:'flex-end', gap:3, height:28 }}>
-              {statusDist.map(({ s, count }) => {
-                const c = STATUS_META[s]
-                const h = Math.max(6, Math.round((count / Math.max(...statusDist.map(x => x.count))) * 28))
-                return (
-                  <div key={s} title={`${c.label}: ${count}`} style={{
-                    width: 6, height: h, borderRadius: 3,
-                    background: c.dot, opacity: 0.8,
-                    boxShadow: `0 2px 6px rgba(${c.glow},0.4)`,
-                  }} />
-                )
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          {statusDist.length>0 && (
+            <div style={{display:'flex',alignItems:'flex-end',gap:3,height:24}}>
+              {statusDist.map(({s,count})=>{
+                const c=STATUS_META[s]
+                const h=Math.max(5,Math.round((count/Math.max(...statusDist.map(x=>x.count)))*24))
+                return <div key={s} title={`${c.label}: ${count}`} style={{width:6,height:h,borderRadius:3,background:c.dot,opacity:0.85}}/>
               })}
             </div>
           )}
-
           <div style={{
-            fontSize: 11, fontWeight: 700, color: accentHex,
-            background: `rgba(${glowColor},0.08)`, padding: '6px 14px', borderRadius: 10,
-            border: `1px solid rgba(${glowColor},0.18)`,
-          }}>
-            {open ? '▲ Collapse' : '▼ Expand'}
-          </div>
+            fontSize:11,fontWeight:700,color:accentHex,
+            background:`rgba(${glowRGB},0.08)`,padding:'5px 12px',borderRadius:9,
+            border:`1px solid rgba(${glowRGB},0.18)`,
+          }}>{open?'▲ Collapse':'▼ Expand'}</div>
         </div>
       </button>
 
       {open && (
         <div style={{
-          background: `linear-gradient(to bottom, rgba(${glowColor},0.02), #F8FAFC)`,
-          padding: items.length === 0 ? '56px 24px' : '16px 20px 20px',
-          display: 'flex', flexDirection: 'column', gap: 10,
+          background:`rgba(${glowRGB},0.012)`,
+          padding: items.length===0 ? '48px 24px' : '14px 18px 18px',
+          display:'flex',flexDirection:'column',gap:10,
         }}>
-          {items.length === 0 ? (
-            <div style={{ textAlign:'center', color:'#94A3B8' }}>
-              <div className="fp-float" style={{ fontSize: 52, marginBottom: 14 }}>🎉</div>
-              <div style={{ fontFamily:'Syne,sans-serif', fontSize:16, fontWeight:800, color:'#64748B', marginBottom:4 }}>All clear!</div>
-              <div style={{ fontSize:13, color:'#94A3B8' }}>No follow-ups in this section</div>
+          {items.length===0 ? (
+            <div style={{textAlign:'center',color:'#9CA3AF'}}>
+              <div className="fup-float" style={{fontSize:44,marginBottom:12}}>🎉</div>
+              <div style={{fontSize:15,fontWeight:700,color:'#6B7280',marginBottom:4}}>All clear!</div>
+              <div style={{fontSize:13}}>No follow-ups here</div>
             </div>
-          ) : items.map((item, i) => (
-            <div key={item.lead_id || i} className="fp-animate" style={{ animationDelay:`${i * 50}ms` }}>
-              <LeadCard item={item} onUpdate={onUpdate} isAdmin={isAdmin} index={i} />
+          ) : items.map((item,i)=>(
+            <div key={item.lead_id||i} className="fup-animate" style={{animationDelay:`${i*45}ms`}}>
+              <LeadCard item={item} onUpdate={onUpdate} isAdmin={isAdmin} index={i}/>
             </div>
           ))}
         </div>
@@ -623,12 +486,10 @@ function Section({ title, subtitle, icon, glowColor, accentHex, items, onUpdate,
   )
 }
 
-// ══════════════════════════════════════════════════════════
-//  MAIN PAGE
-// ══════════════════════════════════════════════════════════
+// ══ MAIN PAGE ═════════════════════════════════════════════
 export default function FollowUpsPage() {
   const { user }  = useAuth()
-  const isAdmin   = user?.role_id === 1 || user?.role_name === 'admin'
+  const isAdmin   = user?.role_id===1 || user?.role_name==='admin'
 
   const [data, setData]     = useState({ today:[], previous:[], next_3_days:[] })
   const [counts, setCounts] = useState({ today:0, previous:0, next_3_days:0 })
@@ -640,298 +501,262 @@ export default function FollowUpsPage() {
   const [filterProduct, setFilterProduct] = useState('')
   const [filterStatus, setFilterStatus]   = useState('')
   const [selected, setSelected] = useState(null)
-  const [activeView, setActiveView] = useState('all') // all | today | overdue | upcoming
+  const [activeView, setActiveView] = useState('all')
 
-  useEffect(() => {
-    if (isAdmin) {
-      api.get('/users').then(r => {
-        const list = r?.data || r || []
-        setAgents(Array.isArray(list) ? list.filter(u => ['agent','admin'].includes(u.role_name || u.role)) : [])
-      }).catch(() => {})
+  useEffect(()=>{
+    if(isAdmin){
+      api.get('/users').then(r=>{
+        const list=r?.data||r||[]
+        setAgents(Array.isArray(list)?list.filter(u=>['agent','admin'].includes(u.role_name||u.role)):[])
+      }).catch(()=>{})
     }
-    api.get('/products/active').then(r => {
-      const list = r?.data || r || []
-      setProducts(Array.isArray(list) ? list : [])
-    }).catch(() => {})
-  }, [isAdmin])
+    api.get('/products/active').then(r=>{
+      const list=r?.data||r||[]
+      setProducts(Array.isArray(list)?list:[])
+    }).catch(()=>{})
+  },[isAdmin])
 
-  const fetchAll = async (agentF, productF, statusF) => {
+  const fetchAll = async (aF,pF,sF) => {
     setLoading(true); setError(null)
     try {
-      const params = new URLSearchParams({ section:'all' })
-      if (isAdmin && agentF) params.set('agent_id', agentF)
-      if (productF)          params.set('product_id', productF)
-      if (statusF)           params.set('lead_status', statusF)
-      const body = await api.get(`/followups?${params}`)
-      const d    = body?.data || {}
-      let t=[], p=[], n=[]
-      if (Array.isArray(d)) {
-        t = d.filter(x => x.followup_type==='today')
-        p = d.filter(x => x.followup_type==='overdue')
-        n = d.filter(x => x.followup_type==='upcoming')
+      const params=new URLSearchParams({section:'all'})
+      if(isAdmin&&aF) params.set('agent_id',aF)
+      if(pF) params.set('product_id',pF)
+      if(sF) params.set('lead_status',sF)
+      const body=await api.get(`/followups?${params}`)
+      const d=body?.data||{}
+      let t=[],p=[],n=[]
+      if(Array.isArray(d)){
+        t=d.filter(x=>x.followup_type==='today')
+        p=d.filter(x=>x.followup_type==='overdue')
+        n=d.filter(x=>x.followup_type==='upcoming')
       } else {
-        t = Array.isArray(d.today)      ? d.today      : []
-        p = Array.isArray(d.previous)   ? d.previous   : []
-        n = Array.isArray(d.next_3_days)? d.next_3_days: []
+        t=Array.isArray(d.today)?d.today:[]
+        p=Array.isArray(d.previous)?d.previous:[]
+        n=Array.isArray(d.next_3_days)?d.next_3_days:[]
       }
-      setData({ today:t, previous:p, next_3_days:n })
-      setCounts(body?.counts || { today:t.length, previous:p.length, next_3_days:n.length })
-    } catch (err) { setError(err?.message || 'Failed'); toast.error(err?.message || 'Failed') }
-    finally { setLoading(false) }
+      setData({today:t,previous:p,next_3_days:n})
+      setCounts(body?.counts||{today:t.length,previous:p.length,next_3_days:n.length})
+    } catch(err){ setError(err?.message||'Failed'); toast.error(err?.message||'Failed') }
+    finally{ setLoading(false) }
   }
 
-  useEffect(() => { fetchAll(filterAgent, filterProduct, filterStatus) }, [filterAgent, filterProduct, filterStatus])
-  useEffect(() => {
-    const t = setInterval(() => fetchAll(filterAgent, filterProduct, filterStatus), 60000)
-    return () => clearInterval(t)
-  }, [filterAgent, filterProduct, filterStatus])
+  useEffect(()=>{ fetchAll(filterAgent,filterProduct,filterStatus) },[filterAgent,filterProduct,filterStatus])
+  useEffect(()=>{
+    const t=setInterval(()=>fetchAll(filterAgent,filterProduct,filterStatus),60000)
+    return()=>clearInterval(t)
+  },[filterAgent,filterProduct,filterStatus])
 
-  const total     = (counts.today||0) + (counts.previous||0) + (counts.next_3_days||0)
-  const allLeads  = [...data.today, ...data.previous, ...data.next_3_days]
+  const total    = (counts.today||0)+(counts.previous||0)+(counts.next_3_days||0)
+  const allLeads = [...data.today,...data.previous,...data.next_3_days]
 
-  // Derived stats
   const stats = {
-    total,
-    today:    counts.today    || 0,
-    overdue:  counts.previous || 0,
-    upcoming: counts.next_3_days || 0,
-    hot:      allLeads.filter(l => l.lead_status === 'hot').length,
-    converted:allLeads.filter(l => l.lead_status === 'converted').length,
-    call_back:allLeads.filter(l => l.lead_status === 'call_back').length,
-    warm:     allLeads.filter(l => l.lead_status === 'warm').length,
+    total, today:counts.today||0, overdue:counts.previous||0, upcoming:counts.next_3_days||0,
+    hot:      allLeads.filter(l=>l.lead_status==='hot').length,
+    converted:allLeads.filter(l=>l.lead_status==='converted').length,
+    call_back:allLeads.filter(l=>l.lead_status==='call_back').length,
+    warm:     allLeads.filter(l=>l.lead_status==='warm').length,
   }
 
-  const STAT_CARDS = [
-    { key:'all',      icon:'📋', label:'Total Queue',  value:stats.total,     sublabel:'all sections',    color:'#4F46E5', glow:'79,70,229' },
-    { key:'today',    icon:'⏰', label:'Today',         value:stats.today,     sublabel:'due today',       color:'#D97706', glow:'245,158,11' },
-    { key:'overdue',  icon:'🚨', label:'Overdue',       value:stats.overdue,   sublabel:'past due date',   color:'#DC2626', glow:'239,68,68' },
-    { key:'upcoming', icon:'📆', label:'Next 3 Days',   value:stats.upcoming,  sublabel:'coming up',       color:'#7C3AED', glow:'124,58,237' },
-    { key:'hot',      icon:'🔥', label:'Hot Leads',     value:stats.hot,       sublabel:'in queue',        color:'#E11D48', glow:'225,29,72' },
-    { key:'call_back',icon:'📞', label:'Call Back',     value:stats.call_back, sublabel:'need callback',   color:'#6D28D9', glow:'109,40,217' },
-    { key:'warm',     icon:'🌡️', label:'Warm Leads',   value:stats.warm,      sublabel:'in queue',        color:'#B45309', glow:'180,83,9' },
-    { key:'converted',icon:'✅', label:'Converted',     value:stats.converted, sublabel:'in queue',        color:'#15803D', glow:'21,128,61' },
+  const CARDS = [
+    {key:'all',      icon:'📋', label:'Total',      value:stats.total,     sublabel:'queue',       solidColor:'#4F46E5', glowRGB:'79,70,229'},
+    {key:'today',    icon:'⏰', label:'Today',       value:stats.today,     sublabel:'due today',   solidColor:'#D97706', glowRGB:'217,119,6'},
+    {key:'overdue',  icon:'🚨', label:'Overdue',     value:stats.overdue,   sublabel:'past due',    solidColor:'#DC2626', glowRGB:'220,38,38'},
+    {key:'upcoming', icon:'📆', label:'Upcoming',    value:stats.upcoming,  sublabel:'next 3 days', solidColor:'#7C3AED', glowRGB:'124,58,237'},
+    {key:'hot',      icon:'🔥', label:'Hot',         value:stats.hot,       sublabel:'in queue',    solidColor:'#E11D48', glowRGB:'225,29,72'},
+    {key:'call_back',icon:'📞', label:'Call Back',   value:stats.call_back, sublabel:'need call',   solidColor:'#6D28D9', glowRGB:'109,40,217'},
+    {key:'warm',     icon:'🌡️', label:'Warm',       value:stats.warm,      sublabel:'in queue',    solidColor:'#B45309', glowRGB:'180,83,9'},
+    {key:'converted',icon:'✅', label:'Converted',   value:stats.converted, sublabel:'in queue',    solidColor:'#15803D', glowRGB:'21,128,61'},
   ]
 
-  // Filter sections based on activeView
   const showSection = (type) => {
-    if (activeView === 'all') return true
-    if (activeView === 'today'    && type === 'today')    return true
-    if (activeView === 'overdue'  && type === 'overdue')  return true
-    if (activeView === 'upcoming' && type === 'upcoming') return true
+    if(activeView==='all') return true
+    if(activeView==='today'    && type==='today')    return true
+    if(activeView==='overdue'  && type==='overdue')  return true
+    if(activeView==='upcoming' && type==='upcoming') return true
     return false
   }
 
   const selStyle = {
-    border: '2px solid #EEF0F6', borderRadius: 14, padding: '10px 14px',
-    fontSize: 13, color: '#1E2640', background: '#fff',
-    fontFamily: 'DM Sans, sans-serif', fontWeight: 600,
+    border:'2px solid #E5E7EB',borderRadius:12,padding:'9px 13px',
+    fontSize:13,color:'#111827',background:'#fff',fontFamily:'inherit',fontWeight:600,
   }
 
   return (
-    <div className="fp" style={{ maxWidth: 1100, margin: '0 auto', fontFamily:'DM Sans,sans-serif' }}>
+    <div className="fup" style={{maxWidth:1100,margin:'0 auto'}}>
       <style>{STYLES}</style>
 
-      {/* ══ HERO HEADER ══════════════════════════════════ */}
+      {/* ── HERO HEADER ── */}
       <div style={{
-        position: 'relative', borderRadius: 28, overflow: 'hidden', marginBottom: 24,
-        background: 'linear-gradient(135deg, #060B18 0%, #0F172A 35%, #1E1B4B 65%, #2D1B69 100%)',
-        padding: '34px 36px 30px',
-        boxShadow: '0 24px 80px rgba(10,15,30,0.45), 0 0 0 1px rgba(255,255,255,0.04)',
+        position:'relative',borderRadius:24,overflow:'hidden',marginBottom:20,
+        background:'linear-gradient(135deg,#0C1228 0%,#1A1040 40%,#2D1B69 70%,#1E1B4B 100%)',
+        padding:'28px 32px',
+        boxShadow:'0 20px 60px rgba(10,15,30,0.4)',
       }}>
-        {/* Dot grid texture */}
-        <div style={{
-          position: 'absolute', inset: 0, opacity: 0.06,
-          backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.8) 1px, transparent 1px)',
-          backgroundSize: '28px 28px',
-        }} />
+        {/* Dot grid */}
+        <div style={{position:'absolute',inset:0,opacity:0.05,
+          backgroundImage:'radial-gradient(circle,rgba(255,255,255,0.9) 1px,transparent 1px)',
+          backgroundSize:'26px 26px'}}/>
         {/* Glow orbs */}
-        <div style={{ position:'absolute', top:-80, right:80, width:320, height:320, borderRadius:'50%',
-          background:'radial-gradient(circle, rgba(139,92,246,0.25), transparent 65%)' }} />
-        <div style={{ position:'absolute', bottom:-100, left:150, width:260, height:260, borderRadius:'50%',
-          background:'radial-gradient(circle, rgba(99,102,241,0.18), transparent 65%)' }} />
-        <div style={{ position:'absolute', top:30, left:380, width:180, height:180, borderRadius:'50%',
-          background:'radial-gradient(circle, rgba(244,63,94,0.12), transparent 65%)' }} />
+        <div style={{position:'absolute',top:-60,right:80,width:280,height:280,borderRadius:'50%',
+          background:'radial-gradient(circle,rgba(124,58,237,0.25),transparent 65%)'}}/>
+        <div style={{position:'absolute',bottom:-80,left:160,width:220,height:220,borderRadius:'50%',
+          background:'radial-gradient(circle,rgba(79,70,229,0.2),transparent 65%)'}}/>
 
-        <div style={{ position:'relative', display:'flex', alignItems:'flex-start', justifyContent:'space-between', flexWrap:'wrap', gap:20 }}>
+        <div style={{position:'relative',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:20}}>
           <div>
-            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-              <div style={{
-                width:38, height:38, borderRadius:12,
-                background:'linear-gradient(135deg,rgba(99,102,241,0.4),rgba(139,92,246,0.2))',
-                border:'1px solid rgba(165,180,252,0.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18,
-              }}>📅</div>
-              <span style={{ color:'rgba(165,180,252,0.65)', fontSize:10, fontWeight:800, letterSpacing:3, textTransform:'uppercase', fontFamily:'Syne,sans-serif' }}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+              <span style={{color:'rgba(165,180,252,0.6)',fontSize:10,fontWeight:800,
+                letterSpacing:3,textTransform:'uppercase'}}>
                 ThynkFlow · Follow-ups
               </span>
             </div>
-            <h1 style={{ fontFamily:'Syne,sans-serif', color:'#fff', fontSize:34, fontWeight:900,
-              margin:'0 0 10px', letterSpacing:-1, lineHeight:1.05 }}>
+            <h1 style={{color:'#fff',fontSize:30,fontWeight:900,margin:'0 0 6px',
+              letterSpacing:-0.8,lineHeight:1.1,fontFamily:'inherit'}}>
               Follow-up Queue
             </h1>
-            <p style={{ color:'rgba(196,181,253,0.6)', fontSize:14, margin:0, fontWeight:500 }}>
-              {loading ? 'Syncing…' : `${total} total · ${format(new Date(), 'EEEE, dd MMMM yyyy')}`}
+            <p style={{color:'rgba(196,181,253,0.6)',fontSize:13,margin:0,fontWeight:500}}>
+              {loading?'Syncing…':`${total} total · ${format(new Date(),'EEEE, dd MMMM yyyy')}`}
             </p>
           </div>
 
-          {/* Live KPI cluster */}
-          <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
+          {/* KPI chips */}
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
             {[
-              { label:'TODAY',    val:counts.today||0,         glow:'rgba(253,186,116,0.18)', border:'rgba(253,186,116,0.3)', valC:'#FCD34D', icon:'⏰', pulse:counts.today>0 },
-              { label:'OVERDUE',  val:counts.previous||0,      glow:'rgba(248,113,113,0.18)', border:'rgba(248,113,113,0.3)', valC:'#FCA5A5', icon:'🔴', pulse:counts.previous>0 },
-              { label:'UPCOMING', val:counts.next_3_days||0,   glow:'rgba(167,139,250,0.15)', border:'rgba(167,139,250,0.3)', valC:'#A5B4FC', icon:'📆', pulse:false },
-              { label:'TOTAL',    val:total,                   glow:'rgba(255,255,255,0.06)', border:'rgba(255,255,255,0.12)', valC:'#fff',    icon:'📋', pulse:false },
-            ].map(({ label, val, glow, border, valC, icon, pulse }) => (
+              {label:'TODAY',   val:counts.today||0,       c:'rgba(252,211,77,0.95)',  bg:'rgba(252,211,77,0.12)', border:'rgba(252,211,77,0.3)'},
+              {label:'OVERDUE', val:counts.previous||0,    c:'rgba(252,165,165,0.95)', bg:'rgba(252,165,165,0.12)',border:'rgba(252,165,165,0.3)'},
+              {label:'UPCOMING',val:counts.next_3_days||0, c:'rgba(167,139,250,0.95)', bg:'rgba(167,139,250,0.12)',border:'rgba(167,139,250,0.3)'},
+              {label:'TOTAL',   val:total,                 c:'rgba(255,255,255,0.9)',  bg:'rgba(255,255,255,0.07)',border:'rgba(255,255,255,0.15)'},
+            ].map(({label,val,c,bg,border})=>(
               <div key={label} style={{
-                background: glow, border: `1px solid ${border}`, borderRadius: 18,
-                padding: '14px 18px', textAlign: 'center', backdropFilter:'blur(12px)', minWidth: 86,
+                background:bg,border:`1px solid ${border}`,borderRadius:14,
+                padding:'12px 16px',textAlign:'center',backdropFilter:'blur(10px)',minWidth:76,
               }}>
-                <div style={{ fontSize:18, marginBottom:5 }}>{icon}</div>
                 <div style={{
-                  fontFamily:'Syne,sans-serif', color: valC, fontSize: 30, fontWeight: 900,
-                  lineHeight: 1, letterSpacing: -1,
-                  textShadow: `0 0 24px ${valC}88`,
-                  animation: pulse ? 'fp-glow 2s ease-in-out infinite' : 'none',
+                  color:c, fontSize:28, fontWeight:900, lineHeight:1,
+                  letterSpacing:-1, fontVariantNumeric:'tabular-nums',
                 }}>{val}</div>
-                <div style={{ color:'rgba(255,255,255,0.45)', fontSize:9, fontWeight:800,
-                  letterSpacing:1.5, textTransform:'uppercase', marginTop:5 }}>{label}</div>
+                <div style={{color:'rgba(255,255,255,0.4)',fontSize:9,fontWeight:800,
+                  letterSpacing:1.5,textTransform:'uppercase',marginTop:4}}>{label}</div>
               </div>
             ))}
-            <button onClick={() => fetchAll(filterAgent, filterProduct, filterStatus)} className="fp-btn" style={{
-              padding:'14px 16px', background:'rgba(255,255,255,0.07)',
-              border:'1px solid rgba(255,255,255,0.14)', borderRadius:18,
-              color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:700,
-              fontFamily:'DM Sans,sans-serif', display:'flex', alignItems:'center',
-              gap:6, backdropFilter:'blur(8px)', alignSelf:'stretch',
-            }}>
-              <span style={{ fontSize:16 }}>↻</span> Refresh
-            </button>
+            <button onClick={()=>fetchAll(filterAgent,filterProduct,filterStatus)} className="fup-btn" style={{
+              padding:'12px 16px',background:'rgba(255,255,255,0.07)',
+              border:'1px solid rgba(255,255,255,0.14)',borderRadius:14,
+              color:'rgba(255,255,255,0.8)',fontSize:13,fontWeight:700,
+              fontFamily:'inherit',display:'flex',alignItems:'center',gap:6,
+              backdropFilter:'blur(8px)',alignSelf:'stretch',
+            }}>↻ Refresh</button>
           </div>
         </div>
       </div>
 
-      {/* ══ SUMMARY STAT CARDS ═══════════════════════════ */}
-      <div style={{ display:'flex', flexWrap:'wrap', gap:12, marginBottom:20 }}>
-        {STAT_CARDS.map(card => (
-          <StatCard key={card.key} {...card} active={activeView === card.key}
-            onClick={() => setActiveView(v => v === card.key ? 'all' : card.key)} />
+      {/* ── STAT CARDS — compact horizontal row ── */}
+      <div style={{
+        display:'grid',
+        gridTemplateColumns:'repeat(4,1fr)',
+        gap:10,
+        marginBottom:18,
+      }}>
+        {CARDS.map(card=>(
+          <StatCard key={card.key} {...card}
+            active={activeView===card.key}
+            onClick={()=>setActiveView(v=>v===card.key?'all':card.key)}/>
         ))}
       </div>
 
-      {/* ══ FILTERS ══════════════════════════════════════ */}
+      {/* ── FILTERS ── */}
       <div style={{
-        background:'#fff', border:'1.5px solid #EEF0F6', borderRadius:20,
-        padding:'14px 20px', display:'flex', flexWrap:'wrap', alignItems:'center',
-        gap:10, marginBottom:22,
-        boxShadow:'0 2px 16px rgba(10,15,30,0.05)',
+        background:'#fff',border:'1.5px solid #E8ECF4',borderRadius:16,
+        padding:'12px 18px',display:'flex',flexWrap:'wrap',alignItems:'center',
+        gap:10,marginBottom:18,boxShadow:'0 1px 8px rgba(0,0,0,0.04)',
       }}>
-        <div style={{ display:'flex', alignItems:'center', gap:6, marginRight:4 }}>
-          <div style={{ width:28, height:28, borderRadius:9, background:'#EEF2FF',
-            display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>🔍</div>
-          <span style={{ fontSize:10, fontWeight:800, color:'#64748B', textTransform:'uppercase', letterSpacing:1.5 }}>
-            Filter
-          </span>
-        </div>
+        <span style={{fontSize:10,fontWeight:800,color:'#6B7280',textTransform:'uppercase',letterSpacing:1.5}}>
+          🔍 Filter
+        </span>
 
-        {isAdmin && agents.length > 0 && (
-          <select style={selStyle} value={filterAgent} onChange={e => setFilterAgent(e.target.value)} className="fp-input">
+        {isAdmin&&agents.length>0&&(
+          <select style={selStyle} value={filterAgent} onChange={e=>setFilterAgent(e.target.value)} className="fup-input">
             <option value="">👥 All Agents</option>
-            {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            {agents.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         )}
-        {products.length > 0 && (
-          <select style={selStyle} value={filterProduct} onChange={e => setFilterProduct(e.target.value)} className="fp-input">
+        {products.length>0&&(
+          <select style={selStyle} value={filterProduct} onChange={e=>setFilterProduct(e.target.value)} className="fup-input">
             <option value="">📦 All Products</option>
-            {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         )}
-        <select style={selStyle} value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="fp-input">
+        <select style={selStyle} value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="fup-input">
           <option value="">🏷️ All Statuses</option>
-          {ALL_STATUSES.map(s => <option key={s} value={s}>{STATUS_META[s]?.label}</option>)}
+          {ALL_STATUSES.map(s=><option key={s} value={s}>{STATUS_META[s]?.label}</option>)}
         </select>
 
-        {(filterAgent || filterProduct || filterStatus) && (
-          <button onClick={() => { setFilterAgent(''); setFilterProduct(''); setFilterStatus('') }} className="fp-btn" style={{
-            padding:'9px 16px', background:'#FEF2F2', border:'1.5px solid #FECACA',
-            borderRadius:12, color:'#DC2626', fontSize:12, fontWeight:800,
-            fontFamily:'DM Sans,sans-serif',
+        {(filterAgent||filterProduct||filterStatus)&&(
+          <button onClick={()=>{setFilterAgent('');setFilterProduct('');setFilterStatus('')}} className="fup-btn" style={{
+            padding:'8px 14px',background:'#FEF2F2',border:'1.5px solid #FECACA',
+            borderRadius:10,color:'#DC2626',fontSize:12,fontWeight:800,fontFamily:'inherit',
           }}>✕ Reset</button>
         )}
 
-        <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6 }}>
-          <div style={{ width:6, height:6, borderRadius:'50%', background:'#22C55E',
-            animation:'fp-pulse 2s ease infinite' }} />
-          <span style={{ fontSize:11, color:'#94A3B8', fontWeight:600 }}>Auto-refreshes every 60s</span>
+        <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:5}}>
+          <div style={{width:6,height:6,borderRadius:'50%',background:'#22C55E',
+            animation:'fup-pulse 2s ease infinite'}}/>
+          <span style={{fontSize:11,color:'#9CA3AF',fontWeight:600}}>Auto-refreshes every 60s</span>
         </div>
       </div>
 
       {/* Error */}
-      {error && (
-        <div style={{
-          background:'#FEF2F2', border:'1.5px solid #FECACA', borderRadius:18,
-          padding:'16px 22px', display:'flex', alignItems:'center', gap:14, marginBottom:20,
-          boxShadow:'0 4px 20px rgba(239,68,68,0.1)',
-        }}>
-          <span style={{ fontSize:24 }}>⚠️</span>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:13, fontWeight:800, color:'#DC2626' }}>Failed to load follow-ups</div>
-            <div style={{ fontSize:12, color:'#EF4444', marginTop:2 }}>{error}</div>
+      {error&&(
+        <div style={{background:'#FEF2F2',border:'1.5px solid #FECACA',borderRadius:14,
+          padding:'14px 18px',display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
+          <span style={{fontSize:20}}>⚠️</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:800,color:'#DC2626'}}>Failed to load</div>
+            <div style={{fontSize:12,color:'#EF4444',marginTop:2}}>{error}</div>
           </div>
-          <button onClick={() => fetchAll(filterAgent,filterProduct,filterStatus)} className="fp-btn" style={{
-            padding:'9px 18px', background:'#FEE2E2', border:'1.5px solid #FECACA',
-            borderRadius:12, color:'#DC2626', fontSize:12, fontWeight:800, fontFamily:'DM Sans,sans-serif',
+          <button onClick={()=>fetchAll(filterAgent,filterProduct,filterStatus)} className="fup-btn" style={{
+            padding:'8px 16px',background:'#FEE2E2',border:'1.5px solid #FECACA',
+            borderRadius:10,color:'#DC2626',fontSize:12,fontWeight:800,fontFamily:'inherit',
           }}>Retry</button>
         </div>
       )}
 
-      {/* ══ CONTENT ══════════════════════════════════════ */}
-      {loading ? (
-        <div style={{
-          background:'#fff', borderRadius:24, padding:'80px 24px', textAlign:'center',
-          border:'1.5px solid #EEF0F6', boxShadow:'0 4px 32px rgba(10,15,30,0.05)',
-        }}>
-          <div style={{
-            width:50, height:50, border:'4px solid #EEF2FF', borderTopColor:'#4F46E5',
-            borderRadius:'50%', animation:'fp-spin 0.75s linear infinite', margin:'0 auto 20px',
-          }} />
-          <div style={{ fontFamily:'Syne,sans-serif', fontSize:17, color:'#1E2640', fontWeight:800, marginBottom:6 }}>
-            Loading follow-ups…
-          </div>
-          <div style={{ fontSize:13, color:'#94A3B8' }}>Fetching your queue</div>
+      {/* Content */}
+      {loading?(
+        <div style={{background:'#fff',borderRadius:20,padding:'70px 24px',textAlign:'center',
+          border:'1.5px solid #E8ECF4',boxShadow:'0 2px 20px rgba(0,0,0,0.04)'}}>
+          <div style={{width:44,height:44,border:'4px solid #EEF2FF',borderTopColor:'#4F46E5',
+            borderRadius:'50%',animation:'fup-spin 0.75s linear infinite',margin:'0 auto 16px'}}/>
+          <div style={{fontSize:16,fontWeight:800,color:'#111827',marginBottom:4}}>Loading follow-ups…</div>
+          <div style={{fontSize:13,color:'#9CA3AF'}}>Fetching your queue</div>
         </div>
-      ) : (
-        <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
-
-          {showSection('today') && (
-            <Section
-              title="Today's Follow-ups"
-              subtitle={`${data.today.length} lead${data.today.length !== 1 ? 's' : ''} due today · ${format(new Date(),'EEEE, dd MMMM')}`}
-              icon="⏰" glowColor="245,158,11" accentHex="#F59E0B"
-              items={data.today} onUpdate={setSelected} isAdmin={isAdmin} defaultOpen={true} />
+      ):(
+        <div style={{display:'flex',flexDirection:'column',gap:16}}>
+          {showSection('today')&&(
+            <Section title="Today's Follow-ups"
+              subtitle={`${data.today.length} lead${data.today.length!==1?'s':''} due today · ${format(new Date(),'EEEE, dd MMMM')}`}
+              icon="⏰" glowRGB="245,158,11" accentHex="#F59E0B"
+              items={data.today} onUpdate={setSelected} isAdmin={isAdmin} defaultOpen={true}/>
           )}
-
-          {showSection('overdue') && (
-            <Section
-              title="Overdue"
-              subtitle={`${data.previous.length} lead${data.previous.length !== 1 ? 's' : ''} past their scheduled follow-up date`}
-              icon="🚨" glowColor="239,68,68" accentHex="#EF4444"
-              items={data.previous} onUpdate={setSelected} isAdmin={isAdmin} defaultOpen={true} />
+          {showSection('overdue')&&(
+            <Section title="Overdue"
+              subtitle={`${data.previous.length} lead${data.previous.length!==1?'s':''} past their follow-up date`}
+              icon="🚨" glowRGB="239,68,68" accentHex="#EF4444"
+              items={data.previous} onUpdate={setSelected} isAdmin={isAdmin} defaultOpen={true}/>
           )}
-
-          {showSection('upcoming') && (
-            <Section
-              title="Next 3 Days"
-              subtitle={`${data.next_3_days.length} upcoming follow-up${data.next_3_days.length !== 1 ? 's' : ''} to prepare for`}
-              icon="📆" glowColor="99,102,241" accentHex="#4F46E5"
-              items={data.next_3_days} onUpdate={setSelected} isAdmin={isAdmin} defaultOpen={true} />
+          {showSection('upcoming')&&(
+            <Section title="Next 3 Days"
+              subtitle={`${data.next_3_days.length} upcoming follow-up${data.next_3_days.length!==1?'s':''} to prepare for`}
+              icon="📆" glowRGB="99,102,241" accentHex="#4F46E5"
+              items={data.next_3_days} onUpdate={setSelected} isAdmin={isAdmin} defaultOpen={true}/>
           )}
-
         </div>
       )}
 
-      {/* Update modal */}
-      {selected && (
-        <UpdateModal followup={selected} onClose={() => setSelected(null)}
-          onSave={() => { setSelected(null); fetchAll(filterAgent, filterProduct, filterStatus) }} />
+      {selected&&(
+        <UpdateModal followup={selected} onClose={()=>setSelected(null)}
+          onSave={()=>{setSelected(null);fetchAll(filterAgent,filterProduct,filterStatus)}}/>
       )}
     </div>
   )
