@@ -1,139 +1,183 @@
-// backend/src/routes/products.js
+// backend/src/routes/performance.js
 const express = require('express')
 const db      = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
 const router  = express.Router()
 
-function agentScope(user, alias = 'l') {
-  return user.role_id === 1 ? '' : `AND ${alias}.assigned_to = '${user.id}'`
-}
+db.query(`
+  CREATE TABLE IF NOT EXISTS agent_targets (
+    id           SERIAL PRIMARY KEY,
+    agent_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    daily_target INTEGER NOT NULL DEFAULT 20,
+    set_by       UUID REFERENCES users(id),
+    updated_at   TIMESTAMP DEFAULT NOW(),
+    UNIQUE(agent_id)
+  );
+`).catch(err => console.error('agent_targets table error:', err.message))
 
-router.get('/active', auth, async (req, res) => {
+// GET /api/performance/targets
+router.get('/targets', auth, adminOnly, async (req, res) => {
   try {
-    const { rows } = await db.query(
-      `SELECT id, name, type, per_closure_earning FROM products WHERE is_active=true ORDER BY name`
-    )
-    res.json({ success: true, data: rows })
-  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
-})
-
-router.get('/dashboard', auth, async (req, res) => {
-  try {
-    const { agent_id, product_id } = req.query
-    let scope = agentScope(req.user)
-    if (req.user.role_id === 1 && agent_id) scope += ` AND l.assigned_to = '${agent_id}'`
-    if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
-
-    const { rows: productStats } = await db.query(`
-      SELECT
-        p.id AS product_id, p.name AS product_name, p.type AS product_type, p.per_closure_earning,
-        COUNT(l.id) AS total_leads,
-        COUNT(CASE WHEN l.status='hot'            THEN 1 END) AS hot_leads,
-        COUNT(CASE WHEN l.status='warm'           THEN 1 END) AS warm_leads,
-        COUNT(CASE WHEN l.status='cold'           THEN 1 END) AS cold_leads,
-        COUNT(CASE WHEN l.status='new'            THEN 1 END) AS new_leads,
-        COUNT(CASE WHEN l.status='call_back'      THEN 1 END) AS call_back_leads,
-        COUNT(CASE WHEN l.status='converted'      THEN 1 END) AS converted_leads,
-        COUNT(CASE WHEN l.status='not_interested' THEN 1 END) AS not_interested_leads,
-        COUNT(CASE WHEN l.status != 'not_interested' THEN 1 END) * p.per_closure_earning AS total_potential_earning,
-        COUNT(CASE WHEN l.status='converted' THEN 1 END) * p.per_closure_earning AS actual_earned,
-        COUNT(CASE WHEN l.status='not_interested' THEN 1 END) * p.per_closure_earning AS earning_lost,
-        COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END) * p.per_closure_earning AS still_to_earn
-      FROM products p
-      LEFT JOIN leads l ON l.product_id = p.id AND l.id IS NOT NULL ${scope}
-      WHERE p.is_active = true
-      GROUP BY p.id, p.name, p.type, p.per_closure_earning
-      ORDER BY total_leads DESC
-    `)
-
-    const { rows: agentBreakdown } = await db.query(`
-      SELECT
-        u.id AS agent_id, u.name AS agent_name,
-        p.id AS product_id, p.name AS product_name, p.per_closure_earning,
-        COUNT(l.id) AS total_leads,
-        COUNT(CASE WHEN l.status='converted'      THEN 1 END) AS converted,
-        COUNT(CASE WHEN l.status='not_interested' THEN 1 END) AS not_interested,
-        COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END) AS still_to_earn_count,
-        COUNT(CASE WHEN l.status != 'not_interested' THEN 1 END) * p.per_closure_earning AS potential,
-        COUNT(CASE WHEN l.status='converted' THEN 1 END) * p.per_closure_earning AS earned,
-        COUNT(CASE WHEN l.status='not_interested' THEN 1 END) * p.per_closure_earning AS lost,
-        COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END) * p.per_closure_earning AS still_to_earn
+    const { rows } = await db.query(`
+      SELECT u.id, u.name, u.email,
+             COALESCE(t.daily_target, 20) AS daily_target,
+             t.updated_at, su.name AS set_by_name
       FROM users u
-      JOIN roles r ON r.id = u.role_id
-      JOIN leads l ON l.assigned_to = u.id ${scope}
-      JOIN products p ON l.product_id = p.id
-      WHERE r.name IN ('agent', 'admin')
-        AND p.is_active = true
-      GROUP BY u.id, u.name, p.id, p.name, p.per_closure_earning
-      ORDER BY u.name, earned DESC
+      LEFT JOIN agent_targets t ON t.agent_id = u.id
+      LEFT JOIN users su ON su.id = t.set_by
+      LEFT JOIN roles r ON r.id = u.role_id
+      WHERE u.is_active = true AND r.name = 'agent'
+      ORDER BY u.name
     `)
-
-    const totals = productStats.reduce((acc, p) => ({
-      total_leads:     acc.total_leads     + parseInt(p.total_leads || 0),
-      total_potential: acc.total_potential + parseFloat(p.total_potential_earning || 0),
-      total_earned:    acc.total_earned    + parseFloat(p.actual_earned || 0),
-      total_lost:      acc.total_lost      + parseFloat(p.earning_lost || 0),
-      total_still:     acc.total_still     + parseFloat(p.still_to_earn || 0),
-      total_converted: acc.total_converted + parseInt(p.converted_leads || 0),
-      total_ni:        acc.total_ni        + parseInt(p.not_interested_leads || 0),
-    }), { total_leads:0, total_potential:0, total_earned:0, total_lost:0, total_still:0, total_converted:0, total_ni:0 })
-
-    res.json({
-      success: true,
-      data: {
-        product_stats:        productStats,
-        agent_breakdown:      agentBreakdown,
-        total_potential:      totals.total_potential,
-        total_actual_earned:  totals.total_earned,
-        total_earning_lost:   totals.total_lost,
-        total_still_to_earn:  totals.total_still,
-        total_leads:          totals.total_leads,
-        total_converted:      totals.total_converted,
-        total_not_interested: totals.total_ni,
-      }
-    })
-  } catch (err) {
-    console.error('Products dashboard error:', err.message)
-    res.status(500).json({ success: false, message: err.message })
-  }
-})
-
-router.get('/', auth, adminOnly, async (req, res) => {
-  try {
-    const { rows } = await db.query(
-      `SELECT p.*, COUNT(l.id) AS lead_count FROM products p LEFT JOIN leads l ON l.product_id = p.id GROUP BY p.id ORDER BY p.name`
-    )
     res.json({ success: true, data: rows })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-router.post('/', auth, adminOnly, async (req, res) => {
+// PUT /api/performance/targets/:agentId
+router.put('/targets/:agentId', auth, adminOnly, async (req, res) => {
   try {
-    const { name, type, per_closure_earning } = req.body
-    const { rows } = await db.query(
-      `INSERT INTO products (name, type, per_closure_earning, is_active) VALUES ($1,$2,$3,true) RETURNING *`,
-      [name, type || 'B2C', parseFloat(per_closure_earning) || 0]
-    )
-    res.status(201).json({ success: true, data: rows[0] })
-  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
-})
-
-router.put('/:id', auth, adminOnly, async (req, res) => {
-  try {
-    const { name, type, per_closure_earning, is_active } = req.body
-    const { rows } = await db.query(
-      `UPDATE products SET name=$1, type=$2, per_closure_earning=$3, is_active=$4 WHERE id=$5 RETURNING *`,
-      [name, type || 'B2C', parseFloat(per_closure_earning) || 0, is_active !== false, req.params.id]
-    )
-    if (!rows.length) return res.status(404).json({ success: false, message: 'Not found' })
+    const { daily_target } = req.body
+    if (!daily_target || isNaN(daily_target) || daily_target < 1)
+      return res.status(400).json({ success: false, message: 'Valid daily_target required' })
+    const { rows } = await db.query(`
+      INSERT INTO agent_targets (agent_id, daily_target, set_by, updated_at)
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (agent_id) DO UPDATE
+      SET daily_target = $2, set_by = $3, updated_at = NOW()
+      RETURNING *
+    `, [req.params.agentId, parseInt(daily_target), req.user.id])
     res.json({ success: true, data: rows[0] })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-router.delete('/:id', auth, adminOnly, async (req, res) => {
+// GET /api/performance/today
+router.get('/today', auth, async (req, res) => {
   try {
-    await db.query(`UPDATE products SET is_active=false WHERE id=$1`, [req.params.id])
-    res.json({ success: true })
+    const isAdmin = req.user.role_name === 'admin'
+
+    // Use subqueries to avoid JOIN multiplication
+    const { rows } = await db.query(`
+      SELECT
+        u.id AS agent_id,
+        u.name AS agent_name,
+        COALESCE(t.daily_target, 20) AS daily_target,
+        -- calls today IST (subquery)
+        (SELECT COUNT(*) FROM call_logs cl
+          WHERE cl.user_id = u.id
+          AND cl.discussion IS NOT NULL AND cl.discussion != ''
+          AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+        ) AS calls_today,
+        -- calls this month IST (subquery)
+        (SELECT COUNT(*) FROM call_logs cl
+          WHERE cl.user_id = u.id
+          AND cl.discussion IS NOT NULL AND cl.discussion != ''
+          AND (cl.called_at AT TIME ZONE 'Asia/Kolkata') >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
+        ) AS calls_this_month,
+        -- conversions this month (subquery)
+        (SELECT COUNT(*) FROM leads l
+          WHERE l.assigned_to = u.id
+          AND l.status = 'converted'
+          AND (l.updated_at AT TIME ZONE 'Asia/Kolkata') >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
+        ) AS conversions_month,
+        -- total leads
+        (SELECT COUNT(*) FROM leads l WHERE l.assigned_to = u.id) AS total_leads
+      FROM users u
+      LEFT JOIN roles r ON r.id = u.role_id
+      LEFT JOIN agent_targets t ON t.agent_id = u.id
+      WHERE u.is_active = true AND r.name IN ('agent', 'admin')
+      ${!isAdmin ? 'AND u.id = $1' : ''}
+      ORDER BY calls_today DESC
+    `, !isAdmin ? [req.user.id] : [])
+
+    res.json({ success: true, data: rows })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
+
+// GET /api/performance/leaderboard
+router.get('/leaderboard', auth, async (req, res) => {
+  try {
+    const isAdmin = req.user.role_name === 'admin'
+
+    const { rows } = await db.query(`
+      SELECT
+        u.id AS agent_id,
+        u.name AS agent_name,
+        COALESCE(t.daily_target, 20) AS daily_target,
+        -- calls today IST
+        (SELECT COUNT(*) FROM call_logs cl
+          WHERE cl.user_id = u.id
+          AND cl.discussion IS NOT NULL AND cl.discussion != ''
+          AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+        ) AS calls_today,
+        -- calls this week IST
+        (SELECT COUNT(*) FROM call_logs cl
+          WHERE cl.user_id = u.id
+          AND cl.discussion IS NOT NULL AND cl.discussion != ''
+          AND (cl.called_at AT TIME ZONE 'Asia/Kolkata') >= date_trunc('week', NOW() AT TIME ZONE 'Asia/Kolkata')
+        ) AS calls_week,
+        -- calls this month IST
+        (SELECT COUNT(*) FROM call_logs cl
+          WHERE cl.user_id = u.id
+          AND cl.discussion IS NOT NULL AND cl.discussion != ''
+          AND (cl.called_at AT TIME ZONE 'Asia/Kolkata') >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
+        ) AS calls_month,
+        -- conversions this month
+        (SELECT COUNT(*) FROM leads l
+          WHERE l.assigned_to = u.id
+          AND l.status = 'converted'
+          AND (l.updated_at AT TIME ZONE 'Asia/Kolkata') >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
+        ) AS conversions_month,
+        -- total leads
+        (SELECT COUNT(*) FROM leads l WHERE l.assigned_to = u.id) AS total_leads,
+        -- earnings this month (only for admin or self)
+        CASE WHEN $1 = true OR u.id = $2
+          THEN (
+            SELECT COALESCE(SUM(p.per_closure_earning), 0)
+            FROM leads l
+            JOIN products p ON p.id = l.product_id
+            WHERE l.assigned_to = u.id
+            AND l.status = 'converted'
+            AND (l.updated_at AT TIME ZONE 'Asia/Kolkata') >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
+          )
+          ELSE NULL
+        END AS earnings_month
+      FROM users u
+      LEFT JOIN roles r ON r.id = u.role_id
+      LEFT JOIN agent_targets t ON t.agent_id = u.id
+      WHERE u.is_active = true AND r.name IN ('agent', 'admin')
+      ORDER BY calls_month DESC
+    `, [isAdmin, req.user.id])
+
+    const ranked = rows.map((r, i) => ({ ...r, rank: i + 1 }))
+    res.json({ success: true, data: ranked })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
+
+// GET /api/performance/my
+router.get('/my', auth, async (req, res) => {
+  try {
+    const { rows: daily } = await db.query(`
+      SELECT
+        (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date AS date,
+        COUNT(cl.id) AS calls,
+        COALESCE(t.daily_target, 20) AS target
+      FROM call_logs cl
+      LEFT JOIN agent_targets t ON t.agent_id = $1
+      WHERE cl.user_id = $1
+        AND cl.discussion IS NOT NULL AND cl.discussion != ''
+        AND (cl.called_at AT TIME ZONE 'Asia/Kolkata') >= (NOW() AT TIME ZONE 'Asia/Kolkata') - INTERVAL '30 days'
+      GROUP BY (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date, t.daily_target
+      ORDER BY date DESC
+    `, [req.user.id])
+
+    // Streak
+    let streak = 0
+    for (const day of daily) {
+      if (parseInt(day.calls) >= parseInt(day.target)) streak++
+      else break
+    }
+
+    res.json({ success: true, data: { daily, streak } })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
