@@ -29,9 +29,10 @@ router.get('/targets', auth, adminOnly, async (req, res) => {
              t.updated_at,
              su.name AS set_by_name
       FROM users u
+      JOIN roles r ON r.id = u.role_id
       LEFT JOIN agent_targets t ON t.agent_id = u.id
       LEFT JOIN users su ON su.id = t.set_by
-      WHERE u.is_active = true AND u.role_name = 'agent'
+      WHERE u.is_active = true AND r.name = 'agent'
       ORDER BY u.name
     `)
     res.json({ success: true, data: rows })
@@ -62,7 +63,7 @@ router.put('/targets/:agentId', auth, adminOnly, async (req, res) => {
 // GET /api/performance/today
 router.get('/today', auth, async (req, res) => {
   try {
-    const isAdmin = req.user.role_name === 'admin'
+    const isAdmin = req.user.role_id === 1
     const query = `
       SELECT
         u.id   AS agent_id,
@@ -88,9 +89,10 @@ router.get('/today', auth, async (req, res) => {
         ) AS conversions_month,
         (SELECT COUNT(*) FROM leads l WHERE l.assigned_to = u.id) AS total_leads
       FROM users u
+      JOIN roles r ON r.id = u.role_id
       LEFT JOIN agent_targets t ON t.agent_id = u.id
       WHERE u.is_active = true
-        AND u.role_name IN ('agent', 'admin')
+        AND r.name IN ('agent', 'admin')
         ${!isAdmin ? 'AND u.id = $1' : ''}
       ORDER BY calls_today DESC
     `
@@ -105,7 +107,7 @@ router.get('/today', auth, async (req, res) => {
 // GET /api/performance/leaderboard
 router.get('/leaderboard', auth, async (req, res) => {
   try {
-    const isAdmin = req.user.role_name === 'admin'
+    const isAdmin = req.user.role_id === 1
     const { rows } = await db.query(`
       SELECT
         u.id   AS agent_id,
@@ -144,8 +146,9 @@ router.get('/leaderboard', auth, async (req, res) => {
                   >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
           ) ELSE NULL END AS earnings_month
       FROM users u
+      JOIN roles r ON r.id = u.role_id
       LEFT JOIN agent_targets t ON t.agent_id = u.id
-      WHERE u.is_active = true AND u.role_name IN ('agent', 'admin')
+      WHERE u.is_active = true AND r.name IN ('agent', 'admin')
       ORDER BY calls_month DESC
     `, [isAdmin, req.user.id])
     const ranked = rows.map((r, i) => ({ ...r, rank: i + 1 }))
@@ -188,7 +191,7 @@ router.get('/my', auth, async (req, res) => {
 // GET /api/performance/activity-score
 router.get('/activity-score', auth, async (req, res) => {
   try {
-    const isAdmin = req.user.role_name === 'admin'
+    const isAdmin = req.user.role_id === 1
     const query = `
       SELECT
         u.id   AS agent_id,
@@ -200,11 +203,11 @@ router.get('/activity-score', auth, async (req, res) => {
             AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS calls_today,
-        (SELECT COUNT(DISTINCT l.id) FROM leads l
-          JOIN communication_logs cl ON cl.lead_id = l.id AND cl.agent_id = u.id
-          WHERE l.next_followup_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
-            AND cl.type = 'call'
-            AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date
+        (SELECT COUNT(DISTINCT cl2.lead_id)
+          FROM call_logs cl2
+          WHERE cl2.user_id = u.id
+            AND cl2.next_followup_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+            AND (cl2.called_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS followups_done_today,
         (SELECT COUNT(*) FROM leads l
@@ -216,12 +219,13 @@ router.get('/activity-score', auth, async (req, res) => {
           WHERE cl.agent_id = u.id
             AND cl.type = 'call'
             AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date
-                = (NOW() AT TIME ZONE 'Asia/Kolkata')::date - INTERVAL '1 day'
+                = ((NOW() AT TIME ZONE 'Asia/Kolkata')::date - INTERVAL '1 day')
         ) AS calls_yesterday
       FROM users u
+      JOIN roles r ON r.id = u.role_id
       LEFT JOIN agent_targets t ON t.agent_id = u.id
       WHERE u.is_active = true
-        AND u.role_name IN ('agent', 'admin')
+        AND r.name IN ('agent', 'admin')
         ${!isAdmin ? 'AND u.id = $1' : ''}
       ORDER BY u.name
     `
