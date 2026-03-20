@@ -136,7 +136,7 @@ router.get('/leaderboard', auth, async (req, res) => {
                 >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
         ) AS conversions_month,
         (SELECT COUNT(*) FROM leads l WHERE l.assigned_to = u.id) AS total_leads,
-        CASE WHEN $1::boolean = true OR u.id = $2 THEN (
+        CASE WHEN $1 = true OR u.id = $2 THEN (
             SELECT COALESCE(SUM(p.per_closure_earning), 0)
             FROM leads l JOIN products p ON p.id = l.product_id
             WHERE l.assigned_to = u.id AND l.status = 'converted'
@@ -147,7 +147,7 @@ router.get('/leaderboard', auth, async (req, res) => {
       LEFT JOIN agent_targets t ON t.agent_id = u.id
       WHERE u.is_active = true AND u.role_name IN ('agent', 'admin')
       ORDER BY calls_month DESC
-    `, [isAdmin.toString(), req.user.id])
+    `, [isAdmin, req.user.id])
     const ranked = rows.map((r, i) => ({ ...r, rank: i + 1 }))
     res.json({ success: true, data: ranked })
   } catch (err) {
@@ -227,11 +227,11 @@ router.get('/activity-score', auth, async (req, res) => {
     `
     const { rows } = await db.query(query, !isAdmin ? [req.user.id] : [])
     const scored = rows.map(r => {
-      const calls       = parseInt(r.calls_today         || 0)
-      const followups   = parseInt(r.followups_done_today || 0)
-      const conversions = parseInt(r.conversions_today    || 0)
-      const yesterday   = parseInt(r.calls_yesterday      || 0)
-      const target      = parseInt(r.daily_target         || 20)
+      const calls       = parseInt(r.calls_today          || 0)
+      const followups   = parseInt(r.followups_done_today  || 0)
+      const conversions = parseInt(r.conversions_today     || 0)
+      const yesterday   = parseInt(r.calls_yesterday       || 0)
+      const target      = parseInt(r.daily_target          || 20)
       const score       = (calls * 1) + (followups * 2) + (conversions * 10)
       const call_pct    = Math.min(Math.round((calls / target) * 100), 100)
       const grade       = call_pct >= 100 ? 'A+' : call_pct >= 80 ? 'A' : call_pct >= 60 ? 'B' : call_pct >= 40 ? 'C' : 'D'
