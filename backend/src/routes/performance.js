@@ -8,7 +8,7 @@ const db      = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
 const router  = express.Router()
 
-// ── Auto-create agent_targets table ──────────────────────
+// Auto-create agent_targets table
 db.query(`
   CREATE TABLE IF NOT EXISTS agent_targets (
     id           SERIAL PRIMARY KEY,
@@ -20,9 +20,7 @@ db.query(`
   );
 `).catch(err => console.error('agent_targets table error:', err.message))
 
-// ─────────────────────────────────────────────────────────
 // GET /api/performance/targets  (admin only)
-// ─────────────────────────────────────────────────────────
 router.get('/targets', auth, adminOnly, async (req, res) => {
   try {
     const { rows } = await db.query(`
@@ -31,22 +29,18 @@ router.get('/targets', auth, adminOnly, async (req, res) => {
              t.updated_at,
              su.name AS set_by_name
       FROM users u
-      LEFT JOIN roles r ON r.id = u.role_id
       LEFT JOIN agent_targets t ON t.agent_id = u.id
       LEFT JOIN users su ON su.id = t.set_by
-      WHERE u.is_active = true AND r.name = 'agent'
+      WHERE u.is_active = true AND u.role_name = 'agent'
       ORDER BY u.name
     `)
     res.json({ success: true, data: rows })
   } catch (err) {
-    console.error('GET /performance/targets error:', err.message)
     res.status(500).json({ success: false, message: err.message })
   }
 })
 
-// ─────────────────────────────────────────────────────────
 // PUT /api/performance/targets/:agentId  (admin only)
-// ─────────────────────────────────────────────────────────
 router.put('/targets/:agentId', auth, adminOnly, async (req, res) => {
   try {
     const { daily_target } = req.body
@@ -61,15 +55,11 @@ router.put('/targets/:agentId', auth, adminOnly, async (req, res) => {
     `, [req.params.agentId, parseInt(daily_target), req.user.id])
     res.json({ success: true, data: rows[0] })
   } catch (err) {
-    console.error('PUT /performance/targets error:', err.message)
     res.status(500).json({ success: false, message: err.message })
   }
 })
 
-// ─────────────────────────────────────────────────────────
 // GET /api/performance/today
-// Returns each agent's stats for today (IST)
-// ─────────────────────────────────────────────────────────
 router.get('/today', auth, async (req, res) => {
   try {
     const isAdmin = req.user.role_name === 'admin'
@@ -78,51 +68,40 @@ router.get('/today', auth, async (req, res) => {
         u.id   AS agent_id,
         u.name AS agent_name,
         COALESCE(t.daily_target, 20) AS daily_target,
-
         (SELECT COUNT(*) FROM call_logs cl
           WHERE cl.user_id = u.id
             AND cl.discussion IS NOT NULL AND cl.discussion != ''
             AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS calls_today,
-
         (SELECT COUNT(*) FROM call_logs cl
           WHERE cl.user_id = u.id
             AND cl.discussion IS NOT NULL AND cl.discussion != ''
             AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')
                 >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
         ) AS calls_this_month,
-
         (SELECT COUNT(*) FROM leads l
           WHERE l.assigned_to = u.id
             AND l.status = 'converted'
             AND (l.updated_at AT TIME ZONE 'Asia/Kolkata')
                 >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
         ) AS conversions_month,
-
-        (SELECT COUNT(*) FROM leads l
-          WHERE l.assigned_to = u.id
-        ) AS total_leads
-
+        (SELECT COUNT(*) FROM leads l WHERE l.assigned_to = u.id) AS total_leads
       FROM users u
-      LEFT JOIN roles r ON r.id = u.role_id
       LEFT JOIN agent_targets t ON t.agent_id = u.id
       WHERE u.is_active = true
-        AND r.name IN ('agent', 'admin')
+        AND u.role_name IN ('agent', 'admin')
         ${!isAdmin ? 'AND u.id = $1' : ''}
       ORDER BY calls_today DESC
     `
     const { rows } = await db.query(query, !isAdmin ? [req.user.id] : [])
     res.json({ success: true, data: rows })
   } catch (err) {
-    console.error('GET /performance/today error:', err.message)
     res.status(500).json({ success: false, message: err.message })
   }
 })
 
-// ─────────────────────────────────────────────────────────
 // GET /api/performance/leaderboard
-// ─────────────────────────────────────────────────────────
 router.get('/leaderboard', auth, async (req, res) => {
   try {
     const isAdmin = req.user.role_name === 'admin'
@@ -131,72 +110,51 @@ router.get('/leaderboard', auth, async (req, res) => {
         u.id   AS agent_id,
         u.name AS agent_name,
         COALESCE(t.daily_target, 20) AS daily_target,
-
         (SELECT COUNT(*) FROM call_logs cl
           WHERE cl.user_id = u.id
             AND cl.discussion IS NOT NULL AND cl.discussion != ''
             AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS calls_today,
-
         (SELECT COUNT(*) FROM call_logs cl
           WHERE cl.user_id = u.id
             AND cl.discussion IS NOT NULL AND cl.discussion != ''
             AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')
                 >= date_trunc('week', NOW() AT TIME ZONE 'Asia/Kolkata')
         ) AS calls_week,
-
         (SELECT COUNT(*) FROM call_logs cl
           WHERE cl.user_id = u.id
             AND cl.discussion IS NOT NULL AND cl.discussion != ''
             AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')
                 >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
         ) AS calls_month,
-
         (SELECT COUNT(*) FROM leads l
           WHERE l.assigned_to = u.id
             AND l.status = 'converted'
             AND (l.updated_at AT TIME ZONE 'Asia/Kolkata')
                 >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
         ) AS conversions_month,
-
-        (SELECT COUNT(*) FROM leads l
-          WHERE l.assigned_to = u.id
-        ) AS total_leads,
-
-        CASE WHEN $1 = true OR u.id = $2
-          THEN (
+        (SELECT COUNT(*) FROM leads l WHERE l.assigned_to = u.id) AS total_leads,
+        CASE WHEN $1 = true OR u.id = $2 THEN (
             SELECT COALESCE(SUM(p.per_closure_earning), 0)
-            FROM leads l
-            JOIN products p ON p.id = l.product_id
-            WHERE l.assigned_to = u.id
-              AND l.status = 'converted'
+            FROM leads l JOIN products p ON p.id = l.product_id
+            WHERE l.assigned_to = u.id AND l.status = 'converted'
               AND (l.updated_at AT TIME ZONE 'Asia/Kolkata')
                   >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
-          )
-          ELSE NULL
-        END AS earnings_month
-
+          ) ELSE NULL END AS earnings_month
       FROM users u
-      LEFT JOIN roles r ON r.id = u.role_id
       LEFT JOIN agent_targets t ON t.agent_id = u.id
-      WHERE u.is_active = true
-        AND r.name IN ('agent', 'admin')
+      WHERE u.is_active = true AND u.role_name IN ('agent', 'admin')
       ORDER BY calls_month DESC
     `, [isAdmin, req.user.id])
-
     const ranked = rows.map((r, i) => ({ ...r, rank: i + 1 }))
     res.json({ success: true, data: ranked })
   } catch (err) {
-    console.error('GET /performance/leaderboard error:', err.message)
     res.status(500).json({ success: false, message: err.message })
   }
 })
 
-// ─────────────────────────────────────────────────────────
 // GET /api/performance/my
-// Last 30 days daily breakdown + streak for logged-in user
-// ─────────────────────────────────────────────────────────
 router.get('/my', auth, async (req, res) => {
   try {
     const { rows: daily } = await db.query(`
@@ -210,30 +168,21 @@ router.get('/my', auth, async (req, res) => {
         AND cl.discussion IS NOT NULL AND cl.discussion != ''
         AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')
             >= (NOW() AT TIME ZONE 'Asia/Kolkata') - INTERVAL '30 days'
-      GROUP BY
-        (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date,
-        t.daily_target
+      GROUP BY (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date, t.daily_target
       ORDER BY date DESC
     `, [req.user.id])
-
-    // Calculate streak (consecutive days hitting target)
     let streak = 0
     for (const day of daily) {
       if (parseInt(day.calls) >= parseInt(day.target)) streak++
       else break
     }
-
     res.json({ success: true, data: { daily, streak } })
   } catch (err) {
-    console.error('GET /performance/my error:', err.message)
     res.status(500).json({ success: false, message: err.message })
   }
 })
 
-// ─────────────────────────────────────────────────────────
 // GET /api/performance/activity-score
-// Daily score: calls×1 + followups×2 + conversions×10
-// ─────────────────────────────────────────────────────────
 router.get('/activity-score', auth, async (req, res) => {
   try {
     const isAdmin = req.user.role_name === 'admin'
@@ -242,71 +191,52 @@ router.get('/activity-score', auth, async (req, res) => {
         u.id   AS agent_id,
         u.name AS agent_name,
         COALESCE(t.daily_target, 20) AS daily_target,
-
         (SELECT COUNT(*) FROM call_logs cl
           WHERE cl.user_id = u.id
             AND cl.discussion IS NOT NULL AND cl.discussion != ''
             AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS calls_today,
-
         (SELECT COUNT(DISTINCT l.id) FROM leads l
           JOIN call_logs cl ON cl.lead_id = l.id AND cl.user_id = u.id
           WHERE l.next_followup_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
             AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS followups_done_today,
-
         (SELECT COUNT(*) FROM leads l
-          WHERE l.assigned_to = u.id
-            AND l.status = 'converted'
+          WHERE l.assigned_to = u.id AND l.status = 'converted'
             AND (l.updated_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS conversions_today,
-
         (SELECT COUNT(*) FROM call_logs cl
           WHERE cl.user_id = u.id
             AND cl.discussion IS NOT NULL AND cl.discussion != ''
             AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date - INTERVAL '1 day'
         ) AS calls_yesterday
-
       FROM users u
-      LEFT JOIN roles r ON r.id = u.role_id
       LEFT JOIN agent_targets t ON t.agent_id = u.id
       WHERE u.is_active = true
-        AND r.name IN ('agent', 'admin')
+        AND u.role_name IN ('agent', 'admin')
         ${!isAdmin ? 'AND u.id = $1' : ''}
       ORDER BY u.name
     `
     const { rows } = await db.query(query, !isAdmin ? [req.user.id] : [])
-
     const scored = rows.map(r => {
       const calls       = parseInt(r.calls_today         || 0)
       const followups   = parseInt(r.followups_done_today || 0)
       const conversions = parseInt(r.conversions_today    || 0)
       const yesterday   = parseInt(r.calls_yesterday      || 0)
       const target      = parseInt(r.daily_target         || 20)
-
-      const score         = (calls * 1) + (followups * 2) + (conversions * 10)
-      const yday_score    = (yesterday * 1)
-      const call_pct      = Math.min(Math.round((calls / target) * 100), 100)
-      const grade         = call_pct >= 100 ? 'A+' : call_pct >= 80 ? 'A' : call_pct >= 60 ? 'B' : call_pct >= 40 ? 'C' : 'D'
-      const grade_color   = call_pct >= 100 ? '#16a34a' : call_pct >= 80 ? '#4f46e5' : call_pct >= 60 ? '#d97706' : call_pct >= 40 ? '#f59e0b' : '#dc2626'
-      const trend         = score > yday_score ? 'up' : score < yday_score ? 'down' : 'same'
-
-      return {
-        ...r,
-        calls_today:       calls,
-        followups_done_today: followups,
-        conversions_today: conversions,
-        score, grade, grade_color, trend, call_pct
-      }
+      const score       = (calls * 1) + (followups * 2) + (conversions * 10)
+      const call_pct    = Math.min(Math.round((calls / target) * 100), 100)
+      const grade       = call_pct >= 100 ? 'A+' : call_pct >= 80 ? 'A' : call_pct >= 60 ? 'B' : call_pct >= 40 ? 'C' : 'D'
+      const grade_color = call_pct >= 100 ? '#16a34a' : call_pct >= 80 ? '#4f46e5' : call_pct >= 60 ? '#d97706' : call_pct >= 40 ? '#f59e0b' : '#dc2626'
+      const trend       = score > yesterday ? 'up' : score < yesterday ? 'down' : 'same'
+      return { ...r, calls_today: calls, followups_done_today: followups, conversions_today: conversions, score, grade, grade_color, trend, call_pct }
     }).sort((a, b) => b.score - a.score)
-
     res.json({ success: true, data: scored })
   } catch (err) {
-    console.error('GET /performance/activity-score error:', err.message)
     res.status(500).json({ success: false, message: err.message })
   }
 })
