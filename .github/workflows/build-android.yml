@@ -21,7 +21,7 @@ jobs:
           node-version: 18
 
       - name: Install EAS CLI
-        run: npm install -g eas-cli
+        run: npm install -g eas-cli@latest
 
       - name: Install dependencies
         working-directory: mobile-app
@@ -44,11 +44,7 @@ jobs:
         working-directory: mobile-app
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: |
-          BUILD_URL=$(eas build --platform android --profile preview --non-interactive --json --no-wait | jq -r '.[0].buildUrl // .[0].id')
-          echo "Build started: $BUILD_URL"
-          echo "BUILD_URL=$BUILD_URL" >> $GITHUB_ENV
-          eas build:wait --platform android --status finished
+        run: eas build --platform android --profile preview --non-interactive --wait
 
       - name: Download APK
         working-directory: mobile-app
@@ -56,8 +52,9 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           APK_URL=$(eas build:list --platform android --status finished --limit 1 --json | jq -r '.[0].artifacts.buildUrl')
-          echo "Downloading APK from: $APK_URL"
+          echo "APK URL: $APK_URL"
           curl -L "$APK_URL" -o build.apk
+          ls -la build.apk
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
