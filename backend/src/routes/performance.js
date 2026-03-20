@@ -68,16 +68,16 @@ router.get('/today', auth, async (req, res) => {
         u.id   AS agent_id,
         u.name AS agent_name,
         COALESCE(t.daily_target, 20) AS daily_target,
-        (SELECT COUNT(*) FROM call_logs cl
-          WHERE cl.user_id = u.id
-            AND cl.discussion IS NOT NULL AND cl.discussion != ''
-            AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date
+        (SELECT COUNT(*) FROM communication_logs cl
+          WHERE (cl.sender_id = u.id OR cl.agent_id = u.id)
+            AND cl.type = 'call'
+            AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS calls_today,
-        (SELECT COUNT(*) FROM call_logs cl
-          WHERE cl.user_id = u.id
-            AND cl.discussion IS NOT NULL AND cl.discussion != ''
-            AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')
+        (SELECT COUNT(*) FROM communication_logs cl
+          WHERE (cl.sender_id = u.id OR cl.agent_id = u.id)
+            AND cl.type = 'call'
+            AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')
                 >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
         ) AS calls_this_month,
         (SELECT COUNT(*) FROM leads l
@@ -110,22 +110,22 @@ router.get('/leaderboard', auth, async (req, res) => {
         u.id   AS agent_id,
         u.name AS agent_name,
         COALESCE(t.daily_target, 20) AS daily_target,
-        (SELECT COUNT(*) FROM call_logs cl
-          WHERE cl.user_id = u.id
-            AND cl.discussion IS NOT NULL AND cl.discussion != ''
-            AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date
+        (SELECT COUNT(*) FROM communication_logs cl
+          WHERE (cl.sender_id = u.id OR cl.agent_id = u.id)
+            AND cl.type = 'call'
+            AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS calls_today,
-        (SELECT COUNT(*) FROM call_logs cl
-          WHERE cl.user_id = u.id
-            AND cl.discussion IS NOT NULL AND cl.discussion != ''
-            AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')
+        (SELECT COUNT(*) FROM communication_logs cl
+          WHERE (cl.sender_id = u.id OR cl.agent_id = u.id)
+            AND cl.type = 'call'
+            AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')
                 >= date_trunc('week', NOW() AT TIME ZONE 'Asia/Kolkata')
         ) AS calls_week,
-        (SELECT COUNT(*) FROM call_logs cl
-          WHERE cl.user_id = u.id
-            AND cl.discussion IS NOT NULL AND cl.discussion != ''
-            AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')
+        (SELECT COUNT(*) FROM communication_logs cl
+          WHERE (cl.sender_id = u.id OR cl.agent_id = u.id)
+            AND cl.type = 'call'
+            AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')
                 >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
         ) AS calls_month,
         (SELECT COUNT(*) FROM leads l
@@ -135,7 +135,7 @@ router.get('/leaderboard', auth, async (req, res) => {
                 >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
         ) AS conversions_month,
         (SELECT COUNT(*) FROM leads l WHERE l.assigned_to = u.id) AS total_leads,
-        CASE WHEN $1 = true OR u.id = $2 THEN (
+        CASE WHEN $1::boolean = true OR u.id = $2 THEN (
             SELECT COALESCE(SUM(p.per_closure_earning), 0)
             FROM leads l JOIN products p ON p.id = l.product_id
             WHERE l.assigned_to = u.id AND l.status = 'converted'
@@ -146,7 +146,7 @@ router.get('/leaderboard', auth, async (req, res) => {
       LEFT JOIN agent_targets t ON t.agent_id = u.id
       WHERE u.is_active = true AND u.role_name IN ('agent', 'admin')
       ORDER BY calls_month DESC
-    `, [isAdmin, req.user.id])
+    `, [isAdmin.toString(), req.user.id])
     const ranked = rows.map((r, i) => ({ ...r, rank: i + 1 }))
     res.json({ success: true, data: ranked })
   } catch (err) {
@@ -159,16 +159,16 @@ router.get('/my', auth, async (req, res) => {
   try {
     const { rows: daily } = await db.query(`
       SELECT
-        (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date AS date,
+        (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date AS date,
         COUNT(cl.id) AS calls,
         COALESCE(t.daily_target, 20) AS target
-      FROM call_logs cl
+      FROM communication_logs cl
       LEFT JOIN agent_targets t ON t.agent_id = $1
-      WHERE cl.user_id = $1
-        AND cl.discussion IS NOT NULL AND cl.discussion != ''
-        AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')
+      WHERE (cl.sender_id = $1 OR cl.agent_id = $1)
+        AND cl.type = 'call'
+        AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')
             >= (NOW() AT TIME ZONE 'Asia/Kolkata') - INTERVAL '30 days'
-      GROUP BY (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date, t.daily_target
+      GROUP BY (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date, t.daily_target
       ORDER BY date DESC
     `, [req.user.id])
     let streak = 0
@@ -191,16 +191,17 @@ router.get('/activity-score', auth, async (req, res) => {
         u.id   AS agent_id,
         u.name AS agent_name,
         COALESCE(t.daily_target, 20) AS daily_target,
-        (SELECT COUNT(*) FROM call_logs cl
-          WHERE cl.user_id = u.id
-            AND cl.discussion IS NOT NULL AND cl.discussion != ''
-            AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date
+        (SELECT COUNT(*) FROM communication_logs cl
+          WHERE (cl.sender_id = u.id OR cl.agent_id = u.id)
+            AND cl.type = 'call'
+            AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS calls_today,
         (SELECT COUNT(DISTINCT l.id) FROM leads l
-          JOIN call_logs cl ON cl.lead_id = l.id AND cl.user_id = u.id
+          JOIN communication_logs cl ON cl.lead_id = l.id AND (cl.sender_id = u.id OR cl.agent_id = u.id)
           WHERE l.next_followup_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
-            AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date
+            AND cl.type = 'call'
+            AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS followups_done_today,
         (SELECT COUNT(*) FROM leads l
@@ -208,10 +209,10 @@ router.get('/activity-score', auth, async (req, res) => {
             AND (l.updated_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS conversions_today,
-        (SELECT COUNT(*) FROM call_logs cl
-          WHERE cl.user_id = u.id
-            AND cl.discussion IS NOT NULL AND cl.discussion != ''
-            AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date
+        (SELECT COUNT(*) FROM communication_logs cl
+          WHERE (cl.sender_id = u.id OR cl.agent_id = u.id)
+            AND cl.type = 'call'
+            AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date - INTERVAL '1 day'
         ) AS calls_yesterday
       FROM users u
