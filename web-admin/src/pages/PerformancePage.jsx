@@ -61,18 +61,21 @@ export default function PerformancePage() {
   const [editTarget, setEditTarget]     = useState(null)
   const [targetVal, setTargetVal]       = useState('')
   const [savingTarget, setSavingTarget] = useState(false)
+  const [activityScore, setActivityScore] = useState([])
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [todayR, lbR, myR] = await Promise.all([
+      const [todayR, lbR, myR, scoreR] = await Promise.all([
         api.get('/performance/today'),
         api.get('/performance/leaderboard'),
         api.get('/performance/my'),
+        api.get('/performance/activity-score'),
       ])
       setTodayData(todayR?.data || [])
       setLeaderboard(lbR?.data || [])
       setMyStats(myR?.data || null)
+      setActivityScore(scoreR?.data || [])
       if (isAdmin) {
         const tR = await api.get('/performance/targets')
         setTargets(tR?.data || [])
@@ -161,6 +164,7 @@ export default function PerformancePage() {
           ['leaderboard', '🏆 Leaderboard'],
           isAdmin && ['targets', '🎯 Set Targets'],
           ['history',     '📅 My History'],
+          ['score',       '⭐ Activity Score'],
         ].filter(Boolean).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab===key?'bg-indigo-600 text-white':'text-slate-600 hover:bg-slate-50'}`}>
@@ -468,6 +472,105 @@ export default function PerformancePage() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ACTIVITY SCORE */}
+          {tab === 'score' && (
+            <div className="space-y-4">
+              {/* Score formula explanation */}
+              <div className="card p-4 bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-100">
+                <h3 className="font-bold text-indigo-800 mb-2">⭐ How Activity Score Works</h3>
+                <div className="flex flex-wrap gap-4 text-sm">
+                  <span className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg border border-indigo-100">
+                    <span className="text-base">📞</span> <strong>1 point</strong> per call with notes
+                  </span>
+                  <span className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg border border-indigo-100">
+                    <span className="text-base">📅</span> <strong>2 points</strong> per follow-up completed
+                  </span>
+                  <span className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg border border-indigo-100">
+                    <span className="text-base">✅</span> <strong>10 points</strong> per conversion today
+                  </span>
+                </div>
+              </div>
+
+              {/* Score cards */}
+              <div className="grid grid-cols-1 gap-3">
+                {activityScore.length === 0 ? (
+                  <div className="card p-10 text-center text-slate-400">No data yet</div>
+                ) : activityScore.map((agent, i) => {
+                  const isMe = agent.agent_id === user?.id
+                  const calls      = parseInt(agent.calls_today      || 0)
+                  const followups  = parseInt(agent.followups_done_today || 0)
+                  const conversions= parseInt(agent.conversions_today || 0)
+                  return (
+                    <div key={agent.agent_id}
+                      className={`card p-4 border-l-4 ${isMe ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-200'}`}>
+                      <div className="flex items-center gap-4 flex-wrap">
+                        {/* Rank & Name */}
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <span className="text-xl w-8 text-center">{MEDALS[i] || `#${i+1}`}</span>
+                          <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold flex-shrink-0">
+                            {agent.agent_name?.[0]?.toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-800">
+                              {agent.agent_name} {isMe && <span className="text-xs text-indigo-500">(You)</span>}
+                            </p>
+                            <p className="text-xs text-slate-400">Target: {agent.daily_target} calls/day</p>
+                          </div>
+                        </div>
+
+                        {/* Grade */}
+                        <div className="text-center flex-shrink-0">
+                          <div className="w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-black"
+                            style={{ background: agent.grade_color }}>
+                            {agent.grade}
+                          </div>
+                          <p className="text-xs text-slate-400 mt-1">Grade</p>
+                        </div>
+
+                        {/* Score */}
+                        <div className="text-center flex-shrink-0">
+                          <p className="text-3xl font-black text-indigo-600">{agent.score}</p>
+                          <p className="text-xs text-slate-400">Score</p>
+                          <p className="text-xs mt-0.5" style={{ color: agent.trend==='up'?'#16a34a':agent.trend==='down'?'#dc2626':'#94a3b8' }}>
+                            {agent.trend==='up'?'↑ Up':agent.trend==='down'?'↓ Down':'→ Same'}
+                          </p>
+                        </div>
+
+                        {/* Breakdown */}
+                        <div className="flex gap-4 flex-shrink-0">
+                          {[
+                            { icon:'📞', label:'Calls', val:calls, pts: calls * 1 },
+                            { icon:'📅', label:'Follow-ups', val:followups, pts: followups * 2 },
+                            { icon:'✅', label:'Converted', val:conversions, pts: conversions * 10 },
+                          ].map(({ icon, label, val, pts }) => (
+                            <div key={label} className="text-center">
+                              <p className="text-lg">{icon}</p>
+                              <p className="text-sm font-bold text-slate-700">{val}</p>
+                              <p className="text-xs text-slate-400">{label}</p>
+                              <p className="text-xs font-semibold text-indigo-500">+{pts}pts</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Progress bar */}
+                        <div className="w-full mt-2">
+                          <div className="flex justify-between text-xs text-slate-400 mb-1">
+                            <span>Call target progress</span>
+                            <span style={{ color: agent.grade_color }}>{agent.call_pct}%</span>
+                          </div>
+                          <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all"
+                              style={{ width:`${agent.call_pct}%`, background: agent.grade_color }} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
         </>
