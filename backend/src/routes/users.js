@@ -178,3 +178,19 @@ router.delete('/:id', auth, adminOnly, async (req, res) => {
 })
 
 module.exports = router
+
+// ── PATCH /api/users/:id/deactivate ───────────────────────
+router.patch('/:id/deactivate', auth, adminOnly, async (req, res) => {
+  try {
+    await db.query(`UPDATE users SET is_active=false, updated_at=NOW() WHERE id=$1`, [req.params.id])
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
+
+// ── PATCH /api/users/:id/reactivate ───────────────────────
+router.patch('/:id/reactivate', auth, adminOnly, async (req, res) => {
+  try {
+    await db.query(`UPDATE users SET is_active=true, updated_at=NOW() WHERE id=$1`, [req.params.id])
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
