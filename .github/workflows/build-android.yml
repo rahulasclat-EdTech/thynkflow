@@ -40,11 +40,24 @@ jobs:
             console.log('Version updated to ${{ github.event.inputs.version }}');
           "
 
-      - name: Build APK
+      - name: Build APK on Expo servers
         working-directory: mobile-app
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: eas build --platform android --profile preview --non-interactive --output ./build.apk
+        run: |
+          BUILD_URL=$(eas build --platform android --profile preview --non-interactive --json --no-wait | jq -r '.[0].buildUrl // .[0].id')
+          echo "Build started: $BUILD_URL"
+          echo "BUILD_URL=$BUILD_URL" >> $GITHUB_ENV
+          eas build:wait --platform android --status finished
+
+      - name: Download APK
+        working-directory: mobile-app
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          APK_URL=$(eas build:list --platform android --status finished --limit 1 --json | jq -r '.[0].artifacts.buildUrl')
+          echo "Downloading APK from: $APK_URL"
+          curl -L "$APK_URL" -o build.apk
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
