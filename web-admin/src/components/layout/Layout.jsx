@@ -6,17 +6,18 @@ import toast from 'react-hot-toast'
 import NotificationBell from '../NotificationBell'
 
 const navItems = [
-  { to: '/dashboard',  label: 'Dashboard',   icon: '▦',  adminOnly: false },
-  { to: '/leads',      label: 'Leads',        icon: '👥', adminOnly: false },
-  { to: '/activities', label: 'Activities',   icon: '✅', adminOnly: false },
-  { to: '/followups',  label: 'Follow Ups',   icon: '📅', adminOnly: false },
-  { to: '/products',   label: 'Products',     icon: '📦', adminOnly: false },
-  { to: '/email',      label: 'Email',        icon: '📧', adminOnly: false },
-  { to: '/chat',       label: 'Chat',         icon: '💬', adminOnly: false },
-  { to: '/assign',     label: 'Assign Leads', icon: '↗',  adminOnly: true },
-  { to: '/reports',    label: 'Reports',      icon: '📊', adminOnly: false },
-  { to: '/users',      label: 'Users',        icon: '👤', adminOnly: true },
-  { to: '/settings',   label: 'Settings',     icon: '⚙️', adminOnly: true },
+  { to: '/dashboard',   label: 'Dashboard',   icon: '▦',  adminOnly: false },
+  { to: '/leads',       label: 'Leads',        icon: '👥', adminOnly: false },
+  { to: '/activities',  label: 'Activities',   icon: '✅', adminOnly: false },
+  { to: '/followups',   label: 'Follow Ups',   icon: '📅', adminOnly: false },
+  { to: '/products',    label: 'Products',     icon: '📦', adminOnly: false },
+  { to: '/performance', label: 'Performance',  icon: '🏆', adminOnly: false },
+  { to: '/email',       label: 'Email',        icon: '📧', adminOnly: false },
+  { to: '/chat',        label: 'Chat',         icon: '💬', adminOnly: false },
+  { to: '/assign',      label: 'Assign Leads', icon: '↗',  adminOnly: true },
+  { to: '/reports',     label: 'Reports',      icon: '📊', adminOnly: false },
+  { to: '/users',       label: 'Users',        icon: '👤', adminOnly: true },
+  { to: '/settings',    label: 'Settings',     icon: '⚙️', adminOnly: true },
 ]
 
 function ChangePasswordModal({ onClose }) {
@@ -185,52 +186,52 @@ export default function Layout() {
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-slate-400 hover:text-slate-600 text-xl">☰</button>
           <div className="flex items-center gap-3">
             <NotificationBell />
-          <div className="relative" ref={menuRef}>
-            <button onClick={() => setMenuOpen(!menuOpen)}
-              className="flex items-center gap-2.5 hover:bg-slate-50 px-3 py-1.5 rounded-xl transition-colors">
-              <span className="text-sm text-slate-500">Welcome, <strong className="text-slate-700">{user?.name}</strong></span>
-              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
-                {user?.name?.[0]?.toUpperCase()}
-              </div>
-              <span className="text-slate-400 text-xs">{menuOpen ? '▲' : '▼'}</span>
-            </button>
-            {menuOpen && (
-              <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
-                <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
-                  <p className="text-sm font-bold text-slate-800">{user?.name}</p>
-                  <p className="text-xs text-slate-400 capitalize">{user?.role_name} · {user?.email}</p>
+            <div className="relative" ref={menuRef}>
+              <button onClick={() => setMenuOpen(!menuOpen)}
+                className="flex items-center gap-2.5 hover:bg-slate-50 px-3 py-1.5 rounded-xl transition-colors">
+                <span className="text-sm text-slate-500">Welcome, <strong className="text-slate-700">{user?.name}</strong></span>
+                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
+                  {user?.name?.[0]?.toUpperCase()}
                 </div>
-                <div className="py-1">
-                  <button onClick={() => { setMenuOpen(false); setShowLastLogin(true) }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
-                    <span>🕐</span>
-                    <div className="text-left">
-                      <p className="font-medium">Last Login Details</p>
-                      <p className="text-xs text-slate-400">View session info</p>
-                    </div>
-                  </button>
-                  <button onClick={() => { setMenuOpen(false); setShowChangePassword(true) }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
-                    <span>🔐</span>
-                    <div className="text-left">
-                      <p className="font-medium">Change Password</p>
-                      <p className="text-xs text-slate-400">Update your password</p>
-                    </div>
-                  </button>
-                  <div className="border-t border-slate-100 mt-1 pt-1">
-                    <button onClick={() => { setMenuOpen(false); handleLogout() }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors">
-                      <span>⏻</span>
+                <span className="text-slate-400 text-xs">{menuOpen ? '▲' : '▼'}</span>
+              </button>
+              {menuOpen && (
+                <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
+                  <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
+                    <p className="text-sm font-bold text-slate-800">{user?.name}</p>
+                    <p className="text-xs text-slate-400 capitalize">{user?.role_name} · {user?.email}</p>
+                  </div>
+                  <div className="py-1">
+                    <button onClick={() => { setMenuOpen(false); setShowLastLogin(true) }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+                      <span>🕐</span>
                       <div className="text-left">
-                        <p className="font-medium">Log Out</p>
-                        <p className="text-xs text-red-400">End your session</p>
+                        <p className="font-medium">Last Login Details</p>
+                        <p className="text-xs text-slate-400">View session info</p>
                       </div>
                     </button>
+                    <button onClick={() => { setMenuOpen(false); setShowChangePassword(true) }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+                      <span>🔐</span>
+                      <div className="text-left">
+                        <p className="font-medium">Change Password</p>
+                        <p className="text-xs text-slate-400">Update your password</p>
+                      </div>
+                    </button>
+                    <div className="border-t border-slate-100 mt-1 pt-1">
+                      <button onClick={() => { setMenuOpen(false); handleLogout() }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors">
+                        <span>⏻</span>
+                        <div className="text-left">
+                          <p className="font-medium">Log Out</p>
+                          <p className="text-xs text-red-400">End your session</p>
+                        </div>
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-6 bg-slate-50">
