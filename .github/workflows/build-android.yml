@@ -20,6 +20,11 @@ jobs:
         with:
           node-version: 18
 
+      - name: Enable Corepack & install Yarn
+        run: |
+          corepack enable
+          yarn --version
+
       - name: Install dependencies
         working-directory: mobile-app
         run: npm install
