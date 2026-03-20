@@ -181,4 +181,72 @@ router.get('/my', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
+
+// GET /api/performance/activity-score — Daily Activity Score
+// Formula: (calls_today x 1) + (followups_done_today x 2) + (conversions_today x 10)
+router.get('/activity-score', auth, async (req, res) => {
+  try {
+    const isAdmin = req.user.role_name === 'admin'
+
+    const { rows } = await db.query(`
+      SELECT
+        u.id AS agent_id,
+        u.name AS agent_name,
+        COALESCE(t.daily_target, 20) AS daily_target,
+        -- Calls today with discussion (1 point each)
+        (SELECT COUNT(*) FROM call_logs cl
+          WHERE cl.user_id = u.id
+          AND cl.discussion IS NOT NULL AND cl.discussion != ''
+          AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+        ) AS calls_today,
+        -- Follow-ups completed today (2 points each)
+        -- next_followup_date = today means agent was supposed to call, call_log exists = done
+        (SELECT COUNT(DISTINCT l.id) FROM leads l
+          JOIN call_logs cl ON cl.lead_id = l.id AND cl.user_id = u.id
+          WHERE l.next_followup_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+          AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+        ) AS followups_done_today,
+        -- Conversions today (10 points each)
+        (SELECT COUNT(*) FROM leads l
+          WHERE l.assigned_to = u.id
+          AND l.status = 'converted'
+          AND (l.updated_at AT TIME ZONE 'Asia/Kolkata')::date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+        ) AS conversions_today,
+        -- Yesterday score for comparison
+        (SELECT COUNT(*) FROM call_logs cl
+          WHERE cl.user_id = u.id
+          AND cl.discussion IS NOT NULL AND cl.discussion != ''
+          AND (cl.called_at AT TIME ZONE 'Asia/Kolkata')::date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date - INTERVAL '1 day'
+        ) AS calls_yesterday
+      FROM users u
+      LEFT JOIN roles r ON r.id = u.role_id
+      LEFT JOIN agent_targets t ON t.agent_id = u.id
+      WHERE u.is_active = true AND r.name IN ('agent', 'admin')
+      ${!isAdmin ? 'AND u.id = $1' : ''}
+      ORDER BY u.name
+    `, !isAdmin ? [req.user.id] : [])
+
+    // Calculate scores
+    const scored = rows.map(r => {
+      const calls      = parseInt(r.calls_today      || 0)
+      const followups  = parseInt(r.followups_done_today || 0)
+      const conversions= parseInt(r.conversions_today || 0)
+      const yesterday  = parseInt(r.calls_yesterday  || 0)
+      const score      = (calls * 1) + (followups * 2) + (conversions * 10)
+      const yday_score = (yesterday * 1) // simplified yesterday
+      const target     = parseInt(r.daily_target || 20)
+      const call_pct   = Math.min(Math.round((calls / target) * 100), 100)
+
+      // Grade: A+ >=100%, A >=80%, B >=60%, C >=40%, D <40%
+      const grade = call_pct >= 100 ? 'A+' : call_pct >= 80 ? 'A' : call_pct >= 60 ? 'B' : call_pct >= 40 ? 'C' : 'D'
+      const grade_color = call_pct >= 100 ? '#16a34a' : call_pct >= 80 ? '#4f46e5' : call_pct >= 60 ? '#d97706' : call_pct >= 40 ? '#f59e0b' : '#dc2626'
+      const trend = score > yday_score ? 'up' : score < yday_score ? 'down' : 'same'
+
+      return { ...r, score, grade, grade_color, trend, call_pct }
+    }).sort((a, b) => b.score - a.score)
+
+    res.json({ success: true, data: scored })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
+
 module.exports = router
