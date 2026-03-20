@@ -20,20 +20,12 @@ jobs:
         with:
           node-version: 18
 
-      - name: Enable Corepack & install Yarn
-        run: |
-          corepack enable
-          yarn --version
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
 
       - name: Install dependencies
         working-directory: mobile-app
         run: npm install
-
-      - name: Setup Expo & EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Update version in app.json
         working-directory: mobile-app
@@ -50,6 +42,8 @@ jobs:
 
       - name: Build APK
         working-directory: mobile-app
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: eas build --platform android --profile preview --non-interactive --output ./build.apk
 
       - name: Upload APK as artifact
