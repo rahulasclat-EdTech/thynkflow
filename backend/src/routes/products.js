@@ -61,8 +61,7 @@ router.get('/dashboard', auth, async (req, res) => {
       FROM users u
       JOIN leads l ON l.assigned_to = u.id ${scope}
       JOIN products p ON l.product_id = p.id
-      -- FIX: use role_id join instead of role_name column
-      WHERE u.role_id IN (SELECT id FROM roles WHERE name IN ('agent','admin'))
+      WHERE u.role_name IN ('agent', 'admin')
         AND p.is_active = true
       GROUP BY u.id, u.name, p.id, p.name, p.per_closure_earning
       ORDER BY u.name, earned DESC
