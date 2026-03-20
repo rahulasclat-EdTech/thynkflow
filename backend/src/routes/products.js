@@ -5,7 +5,7 @@ const { auth, adminOnly } = require('../middleware/auth')
 const router  = express.Router()
 
 function agentScope(user, alias = 'l') {
-  return user.role_name === 'admin' ? '' : `AND ${alias}.assigned_to = '${user.id}'`
+  return user.role_id === 1 ? '' : `AND ${alias}.assigned_to = '${user.id}'`
 }
 
 router.get('/active', auth, async (req, res) => {
@@ -21,7 +21,7 @@ router.get('/dashboard', auth, async (req, res) => {
   try {
     const { agent_id, product_id } = req.query
     let scope = agentScope(req.user)
-    if (req.user.role_name === 'admin' && agent_id) scope += ` AND l.assigned_to = '${agent_id}'`
+    if (req.user.role_id === 1 && agent_id) scope += ` AND l.assigned_to = '${agent_id}'`
     if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
 
     const { rows: productStats } = await db.query(`
@@ -59,9 +59,10 @@ router.get('/dashboard', auth, async (req, res) => {
         COUNT(CASE WHEN l.status='not_interested' THEN 1 END) * p.per_closure_earning AS lost,
         COUNT(CASE WHEN l.status NOT IN ('converted','not_interested') THEN 1 END) * p.per_closure_earning AS still_to_earn
       FROM users u
+      JOIN roles r ON r.id = u.role_id
       JOIN leads l ON l.assigned_to = u.id ${scope}
       JOIN products p ON l.product_id = p.id
-      WHERE u.role_name IN ('agent', 'admin')
+      WHERE r.name IN ('agent', 'admin')
         AND p.is_active = true
       GROUP BY u.id, u.name, p.id, p.name, p.per_closure_earning
       ORDER BY u.name, earned DESC
