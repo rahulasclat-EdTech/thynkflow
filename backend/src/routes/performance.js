@@ -69,13 +69,13 @@ router.get('/today', auth, async (req, res) => {
         u.name AS agent_name,
         COALESCE(t.daily_target, 20) AS daily_target,
         (SELECT COUNT(*) FROM communication_logs cl
-          WHERE COALESCE(cl.sender_id, cl.agent_id) = u.id
+          WHERE cl.agent_id = u.id
             AND cl.type = 'call'
             AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS calls_today,
         (SELECT COUNT(*) FROM communication_logs cl
-          WHERE COALESCE(cl.sender_id, cl.agent_id) = u.id
+          WHERE cl.agent_id = u.id
             AND cl.type = 'call'
             AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')
                 >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
@@ -112,19 +112,19 @@ router.get('/leaderboard', auth, async (req, res) => {
         u.name AS agent_name,
         COALESCE(t.daily_target, 20) AS daily_target,
         (SELECT COUNT(*) FROM communication_logs cl
-          WHERE COALESCE(cl.sender_id, cl.agent_id) = u.id
+          WHERE cl.agent_id = u.id
             AND cl.type = 'call'
             AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS calls_today,
         (SELECT COUNT(*) FROM communication_logs cl
-          WHERE COALESCE(cl.sender_id, cl.agent_id) = u.id
+          WHERE cl.agent_id = u.id
             AND cl.type = 'call'
             AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')
                 >= date_trunc('week', NOW() AT TIME ZONE 'Asia/Kolkata')
         ) AS calls_week,
         (SELECT COUNT(*) FROM communication_logs cl
-          WHERE COALESCE(cl.sender_id, cl.agent_id) = u.id
+          WHERE cl.agent_id = u.id
             AND cl.type = 'call'
             AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')
                 >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Kolkata')
@@ -166,7 +166,7 @@ router.get('/my', auth, async (req, res) => {
         COALESCE(t.daily_target, 20) AS target
       FROM communication_logs cl
       LEFT JOIN agent_targets t ON t.agent_id = $1
-      WHERE COALESCE(cl.sender_id, cl.agent_id) = $1
+      WHERE cl.agent_id = $1
         AND cl.type = 'call'
         AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')
             >= (NOW() AT TIME ZONE 'Asia/Kolkata') - INTERVAL '30 days'
@@ -195,13 +195,13 @@ router.get('/activity-score', auth, async (req, res) => {
         u.name AS agent_name,
         COALESCE(t.daily_target, 20) AS daily_target,
         (SELECT COUNT(*) FROM communication_logs cl
-          WHERE COALESCE(cl.sender_id, cl.agent_id) = u.id
+          WHERE cl.agent_id = u.id
             AND cl.type = 'call'
             AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS calls_today,
         (SELECT COUNT(DISTINCT l.id) FROM leads l
-          JOIN communication_logs cl ON cl.lead_id = l.id AND COALESCE(cl.sender_id, cl.agent_id) = u.id
+          JOIN communication_logs cl ON cl.lead_id = l.id AND cl.agent_id = u.id
           WHERE l.next_followup_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
             AND cl.type = 'call'
             AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date
@@ -213,7 +213,7 @@ router.get('/activity-score', auth, async (req, res) => {
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS conversions_today,
         (SELECT COUNT(*) FROM communication_logs cl
-          WHERE COALESCE(cl.sender_id, cl.agent_id) = u.id
+          WHERE cl.agent_id = u.id
             AND cl.type = 'call'
             AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date - INTERVAL '1 day'
