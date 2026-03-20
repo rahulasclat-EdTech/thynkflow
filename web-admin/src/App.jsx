@@ -14,6 +14,7 @@ import ProductDashboardPage from './pages/ProductDashboardPage'
 import EmailPage from './pages/EmailPage'
 import ActivityPage from './pages/ActivityPage'
 import ChatPage from './pages/ChatPage'
+import PerformancePage from './pages/PerformancePage'
 
 function PrivateRoute({ children }) {
   const { user } = useAuth()
@@ -45,6 +46,7 @@ export default function App() {
           <Route path="email"       element={<EmailPage />} />
           <Route path="activities"  element={<ActivityPage />} />
           <Route path="chat"        element={<ChatPage />} />
+          <Route path="performance" element={<PerformancePage />} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
