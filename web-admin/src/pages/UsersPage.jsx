@@ -1,11 +1,4 @@
 // web-admin/src/pages/UsersPage.jsx
-// FIXES:
-// 1. axios interceptor: r = {success, data:[...]} so use r?.data not r.data.data
-// 2. No /users/roles endpoint — roles hardcoded from known schema (admin/agent)
-// 3. form uses role_name not role_id to match backend PUT/POST
-// 4. toggleActive uses PUT with is_active flag instead of missing patch endpoints
-// 5. create user sends role_name not role_id
-
 import React, { useEffect, useState, useCallback } from 'react'
 import api from '../utils/api'
 import toast from 'react-hot-toast'
@@ -17,32 +10,34 @@ const ROLES = [
 ]
 
 export default function UsersPage() {
-  const [users, setUsers]                   = useState([])
-  const [loading, setLoading]               = useState(true)
-  const [showModal, setShowModal]           = useState(false)
-  const [showLogsModal, setShowLogsModal]   = useState(false)
+  const [users, setUsers]                         = useState([])
+  const [loading, setLoading]                     = useState(true)
+  const [showModal, setShowModal]                 = useState(false)
+  const [showLogsModal, setShowLogsModal]         = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
-  const [selectedUser, setSelectedUser]     = useState(null)
-  const [editUser, setEditUser]             = useState(null)
-  const [form, setForm]                     = useState({ name:'', email:'', password:'', phone:'', role_name:'agent' })
-  const [passwordForm, setPasswordForm]     = useState({ newPass:'', confirm:'' })
-  const [saving, setSaving]                 = useState(false)
-  const [logs, setLogs]                     = useState({ login_logs:[], working_logs:[] })
-  const [logsLoading, setLogsLoading]       = useState(false)
-  const [logsTab, setLogsTab]               = useState('login')
+  const [selectedUser, setSelectedUser]           = useState(null)
+  const [editUser, setEditUser]                   = useState(null)
+  const [form, setForm]                           = useState({ name:'', email:'', password:'', phone:'', role_name:'agent' })
+  const [passwordForm, setPasswordForm]           = useState({ newPass:'', confirm:'' })
+  const [saving, setSaving]                       = useState(false)
+  const [logs, setLogs]                           = useState({ login_logs:[], working_logs:[] })
+  const [logsLoading, setLogsLoading]             = useState(false)
+  const [logsTab, setLogsTab]                     = useState('login')
+  const [showInactive, setShowInactive]           = useState(false)
 
   const fetchUsers = useCallback(async () => {
     setLoading(true)
     try {
       const r = await api.get('/users')
-      // interceptor: r = {success, data:[...]}
       setUsers(Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []))
-    } catch (err) {
-      toast.error('Failed to load users')
-    } finally { setLoading(false) }
+    } catch { toast.error('Failed to load users') }
+    finally { setLoading(false) }
   }, [])
 
   useEffect(() => { fetchUsers() }, [fetchUsers])
+
+  const activeUsers   = users.filter(u => u.is_active)
+  const inactiveUsers = users.filter(u => !u.is_active)
 
   const openCreate = () => {
     setEditUser(null)
@@ -63,7 +58,6 @@ export default function UsersPage() {
     setLogsTab('login')
     try {
       const r = await api.get(`/users/${user.id}/logs`)
-      // interceptor: r = {success, data:{login_logs:[], working_logs:[]}}
       setLogs(r?.data || { login_logs:[], working_logs:[] })
     } catch {
       setLogs({ login_logs:[], working_logs:[] })
@@ -82,28 +76,22 @@ export default function UsersPage() {
     try {
       if (editUser) {
         await api.put(`/users/${editUser.id}`, {
-          name:      form.name,
-          email:     editUser.email,
-          phone:     form.phone,
-          role_name: form.role_name,
+          name: form.name, email: editUser.email,
+          phone: form.phone, role_name: form.role_name,
           is_active: editUser.is_active,
         })
         toast.success('User updated')
       } else {
         await api.post('/users', {
-          name:      form.name,
-          email:     form.email,
-          password:  form.password,
-          phone:     form.phone,
+          name: form.name, email: form.email,
+          password: form.password, phone: form.phone,
           role_name: form.role_name,
         })
         toast.success('User created')
       }
-      setShowModal(false)
-      fetchUsers()
-    } catch (err) {
-      toast.error(err.message || 'Failed to save user')
-    } finally { setSaving(false) }
+      setShowModal(false); fetchUsers()
+    } catch (err) { toast.error(err.message || 'Failed to save user') }
+    finally { setSaving(false) }
   }
 
   const handleChangePassword = async (e) => {
@@ -115,95 +103,136 @@ export default function UsersPage() {
       await api.put(`/users/${selectedUser.id}/reset-password`, { new_password: passwordForm.newPass })
       toast.success(`Password changed for ${selectedUser.name}`)
       setShowPasswordModal(false)
-    } catch (err) {
-      toast.error(err.message || 'Failed to change password')
-    } finally { setSaving(false) }
+    } catch (err) { toast.error(err.message || 'Failed to change password') }
+    finally { setSaving(false) }
   }
 
   const toggleActive = async (user) => {
     try {
-      // Use PUT with is_active toggled — no separate deactivate/reactivate endpoints
-      await api.put(`/users/${user.id}`, {
-        name:      user.name,
-        email:     user.email,
-        phone:     user.phone || null,
-        role_name: user.role_name,
-        is_active: !user.is_active,
-      })
-      toast.success(`${user.name} ${user.is_active ? 'deactivated' : 'reactivated'}`)
+      if (user.is_active) {
+        await api.patch(`/users/${user.id}/deactivate`)
+        toast.success(`${user.name} deactivated`)
+      } else {
+        await api.patch(`/users/${user.id}/reactivate`)
+        toast.success(`${user.name} reactivated`)
+      }
       fetchUsers()
     } catch (err) { toast.error(err.message || 'Failed to update') }
   }
+
+  const UserRow = ({ user, isInactive = false }) => (
+    <tr key={user.id} className={`hover:bg-slate-50 ${isInactive ? 'opacity-60 bg-slate-50' : ''}`}>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold">
+            {user.name?.[0]?.toUpperCase()}
+          </div>
+          <span className="font-medium text-slate-800">{user.name}</span>
+        </div>
+      </td>
+      <td className="px-4 py-3 text-slate-600">{user.email}</td>
+      <td className="px-4 py-3 text-slate-600">{user.phone||'—'}</td>
+      <td className="px-4 py-3">
+        <span className={user.role_name==='admin'
+          ? 'bg-amber-100 text-amber-800 text-xs font-semibold px-2 py-0.5 rounded-full'
+          : 'bg-purple-100 text-purple-800 text-xs font-semibold px-2 py-0.5 rounded-full'}>
+          {user.role_name}
+        </span>
+      </td>
+      <td className="px-4 py-3">
+        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${user.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+          {user.is_active ? 'Active' : 'Inactive'}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-slate-400 text-xs">
+        {user.last_login ? (() => { try { return format(new Date(user.last_login),'dd MMM yy HH:mm') } catch { return '—' } })() : '—'}
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex gap-2 flex-wrap">
+          {!isInactive && (
+            <>
+              <button onClick={() => openEdit(user)} className="text-blue-600 hover:text-blue-800 text-xs font-medium">Edit</button>
+              <button onClick={() => openLogs(user)} className="text-purple-600 hover:text-purple-800 text-xs font-medium">📋 Logs</button>
+              <button onClick={() => openChangePassword(user)} className="text-orange-500 hover:text-orange-700 text-xs font-medium">🔐 Password</button>
+            </>
+          )}
+          <button onClick={() => toggleActive(user)}
+            className={`text-xs font-medium ${user.is_active ? 'text-red-500 hover:text-red-700' : 'text-green-600 hover:text-green-800'}`}>
+            {user.is_active ? 'Deactivate' : '✅ Reactivate'}
+          </button>
+        </div>
+      </td>
+    </tr>
+  )
+
+  const TableHeader = () => (
+    <thead className="bg-slate-50 border-b border-slate-200">
+      <tr>
+        {['Name','Email','Phone','Role','Status','Last Login','Actions'].map(h => (
+          <th key={h} className="text-left px-4 py-3 text-xs text-slate-500 font-semibold uppercase">{h}</th>
+        ))}
+      </tr>
+    </thead>
+  )
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Users</h1>
-          <p className="text-slate-500 text-sm">Manage agents and admins · {users.length} total</p>
+          <p className="text-slate-500 text-sm">
+            {activeUsers.length} active · {inactiveUsers.length} inactive
+          </p>
         </div>
         <button onClick={openCreate} className="btn-primary">+ Add User</button>
       </div>
 
+      {/* Active Users Table */}
       <div className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="font-bold text-slate-800">✅ Active Users ({activeUsers.length})</h2>
+        </div>
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 border-b border-slate-200">
-            <tr>
-              {['Name','Email','Phone','Role','Status','Last Login','Actions'].map(h => (
-                <th key={h} className="text-left px-4 py-3 text-xs text-slate-500 font-semibold uppercase">{h}</th>
-              ))}
-            </tr>
-          </thead>
+          <TableHeader />
           <tbody className="divide-y divide-slate-100">
             {loading ? (
               <tr><td colSpan={7} className="text-center py-10 text-slate-400">Loading...</td></tr>
-            ) : users.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-10 text-slate-400">No users found</td></tr>
-            ) : users.map(user => (
-              <tr key={user.id} className={`hover:bg-slate-50 ${!user.is_active?'opacity-60':''}`}>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold">
-                      {user.name?.[0]?.toUpperCase()}
-                    </div>
-                    <span className="font-medium text-slate-800">{user.name}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-slate-600">{user.email}</td>
-                <td className="px-4 py-3 text-slate-600">{user.phone||'—'}</td>
-                <td className="px-4 py-3">
-                  <span className={user.role_name==='admin'
-                    ? 'bg-amber-100 text-amber-800 text-xs font-semibold px-2 py-0.5 rounded-full'
-                    : 'bg-purple-100 text-purple-800 text-xs font-semibold px-2 py-0.5 rounded-full'}>
-                    {user.role_name}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${user.is_active?'bg-green-100 text-green-700':'bg-slate-100 text-slate-500'}`}>
-                    {user.is_active?'Active':'Inactive'}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-slate-400 text-xs">
-                  {user.last_login ? (() => { try { return format(new Date(user.last_login),'dd MMM yy HH:mm') } catch { return '—' } })() : '—'}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-2 flex-wrap">
-                    <button onClick={() => openEdit(user)} className="text-blue-600 hover:text-blue-800 text-xs font-medium">Edit</button>
-                    <button onClick={() => openLogs(user)} className="text-purple-600 hover:text-purple-800 text-xs font-medium">📋 Logs</button>
-                    <button onClick={() => openChangePassword(user)} className="text-orange-500 hover:text-orange-700 text-xs font-medium">🔐 Password</button>
-                    <button onClick={() => toggleActive(user)}
-                      className={`text-xs font-medium ${user.is_active?'text-red-500 hover:text-red-700':'text-green-600 hover:text-green-800'}`}>
-                      {user.is_active?'Deactivate':'Reactivate'}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            ) : activeUsers.length === 0 ? (
+              <tr><td colSpan={7} className="text-center py-10 text-slate-400">No active users</td></tr>
+            ) : activeUsers.map(user => <UserRow key={user.id} user={user} />)}
           </tbody>
         </table>
       </div>
 
-      {/* Create/Edit User Modal */}
+      {/* Deactivated Users Section */}
+      <div className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="font-bold text-slate-700 flex items-center gap-2">
+            🔴 Deactivated Users ({inactiveUsers.length})
+          </h2>
+          <button onClick={() => setShowInactive(!showInactive)}
+            className="text-xs text-slate-500 hover:text-slate-700 font-medium px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">
+            {showInactive ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        {showInactive && (
+          <table className="w-full text-sm">
+            <TableHeader />
+            <tbody className="divide-y divide-slate-100">
+              {inactiveUsers.length === 0 ? (
+                <tr><td colSpan={7} className="text-center py-8 text-slate-400">No deactivated users</td></tr>
+              ) : inactiveUsers.map(user => <UserRow key={user.id} user={user} isInactive={true} />)}
+            </tbody>
+          </table>
+        )}
+        {!showInactive && inactiveUsers.length > 0 && (
+          <div className="px-5 py-3 text-xs text-slate-400">
+            Click Show to view and reactivate deactivated users
+          </div>
+        )}
+      </div>
+
+      {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
