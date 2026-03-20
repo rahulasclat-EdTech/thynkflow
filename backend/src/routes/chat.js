@@ -1,42 +1,4 @@
 // backend/src/routes/chat.js
-// ADD TO index.js:
-//   const chatRoutes = require('./routes/chat')
-//   app.use('/api/chat', chatRoutes)
-//
-// RUN THIS SQL IN SUPABASE FIRST:
-/*
-CREATE TABLE IF NOT EXISTS conversations (
-  id           SERIAL PRIMARY KEY,
-  type         VARCHAR(20) DEFAULT 'direct' CHECK (type IN ('direct','group','broadcast')),
-  name         VARCHAR(200),
-  created_by   UUID REFERENCES users(id),
-  created_at   TIMESTAMP DEFAULT NOW(),
-  updated_at   TIMESTAMP DEFAULT NOW()
-);
-CREATE TABLE IF NOT EXISTS conversation_members (
-  id              SERIAL PRIMARY KEY,
-  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-  user_id         UUID NOT NULL REFERENCES users(id),
-  joined_at       TIMESTAMP DEFAULT NOW(),
-  last_read_at    TIMESTAMP DEFAULT NOW(),
-  UNIQUE(conversation_id, user_id)
-);
-CREATE TABLE IF NOT EXISTS messages (
-  id              SERIAL PRIMARY KEY,
-  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-  sender_id       UUID NOT NULL REFERENCES users(id),
-  message         TEXT,
-  file_url        VARCHAR(500),
-  file_name       VARCHAR(300),
-  file_type       VARCHAR(100),
-  file_size       INTEGER,
-  is_deleted      BOOLEAN DEFAULT false,
-  created_at      TIMESTAMP DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_messages_conv  ON messages(conversation_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_conv_members   ON conversation_members(user_id);
-*/
-
 const express = require('express')
 const multer  = require('multer')
 const path    = require('path')
@@ -47,7 +9,6 @@ const { createNotif } = require('./notifications')
 
 const router = express.Router()
 
-// ── Auto-create chat tables if they don't exist ───────────
 db.query(`
   CREATE TABLE IF NOT EXISTS conversations (
     id         SERIAL PRIMARY KEY,
@@ -100,14 +61,12 @@ const upload = multer({
   }
 })
 
-// Serve uploaded files (auth protected)
 router.get('/file/:filename', auth, (req, res) => {
   const filePath = path.join(uploadDir, req.params.filename)
   if (!fs.existsSync(filePath)) return res.status(404).json({ message: 'Not found' })
   res.sendFile(filePath)
 })
 
-// GET all my conversations
 router.get('/conversations', auth, async (req, res) => {
   try {
     const { rows } = await db.query(`
@@ -139,7 +98,6 @@ router.get('/conversations', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// Start direct chat
 router.post('/conversations/direct', auth, async (req, res) => {
   try {
     const { target_user_id } = req.body
@@ -159,7 +117,6 @@ router.post('/conversations/direct', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// Create group
 router.post('/conversations/group', auth, async (req, res) => {
   try {
     const { name, member_ids } = req.body
@@ -176,7 +133,6 @@ router.post('/conversations/group', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// Broadcast (admin only — all users)
 router.post('/conversations/broadcast', auth, adminOnly, async (req, res) => {
   try {
     const name = req.body.name || `📢 Broadcast — ${new Date().toLocaleDateString('en-IN')}`
@@ -191,7 +147,6 @@ router.post('/conversations/broadcast', auth, adminOnly, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// Get messages (with optional ?since=ISO_TIMESTAMP for polling)
 router.get('/conversations/:id/messages', auth, async (req, res) => {
   try {
     const { id } = req.params
@@ -210,7 +165,6 @@ router.get('/conversations/:id/messages', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// Send message
 router.post('/conversations/:id/messages', auth, upload.single('file'), async (req, res) => {
   try {
     const { id } = req.params
@@ -231,31 +185,19 @@ router.post('/conversations/:id/messages', auth, upload.single('file'), async (r
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [id, req.user.id, message?.trim()||null, fileUrl, fileName, fileType, fileSize])
     await db.query(`UPDATE conversations SET updated_at=NOW() WHERE id=$1`, [id])
-
-    // Notify all other members of this conversation
     try {
       const { rows: members } = await db.query(
-        `SELECT cm.user_id, u.name, c.type, c.name AS conv_name
-         FROM conversation_members cm
-         JOIN users u ON u.id = cm.user_id
-         JOIN conversations c ON c.id = cm.conversation_id
-         WHERE cm.conversation_id = $1 AND cm.user_id != $2`,
-        [id, req.user.id]
-      )
+        `SELECT cm.user_id FROM conversation_members cm
+         WHERE cm.conversation_id = $1 AND cm.user_id != $2`, [id, req.user.id])
       const preview = (message?.trim() || '📎 File').substring(0, 60)
       for (const m of members) {
-        await createNotif(
-          m.user_id, 'new_message', `💬 New message from ${req.user.name}`,
-          preview, null
-        )
+        await createNotif(m.user_id, 'new_message', `💬 New message from ${req.user.name}`, preview, null)
       }
     } catch {}
-
     res.status(201).json({ success: true, data: { ...rows[0], sender_name: req.user.name } })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// Delete own message
 router.delete('/messages/:id', auth, async (req, res) => {
   try {
     const { rows } = await db.query(
@@ -266,11 +208,15 @@ router.delete('/messages/:id', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// All users for starting a chat
+// FIX: was using role_name column directly — now joins roles table
 router.get('/users', auth, async (req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT id, name, email, role_name FROM users WHERE is_active=true AND id!=$1 ORDER BY name`,
+      `SELECT u.id, u.name, u.email, r.name AS role_name
+       FROM users u
+       LEFT JOIN roles r ON r.id = u.role_id
+       WHERE u.is_active=true AND u.id!=$1
+       ORDER BY u.name`,
       [req.user.id])
     res.json({ success: true, data: rows })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
