@@ -1,13 +1,10 @@
-// backend/src/routes/users.js — FIXED
-// users table has: id, name, email, password, phone, role_id, is_active, created_at, updated_at
-// roles table has: id, name, permissions
-
+// backend/src/routes/users.js
 const express = require('express')
 const db      = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
 const router  = express.Router()
 
-// ── GET /api/users — ALL roles can call this ──────────────
+// GET /api/users — returns both active and inactive
 router.get('/', auth, async (req, res) => {
   try {
     const isAdmin = req.user.role_name === 'admin'
@@ -23,8 +20,7 @@ router.get('/', auth, async (req, res) => {
           SELECT logged_in_at FROM login_logs
           WHERE user_id = u.id ORDER BY logged_in_at DESC LIMIT 1
         ) ll ON true
-        WHERE u.is_active = true
-        ORDER BY u.name
+        ORDER BY u.is_active DESC, u.name
       `)
       rows = result.rows
     } else {
@@ -43,7 +39,7 @@ router.get('/', auth, async (req, res) => {
   }
 })
 
-// ── GET /api/users/:id — single user (admin only) ─────────
+// GET /api/users/:id
 router.get('/:id', auth, adminOnly, async (req, res) => {
   try {
     const { rows } = await db.query(`
@@ -60,21 +56,16 @@ router.get('/:id', auth, adminOnly, async (req, res) => {
   }
 })
 
-// ── POST /api/users — create user (admin only) ────────────
+// POST /api/users
 router.post('/', auth, adminOnly, async (req, res) => {
   try {
     const bcrypt = require('bcryptjs')
     const { name, email, password, role_name, phone } = req.body
     if (!name || !email || !password)
       return res.status(400).json({ success: false, message: 'name, email, password required' })
-
-    // Get role_id from role name
-    const { rows: roleRows } = await db.query(
-      `SELECT id FROM roles WHERE name = $1`, [role_name || 'agent']
-    )
+    const { rows: roleRows } = await db.query(`SELECT id FROM roles WHERE name = $1`, [role_name || 'agent'])
     if (!roleRows.length)
       return res.status(400).json({ success: false, message: `Role '${role_name}' not found` })
-
     const hashed = await bcrypt.hash(password, 10)
     const { rows } = await db.query(
       `INSERT INTO users (name, email, password, phone, role_id, is_active)
@@ -89,17 +80,12 @@ router.post('/', auth, adminOnly, async (req, res) => {
   }
 })
 
-// ── PUT /api/users/:id — update user (admin only) ─────────
+// PUT /api/users/:id
 router.put('/:id', auth, adminOnly, async (req, res) => {
   try {
     const { name, email, phone, role_name, is_active } = req.body
-
-    // Get role_id
-    const { rows: roleRows } = await db.query(
-      `SELECT id FROM roles WHERE name = $1`, [role_name || 'agent']
-    )
+    const { rows: roleRows } = await db.query(`SELECT id FROM roles WHERE name = $1`, [role_name || 'agent'])
     const role_id = roleRows.length ? roleRows[0].id : null
-
     const { rows } = await db.query(
       `UPDATE users SET name=$1, email=$2, phone=$3, role_id=COALESCE($4, role_id),
        is_active=$5, updated_at=NOW() WHERE id=$6
@@ -113,7 +99,7 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
   }
 })
 
-// ── PUT /api/users/:id/reset-password (admin only) ────────
+// PUT /api/users/:id/reset-password
 router.put('/:id/reset-password', auth, adminOnly, async (req, res) => {
   try {
     const { new_password } = req.body
@@ -132,10 +118,12 @@ router.put('/:id/reset-password', auth, adminOnly, async (req, res) => {
   }
 })
 
-// ── GET /api/users/:id/logs (admin only) ──────────────────
+// GET /api/users/:id/logs
 router.get('/:id/logs', auth, adminOnly, async (req, res) => {
   try {
     const userId = req.params.id
+
+    // Login logs
     let loginLogs = []
     try {
       const { rows } = await db.query(
@@ -143,8 +131,9 @@ router.get('/:id/logs', auth, adminOnly, async (req, res) => {
         [userId]
       )
       loginLogs = rows
-    } catch { loginLogs = [] }
+    } catch (e) { console.error('login_logs error:', e.message) }
 
+    // Working logs — try agent_id first, fallback to sender_id
     let workingLogs = []
     try {
       const { rows } = await db.query(
@@ -154,12 +143,28 @@ router.get('/:id/logs', auth, adminOnly, async (req, res) => {
          FROM communication_logs cl
          JOIN leads l ON l.id = cl.lead_id
          LEFT JOIN products p ON p.id = l.product_id
-         WHERE cl.sender_id = $1
+         WHERE cl.agent_id = $1
          ORDER BY cl.created_at DESC LIMIT 100`,
         [userId]
       )
       workingLogs = rows
-    } catch { workingLogs = [] }
+    } catch (e) {
+      // fallback to sender_id if agent_id column doesn't exist
+      try {
+        const { rows } = await db.query(
+          `SELECT cl.id, cl.type, cl.note AS discussion, cl.created_at AS called_at,
+                  COALESCE(l.school_name, l.contact_name) AS school_name,
+                  l.contact_name, l.phone, p.name AS product_name, l.status
+           FROM communication_logs cl
+           JOIN leads l ON l.id = cl.lead_id
+           LEFT JOIN products p ON p.id = l.product_id
+           WHERE cl.sender_id = $1
+           ORDER BY cl.created_at DESC LIMIT 100`,
+          [userId]
+        )
+        workingLogs = rows
+      } catch (e2) { console.error('working_logs error:', e2.message) }
+    }
 
     res.json({ success: true, data: { login_logs: loginLogs, working_logs: workingLogs } })
   } catch (err) {
@@ -167,7 +172,23 @@ router.get('/:id/logs', auth, adminOnly, async (req, res) => {
   }
 })
 
-// ── DELETE /api/users/:id — deactivate (admin only) ───────
+// PATCH /api/users/:id/deactivate
+router.patch('/:id/deactivate', auth, adminOnly, async (req, res) => {
+  try {
+    await db.query(`UPDATE users SET is_active=false, updated_at=NOW() WHERE id=$1`, [req.params.id])
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
+
+// PATCH /api/users/:id/reactivate
+router.patch('/:id/reactivate', auth, adminOnly, async (req, res) => {
+  try {
+    await db.query(`UPDATE users SET is_active=true, updated_at=NOW() WHERE id=$1`, [req.params.id])
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
+
+// DELETE /api/users/:id
 router.delete('/:id', auth, adminOnly, async (req, res) => {
   try {
     await db.query(`UPDATE users SET is_active=false, updated_at=NOW() WHERE id=$1`, [req.params.id])
@@ -178,19 +199,3 @@ router.delete('/:id', auth, adminOnly, async (req, res) => {
 })
 
 module.exports = router
-
-// ── PATCH /api/users/:id/deactivate ───────────────────────
-router.patch('/:id/deactivate', auth, adminOnly, async (req, res) => {
-  try {
-    await db.query(`UPDATE users SET is_active=false, updated_at=NOW() WHERE id=$1`, [req.params.id])
-    res.json({ success: true })
-  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
-})
-
-// ── PATCH /api/users/:id/reactivate ───────────────────────
-router.patch('/:id/reactivate', auth, adminOnly, async (req, res) => {
-  try {
-    await db.query(`UPDATE users SET is_active=true, updated_at=NOW() WHERE id=$1`, [req.params.id])
-    res.json({ success: true })
-  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
-})
