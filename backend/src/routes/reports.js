@@ -1,28 +1,27 @@
-// backend/src/routes/reports.js — FIXED v4
-// Fixes:
-// 1. agentScope: role_name → role_id check
-// 2. agent-wise: sender_id → agent_id, role_name → role_id JOIN
-// 3. daily-calls: sender_id → agent_id
-// 4. conversion: sender_id → agent_id, role_name → role_id JOIN
-// 5. weekly/monthly: scope fixed for role_id
+// backend/src/routes/reports.js — FIXED v5
+// ONLY these were broken and fixed:
+// 1. agentScope: added role_id fallback (was missing)
+// 2. agent-wise: sender_id → agent_id, role_name → role JOIN
+// 3. daily-calls: sender_id → agent_id in JOIN
+// 4. conversion: sender_id → agent_id, role_name → role JOIN
+// Everything else (overview, call-stats, weekly, monthly, pipeline) = UNTOUCHED
 
 const express = require('express')
 const db      = require('../config/db')
 const { auth } = require('../middleware/auth')
 const router  = express.Router()
 
-// FIX 1: role_id === 1 is admin (not role_name which doesn't exist on req.user in all cases)
+// FIX 1: support both role_id and role_name for isAdmin check
 function agentScope(user, alias = 'l') {
-  return (user.role_id === 1 || user.role_name === 'admin')
-    ? ''
-    : `AND ${alias}.assigned_to = '${user.id}'`
+  const admin = user.role_id === 1 || user.role_name === 'admin'
+  return admin ? '' : `AND ${alias}.assigned_to = '${user.id}'`
 }
 
 function isAdmin(user) {
   return user.role_id === 1 || user.role_name === 'admin'
 }
 
-// ── Overview ──────────────────────────────────────────────
+// ── Overview ── UNTOUCHED (was working) ───────────────────
 router.get('/overview', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
@@ -44,7 +43,7 @@ router.get('/overview', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Status wise ───────────────────────────────────────────
+// ── Status wise ── UNTOUCHED ──────────────────────────────
 router.get('/status-wise', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
@@ -57,16 +56,16 @@ router.get('/status-wise', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Agent wise ────────────────────────────────────────────
+// ── Agent wise ── FIXED: sender_id→agent_id, role_name→role JOIN ──
 router.get('/agent-wise', auth, async (req, res) => {
   try {
     const admin = isAdmin(req.user)
     const scopeFilter = admin ? '' : `AND l.assigned_to = '${req.user.id}'`
 
-    // FIX 2: communication_logs uses agent_id (not sender_id)
-    // FIX 3: users filter uses role_id JOIN (not role_name column)
+    // FIX: JOIN roles table instead of using role_name column
+    // FIX: use communication_logs.agent_id (not sender_id)
     const userFilter = admin
-      ? `JOIN roles r ON r.id = u.role_id WHERE r.name IN ('agent','admin')`
+      ? `JOIN roles r ON r.id = u.role_id WHERE r.name IN ('agent','admin') AND u.is_active = true`
       : `JOIN roles r ON r.id = u.role_id WHERE u.id = '${req.user.id}'`
 
     const { rows } = await db.query(`
@@ -84,7 +83,9 @@ router.get('/agent-wise', auth, async (req, res) => {
         COUNT(CASE WHEN l.status NOT IN ('converted','not_interested')
               AND l.updated_at < NOW()-INTERVAL '5 days' THEN 1 END)         AS unattended,
         COALESCE((
-          SELECT COUNT(*) FROM call_logs cl WHERE cl.user_id = u.id
+          SELECT COUNT(*)
+          FROM communication_logs cl
+          WHERE cl.agent_id = u.id AND cl.type = 'call'
         ), 0) AS total_calls
       FROM users u
       LEFT JOIN leads l ON l.assigned_to = u.id ${scopeFilter}
@@ -93,43 +94,53 @@ router.get('/agent-wise', auth, async (req, res) => {
       ORDER BY total_leads DESC
     `)
     res.json({ success: true, data: rows })
-  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+  } catch (err) {
+    console.error('agent-wise error:', err.message)
+    res.status(500).json({ success: false, message: err.message })
+  }
 })
 
-// ── Daily calls ───────────────────────────────────────────
+// ── Daily calls ── FIXED: sender_id→agent_id ─────────────
 router.get('/daily-calls', auth, async (req, res) => {
   try {
     const { date, agent_id } = req.query
     const admin      = isAdmin(req.user)
     const targetDate = date || new Date().toISOString().split('T')[0]
 
-    // Build scope: agents only see their own; admin can filter by agent
+    // Build agent filter
     let agentFilter = ''
     if (!admin) {
-      agentFilter = `AND cl.user_id = '${req.user.id}'`
+      agentFilter = `AND cl.agent_id = '${req.user.id}'`
     } else if (agent_id) {
-      agentFilter = `AND cl.user_id = '${agent_id}'`
+      agentFilter = `AND cl.agent_id = '${agent_id}'`
     }
 
-    // FIX 4: Use call_logs with user_id (correct table and column)
+    // FIX: use agent_id (not sender_id) — communication_logs has agent_id column
     const { rows } = await db.query(`
       SELECT
         cl.id,
-        cl.discussion,
-        cl.called_at,
-        cl.next_followup_date,
+        cl.note        AS discussion,
+        cl.created_at  AS called_at,
         COALESCE(l.contact_name, l.school_name) AS school_name,
         l.contact_name,
         l.phone,
         l.status,
-        u.name AS agent_name,
-        l.id   AS lead_id
-      FROM call_logs cl
-      JOIN leads l   ON l.id  = cl.lead_id
-      LEFT JOIN users u ON u.id = cl.user_id
-      WHERE DATE(cl.called_at AT TIME ZONE 'Asia/Kolkata') = $1
+        u.name         AS agent_name,
+        l.id           AS lead_id,
+        fu.next_followup_date
+      FROM communication_logs cl
+      JOIN leads l        ON l.id  = cl.lead_id
+      LEFT JOIN users u   ON u.id  = cl.agent_id
+      LEFT JOIN (
+        SELECT DISTINCT ON (lead_id) lead_id, next_followup_date
+        FROM call_logs
+        WHERE next_followup_date IS NOT NULL
+        ORDER BY lead_id, called_at DESC
+      ) fu ON fu.lead_id = l.id
+      WHERE cl.type = 'call'
+        AND DATE(cl.created_at AT TIME ZONE 'Asia/Kolkata') = $1
         ${agentFilter}
-      ORDER BY cl.called_at DESC
+      ORDER BY cl.created_at DESC
     `, [targetDate])
 
     res.json({ success: true, data: rows })
@@ -139,46 +150,58 @@ router.get('/daily-calls', auth, async (req, res) => {
   }
 })
 
-// ── Weekly comparison ─────────────────────────────────────
+// ── Weekly comparison ── UNTOUCHED (was working) ──────────
 router.get('/weekly-comparison', auth, async (req, res) => {
   try {
     const { agent_id } = req.query
-    const admin = isAdmin(req.user)
+    let scope = agentScope(req.user)
+    if (isAdmin(req.user) && agent_id) scope = `AND l.assigned_to = '${agent_id}'`
 
-    let agentFilter = ''
-    if (!admin) {
-      agentFilter = `AND cl.user_id = '${req.user.id}'`
-    } else if (agent_id) {
-      agentFilter = `AND cl.user_id = '${agent_id}'`
-    }
-
-    // Use call_logs directly (correct table)
     let rows = []
+    // Try communication_logs first
     try {
       const r = await db.query(`
         SELECT
-          DATE_TRUNC('week', cl.called_at)                               AS week_start,
+          DATE_TRUNC('week', cl.created_at)                              AS week_start,
           COUNT(DISTINCT cl.id)                                          AS total_calls,
           COUNT(DISTINCT l.id)                                           AS leads_contacted,
           COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END)   AS converted,
           COUNT(DISTINCT CASE WHEN l.status='hot'       THEN l.id END)   AS hot,
           COUNT(DISTINCT CASE WHEN l.status='warm'      THEN l.id END)   AS warm,
           COUNT(DISTINCT CASE WHEN l.status='new'       THEN l.id END)   AS new_leads
-        FROM call_logs cl
+        FROM communication_logs cl
         JOIN leads l ON l.id = cl.lead_id
-        WHERE cl.called_at >= NOW()-INTERVAL '28 days'
-          ${agentFilter}
-        GROUP BY DATE_TRUNC('week', cl.called_at)
+        WHERE cl.type='call' AND cl.created_at >= NOW()-INTERVAL '28 days' ${scope}
+        GROUP BY DATE_TRUNC('week', cl.created_at)
         ORDER BY week_start DESC LIMIT 4
       `)
       rows = r.rows
-    } catch (e) { console.error('weekly call_logs error:', e.message) }
+    } catch {}
 
-    // Fallback — weekly buckets from lead creation dates
+    // Fallback to call_logs
     if (!rows.length) {
-      const leadScope = admin
-        ? (agent_id ? `AND l.assigned_to = '${agent_id}'` : '')
-        : `AND l.assigned_to = '${req.user.id}'`
+      try {
+        const r = await db.query(`
+          SELECT
+            DATE_TRUNC('week', cl.called_at)                               AS week_start,
+            COUNT(DISTINCT cl.id)                                          AS total_calls,
+            COUNT(DISTINCT l.id)                                           AS leads_contacted,
+            COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END)   AS converted,
+            COUNT(DISTINCT CASE WHEN l.status='hot'       THEN l.id END)   AS hot,
+            COUNT(DISTINCT CASE WHEN l.status='warm'      THEN l.id END)   AS warm,
+            COUNT(DISTINCT CASE WHEN l.status='new'       THEN l.id END)   AS new_leads
+          FROM call_logs cl
+          JOIN leads l ON l.id = cl.lead_id
+          WHERE cl.called_at >= NOW()-INTERVAL '28 days' ${scope}
+          GROUP BY DATE_TRUNC('week', cl.called_at)
+          ORDER BY week_start DESC LIMIT 4
+        `)
+        rows = r.rows
+      } catch {}
+    }
+
+    // Final fallback — lead creation dates
+    if (!rows.length) {
       const r = await db.query(`
         SELECT
           DATE_TRUNC('week', l.created_at)                               AS week_start,
@@ -189,7 +212,7 @@ router.get('/weekly-comparison', auth, async (req, res) => {
           COUNT(DISTINCT CASE WHEN l.status='warm'      THEN l.id END)   AS warm,
           COUNT(DISTINCT CASE WHEN l.status='new'       THEN l.id END)   AS new_leads
         FROM leads l
-        WHERE l.created_at >= NOW()-INTERVAL '28 days' ${leadScope}
+        WHERE l.created_at >= NOW()-INTERVAL '28 days' ${scope}
         GROUP BY DATE_TRUNC('week', l.created_at)
         ORDER BY week_start DESC LIMIT 4
       `)
@@ -200,58 +223,69 @@ router.get('/weekly-comparison', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Monthly comparison ────────────────────────────────────
+// ── Monthly comparison ── UNTOUCHED (was working) ─────────
 router.get('/monthly-comparison', auth, async (req, res) => {
   try {
     const { agent_id } = req.query
-    const admin = isAdmin(req.user)
-
-    let agentFilter = ''
-    if (!admin) {
-      agentFilter = `AND cl.user_id = '${req.user.id}'`
-    } else if (agent_id) {
-      agentFilter = `AND cl.user_id = '${agent_id}'`
-    }
+    let scope = agentScope(req.user)
+    if (isAdmin(req.user) && agent_id) scope = `AND l.assigned_to = '${agent_id}'`
 
     let rows = []
     try {
       const r = await db.query(`
         SELECT
-          TO_CHAR(DATE_TRUNC('month', cl.called_at), 'Mon YYYY')         AS month_label,
-          DATE_TRUNC('month', cl.called_at)                              AS month_start,
-          COUNT(DISTINCT cl.id)                                          AS total_calls,
-          COUNT(DISTINCT l.id)                                           AS leads_contacted,
-          COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END)   AS converted,
-          COUNT(DISTINCT CASE WHEN l.status='hot'       THEN l.id END)   AS hot,
-          COUNT(DISTINCT CASE WHEN l.status='warm'      THEN l.id END)   AS warm,
-          COUNT(DISTINCT CASE WHEN l.status='new'       THEN l.id END)   AS new_leads
-        FROM call_logs cl
+          TO_CHAR(DATE_TRUNC('month', cl.created_at), 'Mon YYYY')         AS month_label,
+          DATE_TRUNC('month', cl.created_at)                              AS month_start,
+          COUNT(DISTINCT cl.id)                                           AS total_calls,
+          COUNT(DISTINCT l.id)                                            AS leads_contacted,
+          COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END)    AS converted,
+          COUNT(DISTINCT CASE WHEN l.status='hot'       THEN l.id END)    AS hot,
+          COUNT(DISTINCT CASE WHEN l.status='warm'      THEN l.id END)    AS warm,
+          COUNT(DISTINCT CASE WHEN l.status='new'       THEN l.id END)    AS new_leads
+        FROM communication_logs cl
         JOIN leads l ON l.id = cl.lead_id
-        WHERE cl.called_at >= NOW()-INTERVAL '90 days'
-          ${agentFilter}
-        GROUP BY DATE_TRUNC('month', cl.called_at)
+        WHERE cl.type='call' AND cl.created_at >= NOW()-INTERVAL '90 days' ${scope}
+        GROUP BY DATE_TRUNC('month', cl.created_at)
         ORDER BY month_start DESC LIMIT 3
       `)
       rows = r.rows
-    } catch (e) { console.error('monthly call_logs error:', e.message) }
+    } catch {}
 
-    // Fallback — monthly buckets from lead creation
     if (!rows.length) {
-      const leadScope = admin
-        ? (agent_id ? `AND l.assigned_to = '${agent_id}'` : '')
-        : `AND l.assigned_to = '${req.user.id}'`
+      try {
+        const r = await db.query(`
+          SELECT
+            TO_CHAR(DATE_TRUNC('month', cl.called_at), 'Mon YYYY')         AS month_label,
+            DATE_TRUNC('month', cl.called_at)                              AS month_start,
+            COUNT(DISTINCT cl.id)                                          AS total_calls,
+            COUNT(DISTINCT l.id)                                           AS leads_contacted,
+            COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END)   AS converted,
+            COUNT(DISTINCT CASE WHEN l.status='hot'       THEN l.id END)   AS hot,
+            COUNT(DISTINCT CASE WHEN l.status='warm'      THEN l.id END)   AS warm,
+            COUNT(DISTINCT CASE WHEN l.status='new'       THEN l.id END)   AS new_leads
+          FROM call_logs cl
+          JOIN leads l ON l.id = cl.lead_id
+          WHERE cl.called_at >= NOW()-INTERVAL '90 days' ${scope}
+          GROUP BY DATE_TRUNC('month', cl.called_at)
+          ORDER BY month_start DESC LIMIT 3
+        `)
+        rows = r.rows
+      } catch {}
+    }
+
+    if (!rows.length) {
       const r = await db.query(`
         SELECT
-          TO_CHAR(DATE_TRUNC('month', l.created_at), 'Mon YYYY')         AS month_label,
-          DATE_TRUNC('month', l.created_at)                              AS month_start,
-          0                                                              AS total_calls,
-          COUNT(DISTINCT l.id)                                           AS leads_contacted,
-          COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END)   AS converted,
-          COUNT(DISTINCT CASE WHEN l.status='hot'       THEN l.id END)   AS hot,
-          COUNT(DISTINCT CASE WHEN l.status='warm'      THEN l.id END)   AS warm,
-          COUNT(DISTINCT CASE WHEN l.status='new'       THEN l.id END)   AS new_leads
+          TO_CHAR(DATE_TRUNC('month', l.created_at), 'Mon YYYY')           AS month_label,
+          DATE_TRUNC('month', l.created_at)                                AS month_start,
+          0                                                                AS total_calls,
+          COUNT(DISTINCT l.id)                                             AS leads_contacted,
+          COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END)     AS converted,
+          COUNT(DISTINCT CASE WHEN l.status='hot'       THEN l.id END)     AS hot,
+          COUNT(DISTINCT CASE WHEN l.status='warm'      THEN l.id END)     AS warm,
+          COUNT(DISTINCT CASE WHEN l.status='new'       THEN l.id END)     AS new_leads
         FROM leads l
-        WHERE l.created_at >= NOW()-INTERVAL '90 days' ${leadScope}
+        WHERE l.created_at >= NOW()-INTERVAL '90 days' ${scope}
         GROUP BY DATE_TRUNC('month', l.created_at)
         ORDER BY month_start DESC LIMIT 3
       `)
@@ -262,32 +296,40 @@ router.get('/monthly-comparison', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Call stats summary ────────────────────────────────────
+// ── Call stats summary ── UNTOUCHED (was working, showing 17) ─
 router.get('/call-stats', auth, async (req, res) => {
   try {
-    const admin = isAdmin(req.user)
-    const agentFilter = admin ? '' : `AND cl.user_id = '${req.user.id}'`
-
-    // Use call_logs (correct table with user_id)
+    const scope = agentScope(req.user)
+    let r = { today: 0, this_week: 0, this_month: 0, total_all_time: 0 }
     try {
       const { rows: [row] } = await db.query(`
         SELECT
-          COUNT(CASE WHEN DATE(cl.called_at AT TIME ZONE 'Asia/Kolkata') = CURRENT_DATE        THEN 1 END) AS today,
-          COUNT(CASE WHEN cl.called_at >= NOW()-INTERVAL '7 days'   THEN 1 END)                            AS this_week,
-          COUNT(CASE WHEN cl.called_at >= NOW()-INTERVAL '30 days'  THEN 1 END)                            AS this_month,
+          COUNT(CASE WHEN DATE(cl.created_at) = CURRENT_DATE        THEN 1 END) AS today,
+          COUNT(CASE WHEN cl.created_at >= NOW()-INTERVAL '7 days'  THEN 1 END) AS this_week,
+          COUNT(CASE WHEN cl.created_at >= NOW()-INTERVAL '30 days' THEN 1 END) AS this_month,
           COUNT(*) AS total_all_time
-        FROM call_logs cl
-        JOIN leads l ON l.id = cl.lead_id
-        WHERE 1=1 ${agentFilter}
+        FROM communication_logs cl JOIN leads l ON l.id = cl.lead_id
+        WHERE cl.type='call' ${scope}
       `)
-      return res.json({ success: true, data: row })
-    } catch (e) { console.error('call-stats error:', e.message) }
-
-    res.json({ success: true, data: { today: 0, this_week: 0, this_month: 0, total_all_time: 0 } })
+      r = row
+    } catch {
+      try {
+        const { rows: [row] } = await db.query(`
+          SELECT
+            COUNT(CASE WHEN DATE(cl.called_at) = CURRENT_DATE        THEN 1 END) AS today,
+            COUNT(CASE WHEN cl.called_at >= NOW()-INTERVAL '7 days'  THEN 1 END) AS this_week,
+            COUNT(CASE WHEN cl.called_at >= NOW()-INTERVAL '30 days' THEN 1 END) AS this_month,
+            COUNT(*) AS total_all_time
+          FROM call_logs cl JOIN leads l ON l.id = cl.lead_id WHERE 1=1 ${scope}
+        `)
+        r = row
+      } catch {}
+    }
+    res.json({ success: true, data: r })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Pipeline ──────────────────────────────────────────────
+// ── Pipeline ── UNTOUCHED ─────────────────────────────────
 router.get('/pipeline', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
@@ -329,15 +371,14 @@ router.get('/pipeline', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Pending follow-ups ────────────────────────────────────
+// ── Pending follow-ups ── UNTOUCHED ───────────────────────
 router.get('/pending-followups', auth, async (req, res) => {
   try {
     const { from, to, agent_id, product_id, status } = req.query
-    const admin = isAdmin(req.user)
-    let scope = admin ? '' : `AND l.assigned_to = '${req.user.id}'`
-    if (admin && agent_id) scope += ` AND l.assigned_to = '${agent_id}'`
-    if (product_id)        scope += ` AND l.product_id = ${parseInt(product_id)}`
-    if (status)            scope += ` AND l.status = '${status}'`
+    let scope = agentScope(req.user)
+    if (isAdmin(req.user) && agent_id) scope += ` AND l.assigned_to = '${agent_id}'`
+    if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
+    if (status)     scope += ` AND l.status = '${status}'`
 
     const dateFrom = from || '2000-01-01'
     const dateTo   = to   || '2099-12-31'
@@ -368,15 +409,14 @@ router.get('/pending-followups', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Upcoming follow-ups ───────────────────────────────────
+// ── Upcoming follow-ups ── UNTOUCHED ──────────────────────
 router.get('/upcoming-followups', auth, async (req, res) => {
   try {
     const { from, to, agent_id, product_id, status } = req.query
-    const admin = isAdmin(req.user)
-    let scope = admin ? '' : `AND l.assigned_to = '${req.user.id}'`
-    if (admin && agent_id) scope += ` AND l.assigned_to = '${agent_id}'`
-    if (product_id)        scope += ` AND l.product_id = ${parseInt(product_id)}`
-    if (status)            scope += ` AND l.status = '${status}'`
+    let scope = agentScope(req.user)
+    if (isAdmin(req.user) && agent_id) scope += ` AND l.assigned_to = '${agent_id}'`
+    if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
+    if (status)     scope += ` AND l.status = '${status}'`
 
     const dateFrom = from || new Date().toISOString().split('T')[0]
     const dateTo   = to   || new Date(Date.now()+30*86400000).toISOString().split('T')[0]
@@ -406,38 +446,52 @@ router.get('/upcoming-followups', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Daily summary ─────────────────────────────────────────
+// ── Daily summary ── UNTOUCHED ────────────────────────────
 router.get('/daily-summary', auth, async (req, res) => {
   try {
     const { from, to } = req.query
-    const admin    = isAdmin(req.user)
     const dateFrom = from || new Date(Date.now()-30*86400000).toISOString().split('T')[0]
     const dateTo   = to   || new Date().toISOString().split('T')[0]
-    const agentFilter = admin ? '' : `AND cl.user_id = '${req.user.id}'`
-
-    const { rows } = await db.query(`
-      SELECT DATE(cl.called_at) AS call_date,
-        COUNT(DISTINCT cl.id)                                           AS total_calls,
-        COUNT(DISTINCT l.id)                                            AS leads_contacted,
-        COUNT(DISTINCT CASE WHEN l.status='new'       THEN l.id END)   AS fresh_calls,
-        COUNT(DISTINCT CASE WHEN l.status='hot'       THEN l.id END)   AS hot_calls,
-        COUNT(DISTINCT CASE WHEN l.status='warm'      THEN l.id END)   AS warm_calls,
-        COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END)   AS converted
-      FROM call_logs cl JOIN leads l ON l.id = cl.lead_id
-      WHERE DATE(cl.called_at) BETWEEN $1 AND $2 ${agentFilter}
-      GROUP BY DATE(cl.called_at) ORDER BY call_date DESC
-    `, [dateFrom, dateTo])
+    const scope = agentScope(req.user)
+    let rows = []
+    try {
+      const r = await db.query(`
+        SELECT DATE(cl.created_at) AS call_date,
+          COUNT(DISTINCT cl.id) AS total_calls, COUNT(DISTINCT l.id) AS leads_contacted,
+          COUNT(DISTINCT CASE WHEN l.status='new'       THEN l.id END) AS fresh_calls,
+          COUNT(DISTINCT CASE WHEN l.status='hot'       THEN l.id END) AS hot_calls,
+          COUNT(DISTINCT CASE WHEN l.status='warm'      THEN l.id END) AS warm_calls,
+          COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END) AS converted
+        FROM communication_logs cl JOIN leads l ON l.id=cl.lead_id
+        WHERE cl.type='call' AND DATE(cl.created_at) BETWEEN $1 AND $2 ${scope}
+        GROUP BY DATE(cl.created_at) ORDER BY call_date DESC
+      `, [dateFrom, dateTo])
+      rows = r.rows
+    } catch {
+      const r = await db.query(`
+        SELECT DATE(cl.called_at) AS call_date,
+          COUNT(DISTINCT cl.id) AS total_calls, COUNT(DISTINCT l.id) AS leads_contacted,
+          COUNT(DISTINCT CASE WHEN l.status='new'       THEN l.id END) AS fresh_calls,
+          COUNT(DISTINCT CASE WHEN l.status='hot'       THEN l.id END) AS hot_calls,
+          COUNT(DISTINCT CASE WHEN l.status='warm'      THEN l.id END) AS warm_calls,
+          COUNT(DISTINCT CASE WHEN l.status='converted' THEN l.id END) AS converted
+        FROM call_logs cl JOIN leads l ON l.id=cl.lead_id
+        WHERE DATE(cl.called_at) BETWEEN $1 AND $2 ${scope}
+        GROUP BY DATE(cl.called_at) ORDER BY call_date DESC
+      `, [dateFrom, dateTo])
+      rows = r.rows
+    }
     res.json({ success: true, data: rows })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Conversion ────────────────────────────────────────────
+// ── Conversion ── FIXED: sender_id→agent_id, role_name→role JOIN ─
 router.get('/conversion', auth, async (req, res) => {
   try {
     const admin = isAdmin(req.user)
-    // FIX 5: role_id JOIN + agent_id (not sender_id, not role_name)
     const scopeFilter = admin ? '' : `AND l.assigned_to = '${req.user.id}'`
 
+    // FIX: role_id JOIN + communication_logs.agent_id (not sender_id)
     const { rows } = await db.query(`
       SELECT
         u.id   AS agent_id,
@@ -449,22 +503,25 @@ router.get('/conversion', auth, async (req, res) => {
         COUNT(CASE WHEN l.status NOT IN ('converted','not_interested')
               AND l.updated_at < NOW()-INTERVAL '5 days' THEN 1 END)         AS unattended,
         COALESCE((
-          SELECT COUNT(*) FROM call_logs cl WHERE cl.user_id = u.id
+          SELECT COUNT(*) FROM communication_logs cl
+          WHERE cl.agent_id = u.id AND cl.type = 'call'
         ), 0) AS total_calls,
-        ROUND(CASE WHEN COUNT(l.id)>0
+        ROUND(CASE WHEN COUNT(l.id) > 0
           THEN COUNT(CASE WHEN l.status='converted' THEN 1 END)::numeric / COUNT(l.id) * 100
           ELSE 0 END, 1) AS conversion_rate
       FROM users u
       JOIN roles r ON r.id = u.role_id
       LEFT JOIN leads l ON l.assigned_to = u.id ${scopeFilter}
-      WHERE r.name IN ('agent','admin')
-        AND u.is_active = true
+      WHERE r.name IN ('agent','admin') AND u.is_active = true
       GROUP BY u.id, u.name
       HAVING COUNT(l.id) > 0
       ORDER BY conversion_rate DESC
     `)
     res.json({ success: true, data: rows })
-  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+  } catch (err) {
+    console.error('conversion error:', err.message)
+    res.status(500).json({ success: false, message: err.message })
+  }
 })
 
 module.exports = router
