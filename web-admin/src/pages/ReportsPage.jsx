@@ -417,28 +417,52 @@ export default function ReportsPage() {
               )}
               {agentDataOv.length > 0 && (
                 <div className="card overflow-hidden">
-                  <div className="px-5 py-4 border-b border-slate-100"><h3 className="font-bold text-slate-800">🏅 Agent Leaderboard</h3></div>
+                  <div className="px-5 py-4 border-b border-slate-100">
+                    <h3 className="font-bold text-slate-800">🏅 Agent Leaderboard</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Ranked by: Conversions → Calls → Hot Leads</p>
+                  </div>
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50"><tr>
-                      {['Agent','Leads','Calls','Hot','Warm','Converted','Conv %'].map(h=>(
+                      {['Rank','Agent','Converted','Calls','Hot','Warm','Leads','Conv %'].map(h=>(
                         <th key={h} className="text-left px-4 py-3 text-xs text-slate-500 font-semibold uppercase">{h}</th>
                       ))}
                     </tr></thead>
                     <tbody className="divide-y divide-slate-100">
-                      {agentDataOv.map((a,i)=>{
-                        const rate=a.total_leads>0?((a.converted/a.total_leads)*100).toFixed(1):0
-                        return (
-                          <tr key={a.agent_id} className="hover:bg-slate-50 cursor-pointer" onClick={()=>openDrill(`${a.agent_name}'s Leads`,{assigned_to:a.agent_id})}>
-                            <td className="px-4 py-3 font-medium">{['🥇','🥈','🥉'][i]||''} {a.agent_name}</td>
-                            <td className="px-4 py-3 font-bold text-blue-600">{a.total_leads} ↗</td>
-                            <td className="px-4 py-3">{a.total_calls||0}</td>
-                            <td className="px-4 py-3 font-bold text-red-500">{a.hot||0}</td>
-                            <td className="px-4 py-3 font-bold text-amber-500">{a.warm||0}</td>
-                            <td className="px-4 py-3 font-bold text-green-600">{a.converted||0}</td>
-                            <td className="px-4 py-3"><span className={`font-bold ${parseFloat(rate)>=20?'text-green-600':parseFloat(rate)>=10?'text-amber-500':'text-red-400'}`}>{rate}%</span></td>
-                          </tr>
-                        )
-                      })}
+                      {[...agentDataOv]
+                        .sort((a,b) => {
+                          // 1st: most conversions
+                          const convDiff = parseInt(b.converted||0) - parseInt(a.converted||0)
+                          if (convDiff !== 0) return convDiff
+                          // 2nd: most calls (tie-breaker)
+                          const callDiff = parseInt(b.total_calls||0) - parseInt(a.total_calls||0)
+                          if (callDiff !== 0) return callDiff
+                          // 3rd: most hot leads
+                          return parseInt(b.hot||0) - parseInt(a.hot||0)
+                        })
+                        .map((a, i) => {
+                          const rate = a.total_leads>0 ? ((a.converted/a.total_leads)*100).toFixed(1) : 0
+                          const MEDALS = ['🥇','🥈','🥉']
+                          const medal = MEDALS[i] || `#${i+1}`
+                          return (
+                            <tr key={a.agent_id}
+                              className={`hover:bg-slate-50 cursor-pointer ${i===0?'bg-amber-50':''}`}
+                              onClick={()=>openDrill(`${a.agent_name}'s Leads`,{assigned_to:a.agent_id})}>
+                              <td className="px-4 py-3 text-lg">{medal}</td>
+                              <td className="px-4 py-3 font-bold text-slate-800">{a.agent_name}</td>
+                              <td className="px-4 py-3 font-black text-green-600 text-base">{a.converted||0}</td>
+                              <td className="px-4 py-3 font-bold text-blue-600">{a.total_calls||0}</td>
+                              <td className="px-4 py-3 font-bold text-red-500">{a.hot||0}</td>
+                              <td className="px-4 py-3 font-bold text-amber-500">{a.warm||0}</td>
+                              <td className="px-4 py-3 text-slate-500">{a.total_leads} ↗</td>
+                              <td className="px-4 py-3">
+                                <span className={`font-bold ${parseFloat(rate)>=20?'text-green-600':parseFloat(rate)>=10?'text-amber-500':'text-red-400'}`}>
+                                  {rate}%
+                                </span>
+                              </td>
+                            </tr>
+                          )
+                        })
+                      }
                     </tbody>
                   </table>
                 </div>
@@ -448,7 +472,7 @@ export default function ReportsPage() {
 
           {/* ── STATUS WISE ── */}
           {tab === 'status' && (
-            <div className="space-y-2">
+            <div className="space-y-4">
               {!statusData.length ? <div className="card p-12 text-center text-slate-400">No data</div>
                 : statusData.map(row => {
                     const total = statusData.reduce((s,r) => s+parseInt(r.count||0), 0)
@@ -473,52 +497,204 @@ export default function ReportsPage() {
                 <span className="font-semibold text-blue-800">Total</span>
                 <span className="text-2xl font-black text-blue-700">{statusData.reduce((s,r)=>s+parseInt(r.count||0),0)}</span>
               </div>
+
+              {/* Status Donut + Bar Chart */}
+              {statusData.length > 0 && (() => {
+                const total = statusData.reduce((s,r) => s+parseInt(r.count||0), 0)
+                // Donut chart via SVG
+                const cx=120, cy=120, r=90, stroke=28
+                const circ = 2*Math.PI*r
+                let offset = 0
+                const slices = statusData.map(row => {
+                  const pct = total>0 ? parseInt(row.count)/total : 0
+                  const dash = pct * circ
+                  const gap  = circ - dash
+                  const c    = STATUS_COLORS[row.status]?.text || '#94a3b8'
+                  const s = { offset, dash, gap, color: c, label: row.status, count: parseInt(row.count) }
+                  offset += dash
+                  return s
+                })
+                return (
+                  <div className="card p-6">
+                    <h3 className="font-bold text-slate-800 mb-6">📊 Lead Status Distribution</h3>
+                    <div className="flex flex-wrap gap-8 items-start">
+                      {/* Donut */}
+                      <div className="flex-shrink-0">
+                        <svg width={240} height={240} viewBox="0 0 240 240">
+                          <circle cx={cx} cy={cy} r={r} fill="none" stroke="#f1f5f9" strokeWidth={stroke}/>
+                          {slices.map((s,i) => (
+                            <circle key={i} cx={cx} cy={cy} r={r} fill="none"
+                              stroke={s.color} strokeWidth={stroke}
+                              strokeDasharray={`${s.dash} ${s.gap}`}
+                              strokeDashoffset={-s.offset}
+                              style={{transform:'rotate(-90deg)',transformOrigin:'center'}}/>
+                          ))}
+                          <text x={cx} y={cy-8} textAnchor="middle" fontSize={28} fontWeight={900} fill="#1e293b">{total}</text>
+                          <text x={cx} y={cy+14} textAnchor="middle" fontSize={12} fill="#94a3b8" fontWeight={600}>Total Leads</text>
+                        </svg>
+                      </div>
+                      {/* Legend + horizontal bars */}
+                      <div className="flex-1 min-w-0 space-y-3 pt-2">
+                        {statusData.map(row => {
+                          const pct = total>0 ? Math.round((parseInt(row.count)/total)*100) : 0
+                          const c   = STATUS_COLORS[row.status] || STATUS_COLORS.new
+                          return (
+                            <div key={row.status} className="cursor-pointer" onClick={()=>openDrill(`${row.status.replace(/_/g,' ')} Leads`,{status:row.status})}>
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="w-3 h-3 rounded-full flex-shrink-0" style={{background:c.text}}/>
+                                  <span className="text-sm font-semibold text-slate-700 capitalize">{row.status.replace(/_/g,' ')}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-black" style={{color:c.text}}>{row.count}</span>
+                                  <span className="text-xs text-slate-400 w-8 text-right">{pct}%</span>
+                                </div>
+                              </div>
+                              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full transition-all duration-500"
+                                  style={{width:`${Math.max(pct,1)}%`, background:c.text}}/>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
           )}
 
           {/* ── AGENT WISE ── */}
           {tab === 'agent' && (
-            <div className="card overflow-hidden">
-              {!agentDataOv.length ? <div className="p-12 text-center text-slate-400">No data</div>
-                : <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-50 border-b border-slate-200"><tr>
-                        {['Agent','Total','Calls','New','Hot','Warm','Cold','Call Back','Not Int.','Converted','Conv %','Unattended','Actions'].map(h=>(
-                          <th key={h} className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase whitespace-nowrap">{h}</th>
+            <div className="space-y-4">
+              <div className="card overflow-hidden">
+                {!agentDataOv.length ? <div className="p-12 text-center text-slate-400">No data</div>
+                  : <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-50 border-b border-slate-200"><tr>
+                          {['Agent','Total','Calls','New','Hot','Warm','Cold','Call Back','Not Int.','Converted','Conv %','Unattended','Actions'].map(h=>(
+                            <th key={h} className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase whitespace-nowrap">{h}</th>
+                          ))}
+                        </tr></thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {(Array.isArray(data)?data:[]).map((row,i)=>{
+                            const rate=row.total_leads>0?((row.converted/row.total_leads)*100).toFixed(1):0
+                            return (
+                              <tr key={row.agent_id} className="hover:bg-slate-50">
+                                <td className="px-3 py-3 font-medium whitespace-nowrap">{['🥇','🥈','🥉'][i]||''} {row.agent_name}</td>
+                                <td className="px-3 py-3 font-bold text-blue-600 cursor-pointer hover:underline" onClick={()=>openDrill(`${row.agent_name}'s Leads`,{assigned_to:row.agent_id})}>{row.total_leads} ↗</td>
+                                <td className="px-3 py-3">{row.total_calls||0}</td>
+                                <td className="px-3 py-3">{row.new_leads||0}</td>
+                                <td className="px-3 py-3 font-bold text-red-500">{row.hot||0}</td>
+                                <td className="px-3 py-3 font-bold text-amber-500">{row.warm||0}</td>
+                                <td className="px-3 py-3 text-slate-500">{row.cold||0}</td>
+                                <td className="px-3 py-3 text-purple-600">{row.call_back||0}</td>
+                                <td className="px-3 py-3 text-slate-400">{row.not_interested||0}</td>
+                                <td className="px-3 py-3 font-bold text-green-600 cursor-pointer hover:underline" onClick={()=>openDrill(`${row.agent_name} Converted`,{assigned_to:row.agent_id,status:'converted'})}>{row.converted||0} ↗</td>
+                                <td className="px-3 py-3"><span className={`font-bold ${parseFloat(rate)>=20?'text-green-600':parseFloat(rate)>=10?'text-amber-500':'text-red-400'}`}>{rate}%</span></td>
+                                <td className="px-3 py-3 text-orange-500">{row.unattended||0}</td>
+                                <td className="px-3 py-3"><button className="text-blue-600 text-xs font-medium hover:underline" onClick={()=>openDrill(`${row.agent_name}'s Leads`,{assigned_to:row.agent_id})}>View All</button></td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                        <tfoot className="bg-slate-50 border-t border-slate-200"><tr>
+                          <td className="px-3 py-3 font-bold">Total</td>
+                          {['total_leads','total_calls','new_leads','hot','warm','cold','call_back','not_interested','converted'].map(k=>(
+                            <td key={k} className="px-3 py-3 font-bold">{(Array.isArray(data)?data:[]).reduce((s,r)=>s+parseInt(r[k]||0),0)}</td>
+                          ))}
+                          <td colSpan={3}/>
+                        </tr></tfoot>
+                      </table>
+                    </div>
+                }
+              </div>
+
+              {/* Agent Charts */}
+              {agentDataOv.length > 0 && (() => {
+                const agents = Array.isArray(data) ? data : []
+                const maxCalls = Math.max(...agents.map(a=>parseInt(a.total_calls||0)),1)
+                const maxLeads = Math.max(...agents.map(a=>parseInt(a.total_leads||0)),1)
+                const BAR_H = 36, GAP = 12, LABEL_W = 90, CHART_W = 500
+                const chartH = agents.length * (BAR_H + GAP)
+                return (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Calls bar chart */}
+                    <div className="card p-5">
+                      <h3 className="font-bold text-slate-800 mb-4">📞 Calls Made per Agent</h3>
+                      <div className="overflow-x-auto">
+                        <svg width="100%" viewBox={`0 0 ${LABEL_W+CHART_W+60} ${chartH+10}`} style={{minWidth:300}}>
+                          {agents.map((a,i) => {
+                            const barW = Math.max((parseInt(a.total_calls||0)/maxCalls)*CHART_W, 2)
+                            const y = i*(BAR_H+GAP)
+                            return (
+                              <g key={a.agent_id}>
+                                <text x={LABEL_W-8} y={y+BAR_H/2+5} textAnchor="end" fontSize={12} fontWeight={600} fill="#475569">
+                                  {a.agent_name}
+                                </text>
+                                <rect x={LABEL_W} y={y} width={barW} height={BAR_H} rx={6} fill="#3b82f6" opacity={0.85}/>
+                                <text x={LABEL_W+barW+6} y={y+BAR_H/2+5} fontSize={12} fontWeight={800} fill="#1e40af">
+                                  {a.total_calls||0}
+                                </text>
+                              </g>
+                            )
+                          })}
+                        </svg>
+                      </div>
+                    </div>
+
+                    {/* Stacked status bar chart */}
+                    <div className="card p-5">
+                      <h3 className="font-bold text-slate-800 mb-4">📊 Lead Status Breakdown per Agent</h3>
+                      <div className="overflow-x-auto">
+                        <svg width="100%" viewBox={`0 0 ${LABEL_W+CHART_W+10} ${chartH+10}`} style={{minWidth:300}}>
+                          {agents.map((a,i) => {
+                            const total = parseInt(a.total_leads||0)
+                            const y = i*(BAR_H+GAP)
+                            const segments = [
+                              {key:'converted',   color:'#16a34a', val:parseInt(a.converted||0)},
+                              {key:'hot',         color:'#dc2626', val:parseInt(a.hot||0)},
+                              {key:'warm',        color:'#d97706', val:parseInt(a.warm||0)},
+                              {key:'call_back',   color:'#7c3aed', val:parseInt(a.call_back||0)},
+                              {key:'cold',        color:'#94a3b8', val:parseInt(a.cold||0)},
+                              {key:'not_interested',color:'#cbd5e1',val:parseInt(a.not_interested||0)},
+                              {key:'new',         color:'#3b82f6', val:parseInt(a.new_leads||0)},
+                            ]
+                            let xOff = LABEL_W
+                            return (
+                              <g key={a.agent_id}>
+                                <text x={LABEL_W-8} y={y+BAR_H/2+5} textAnchor="end" fontSize={12} fontWeight={600} fill="#475569">
+                                  {a.agent_name}
+                                </text>
+                                {total > 0 && segments.map(seg => {
+                                  const w = (seg.val/maxLeads)*CHART_W
+                                  if (w < 1) return null
+                                  const rx = xOff
+                                  xOff += w
+                                  return <rect key={seg.key} x={rx} y={y} width={w} height={BAR_H} fill={seg.color} opacity={0.85}/>
+                                })}
+                                <text x={LABEL_W + (total/maxLeads)*CHART_W + 6} y={y+BAR_H/2+5} fontSize={12} fontWeight={700} fill="#475569">
+                                  {total}
+                                </text>
+                              </g>
+                            )
+                          })}
+                        </svg>
+                      </div>
+                      {/* Legend */}
+                      <div className="flex flex-wrap gap-3 mt-3">
+                        {[['Converted','#16a34a'],['Hot','#dc2626'],['Warm','#d97706'],['Call Back','#7c3aed'],['Cold','#94a3b8'],['Not Int.','#cbd5e1'],['New','#3b82f6']].map(([l,c])=>(
+                          <span key={l} className="flex items-center gap-1 text-xs text-slate-600">
+                            <span className="w-3 h-3 rounded-sm inline-block" style={{background:c}}/>
+                            {l}
+                          </span>
                         ))}
-                      </tr></thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {(Array.isArray(data)?data:[]).map((row,i)=>{
-                          const rate=row.total_leads>0?((row.converted/row.total_leads)*100).toFixed(1):0
-                          return (
-                            <tr key={row.agent_id} className="hover:bg-slate-50">
-                              <td className="px-3 py-3 font-medium whitespace-nowrap">{['🥇','🥈','🥉'][i]||''} {row.agent_name}</td>
-                              <td className="px-3 py-3 font-bold text-blue-600 cursor-pointer hover:underline" onClick={()=>openDrill(`${row.agent_name}'s Leads`,{assigned_to:row.agent_id})}>{row.total_leads} ↗</td>
-                              <td className="px-3 py-3">{row.total_calls||0}</td>
-                              <td className="px-3 py-3">{row.new_leads||0}</td>
-                              <td className="px-3 py-3 font-bold text-red-500">{row.hot||0}</td>
-                              <td className="px-3 py-3 font-bold text-amber-500">{row.warm||0}</td>
-                              <td className="px-3 py-3 text-slate-500">{row.cold||0}</td>
-                              <td className="px-3 py-3 text-purple-600">{row.call_back||0}</td>
-                              <td className="px-3 py-3 text-slate-400">{row.not_interested||0}</td>
-                              <td className="px-3 py-3 font-bold text-green-600 cursor-pointer hover:underline" onClick={()=>openDrill(`${row.agent_name} Converted`,{assigned_to:row.agent_id,status:'converted'})}>{row.converted||0} ↗</td>
-                              <td className="px-3 py-3"><span className={`font-bold ${parseFloat(rate)>=20?'text-green-600':parseFloat(rate)>=10?'text-amber-500':'text-red-400'}`}>{rate}%</span></td>
-                              <td className="px-3 py-3 text-orange-500">{row.unattended||0}</td>
-                              <td className="px-3 py-3"><button className="text-blue-600 text-xs font-medium hover:underline" onClick={()=>openDrill(`${row.agent_name}'s Leads`,{assigned_to:row.agent_id})}>View All</button></td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                      <tfoot className="bg-slate-50 border-t border-slate-200"><tr>
-                        <td className="px-3 py-3 font-bold">Total</td>
-                        {['total_leads','total_calls','new_leads','hot','warm','cold','call_back','not_interested','converted'].map(k=>(
-                          <td key={k} className="px-3 py-3 font-bold">{(Array.isArray(data)?data:[]).reduce((s,r)=>s+parseInt(r[k]||0),0)}</td>
-                        ))}
-                        <td colSpan={3}/>
-                      </tr></tfoot>
-                    </table>
+                      </div>
+                    </div>
                   </div>
-              }
+                )
+              })()}
             </div>
           )}
 
@@ -715,83 +891,220 @@ export default function ReportsPage() {
               )}
 
               {pipelineTab==='agent'&&(
-                <div className="card overflow-hidden">
-                  <div className="px-5 py-4 border-b border-slate-100"><h3 className="font-bold text-slate-800">Agent Pipeline — All Statuses</h3></div>
-                  {!pipeline.by_agent.length ? <p className="text-center text-slate-400 p-8">No data</p>
-                    : <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-slate-50"><tr>
-                            {['Agent','Total','New','Hot','Warm','Cold','Call Back','Not Int.','Converted'].map(h=>(
-                              <th key={h} className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase whitespace-nowrap">{h}</th>
-                            ))}
-                          </tr></thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {pipeline.by_agent.map(a=>(
-                              <tr key={a.agent_id} className="hover:bg-slate-50 cursor-pointer" onClick={()=>openDrill(`${a.agent_name}'s Leads`,{assigned_to:a.agent_id})}>
-                                <td className="px-3 py-3 font-medium whitespace-nowrap">{a.agent_name}</td>
-                                <td className="px-3 py-3 font-bold text-blue-600">{a.total}</td>
-                                <td className="px-3 py-3">{a.new_leads||0}</td>
-                                <td className="px-3 py-3 font-bold text-red-500">{a.hot||0}</td>
-                                <td className="px-3 py-3 font-bold text-amber-500">{a.warm||0}</td>
-                                <td className="px-3 py-3 text-slate-500">{a.cold||0}</td>
-                                <td className="px-3 py-3 text-purple-600">{a.call_back||0}</td>
-                                <td className="px-3 py-3 text-slate-400">{a.not_interested||0}</td>
-                                <td className="px-3 py-3 font-bold text-green-600">{a.converted||0}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot className="bg-slate-50 border-t"><tr>
-                            <td className="px-3 py-3 font-bold">Total</td>
-                            {['total','new_leads','hot','warm','cold','call_back','not_interested','converted'].map(k=>(
-                              <td key={k} className="px-3 py-3 font-bold">{pipeline.by_agent.reduce((s,r)=>s+parseInt(r[k]||0),0)}</td>
-                            ))}
-                          </tr></tfoot>
-                        </table>
+                <div className="space-y-4">
+                  <div className="card overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-100"><h3 className="font-bold text-slate-800">Agent Pipeline — All Statuses</h3></div>
+                    {!pipeline.by_agent.length ? <p className="text-center text-slate-400 p-8">No data</p>
+                      : <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-slate-50"><tr>
+                              {['Agent','Total','New','Hot','Warm','Cold','Call Back','Not Int.','Converted'].map(h=>(
+                                <th key={h} className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase whitespace-nowrap">{h}</th>
+                              ))}
+                            </tr></thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {pipeline.by_agent.map(a=>(
+                                <tr key={a.agent_id} className="hover:bg-slate-50 cursor-pointer" onClick={()=>openDrill(`${a.agent_name}'s Leads`,{assigned_to:a.agent_id})}>
+                                  <td className="px-3 py-3 font-medium whitespace-nowrap">{a.agent_name}</td>
+                                  <td className="px-3 py-3 font-bold text-blue-600">{a.total}</td>
+                                  <td className="px-3 py-3">{a.new_leads||0}</td>
+                                  <td className="px-3 py-3 font-bold text-red-500">{a.hot||0}</td>
+                                  <td className="px-3 py-3 font-bold text-amber-500">{a.warm||0}</td>
+                                  <td className="px-3 py-3 text-slate-500">{a.cold||0}</td>
+                                  <td className="px-3 py-3 text-purple-600">{a.call_back||0}</td>
+                                  <td className="px-3 py-3 text-slate-400">{a.not_interested||0}</td>
+                                  <td className="px-3 py-3 font-bold text-green-600">{a.converted||0}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot className="bg-slate-50 border-t"><tr>
+                              <td className="px-3 py-3 font-bold">Total</td>
+                              {['total','new_leads','hot','warm','cold','call_back','not_interested','converted'].map(k=>(
+                                <td key={k} className="px-3 py-3 font-bold">{pipeline.by_agent.reduce((s,r)=>s+parseInt(r[k]||0),0)}</td>
+                              ))}
+                            </tr></tfoot>
+                          </table>
+                        </div>
+                    }
+                  </div>
+
+                  {/* Agent Pipeline Grouped Bar Chart */}
+                  {pipeline.by_agent.length > 0 && (() => {
+                    const agents = pipeline.by_agent
+                    const maxVal = Math.max(...agents.map(a=>parseInt(a.total||0)),1)
+                    const LABEL_W=90, CHART_W=500, BAR_H=32, GAP=14
+                    const chartH = agents.length*(BAR_H+GAP)
+                    const segments = [
+                      {key:'converted',    color:'#16a34a', label:'Converted'},
+                      {key:'hot',          color:'#dc2626', label:'Hot'},
+                      {key:'warm',         color:'#d97706', label:'Warm'},
+                      {key:'call_back',    color:'#7c3aed', label:'Call Back'},
+                      {key:'cold',         color:'#94a3b8', label:'Cold'},
+                      {key:'not_interested',color:'#e2e8f0',label:'Not Int.'},
+                      {key:'new_leads',    color:'#3b82f6', label:'New'},
+                    ]
+                    return (
+                      <div className="card p-5">
+                        <h3 className="font-bold text-slate-800 mb-5">📊 Agent Pipeline — Stacked View</h3>
+                        <div className="overflow-x-auto">
+                          <svg width="100%" viewBox={`0 0 ${LABEL_W+CHART_W+50} ${chartH+10}`} style={{minWidth:320}}>
+                            {agents.map((a,i) => {
+                              const total = parseInt(a.total||0)
+                              const y = i*(BAR_H+GAP)
+                              let xOff = LABEL_W
+                              return (
+                                <g key={a.agent_id}>
+                                  <text x={LABEL_W-8} y={y+BAR_H/2+5} textAnchor="end" fontSize={12} fontWeight={600} fill="#475569">{a.agent_name}</text>
+                                  {total>0 && segments.map(seg=>{
+                                    const w = (parseInt(a[seg.key]||0)/maxVal)*CHART_W
+                                    if (w<1) return null
+                                    const rx=xOff; xOff+=w
+                                    return <rect key={seg.key} x={rx} y={y} width={w} height={BAR_H} fill={seg.color} opacity={0.88}/>
+                                  })}
+                                  <text x={LABEL_W+(total/maxVal)*CHART_W+6} y={y+BAR_H/2+5} fontSize={12} fontWeight={800} fill="#1e293b">{total}</text>
+                                </g>
+                              )
+                            })}
+                          </svg>
+                        </div>
+                        <div className="flex flex-wrap gap-3 mt-3">
+                          {segments.map(s=>(
+                            <span key={s.key} className="flex items-center gap-1 text-xs text-slate-600">
+                              <span className="w-3 h-3 rounded-sm inline-block" style={{background:s.color}}/>
+                              {s.label}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                  }
+                    )
+                  })()}
                 </div>
               )}
 
               {pipelineTab==='product'&&(
-                <div className="card overflow-hidden">
-                  <div className="px-5 py-4 border-b border-slate-100"><h3 className="font-bold text-slate-800">Product Pipeline — All Statuses</h3></div>
-                  {!pipeline.by_product.length ? <p className="text-center text-slate-400 p-8">No data</p>
-                    : <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-slate-50"><tr>
-                            {['Product','Total','New','Hot','Warm','Cold','Call Back','Not Int.','Converted','Conv %'].map(h=>(
-                              <th key={h} className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase whitespace-nowrap">{h}</th>
+                <div className="space-y-4">
+                  <div className="card overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-100"><h3 className="font-bold text-slate-800">Product Pipeline — All Statuses</h3></div>
+                    {!pipeline.by_product.length ? <p className="text-center text-slate-400 p-8">No data</p>
+                      : <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-slate-50"><tr>
+                              {['Product','Total','New','Hot','Warm','Cold','Call Back','Not Int.','Converted','Conv %'].map(h=>(
+                                <th key={h} className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase whitespace-nowrap">{h}</th>
+                              ))}
+                            </tr></thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {pipeline.by_product.map(p=>{
+                                const rate=p.total>0?((p.converted/p.total)*100).toFixed(1):0
+                                return (
+                                  <tr key={p.product_id} className="hover:bg-slate-50 cursor-pointer" onClick={()=>openDrill(`${p.product_name} Leads`,{product_id:p.product_id})}>
+                                    <td className="px-3 py-3 font-medium whitespace-nowrap">{p.product_name}</td>
+                                    <td className="px-3 py-3 font-bold text-blue-600">{p.total}</td>
+                                    <td className="px-3 py-3">{p.new_leads||0}</td>
+                                    <td className="px-3 py-3 font-bold text-red-500">{p.hot||0}</td>
+                                    <td className="px-3 py-3 font-bold text-amber-500">{p.warm||0}</td>
+                                    <td className="px-3 py-3 text-slate-500">{p.cold||0}</td>
+                                    <td className="px-3 py-3 text-purple-600">{p.call_back||0}</td>
+                                    <td className="px-3 py-3 text-slate-400">{p.not_interested||0}</td>
+                                    <td className="px-3 py-3 font-bold text-green-600">{p.converted||0}</td>
+                                    <td className="px-3 py-3 font-bold">{rate}%</td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                            <tfoot className="bg-slate-50 border-t"><tr>
+                              <td className="px-3 py-3 font-bold">Total</td>
+                              {['total','new_leads','hot','warm','cold','call_back','not_interested','converted'].map(k=>(
+                                <td key={k} className="px-3 py-3 font-bold">{pipeline.by_product.reduce((s,r)=>s+parseInt(r[k]||0),0)}</td>
+                              ))}
+                              <td/>
+                            </tr></tfoot>
+                          </table>
+                        </div>
+                    }
+                  </div>
+
+                  {/* Product Pipeline Chart */}
+                  {pipeline.by_product.length > 0 && (() => {
+                    const products = pipeline.by_product
+                    const maxVal = Math.max(...products.map(p=>parseInt(p.total||0)),1)
+                    const LABEL_W=120, CHART_W=460, BAR_H=32, GAP=14
+                    const chartH = products.length*(BAR_H+GAP)
+                    const segments = [
+                      {key:'converted',    color:'#16a34a', label:'Converted'},
+                      {key:'hot',          color:'#dc2626', label:'Hot'},
+                      {key:'warm',         color:'#d97706', label:'Warm'},
+                      {key:'call_back',    color:'#7c3aed', label:'Call Back'},
+                      {key:'cold',         color:'#94a3b8', label:'Cold'},
+                      {key:'not_interested',color:'#e2e8f0',label:'Not Int.'},
+                      {key:'new_leads',    color:'#3b82f6', label:'New'},
+                    ]
+                    return (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {/* Stacked bar */}
+                        <div className="card p-5">
+                          <h3 className="font-bold text-slate-800 mb-5">📦 Product Pipeline — Stacked</h3>
+                          <div className="overflow-x-auto">
+                            <svg width="100%" viewBox={`0 0 ${LABEL_W+CHART_W+50} ${chartH+10}`} style={{minWidth:300}}>
+                              {products.map((p,i)=>{
+                                const total=parseInt(p.total||0)
+                                const y=i*(BAR_H+GAP)
+                                let xOff=LABEL_W
+                                return (
+                                  <g key={p.product_id}>
+                                    <text x={LABEL_W-8} y={y+BAR_H/2+5} textAnchor="end" fontSize={12} fontWeight={600} fill="#475569">{p.product_name}</text>
+                                    {total>0&&segments.map(seg=>{
+                                      const w=(parseInt(p[seg.key]||0)/maxVal)*CHART_W
+                                      if(w<1) return null
+                                      const rx=xOff; xOff+=w
+                                      return <rect key={seg.key} x={rx} y={y} width={w} height={BAR_H} fill={seg.color} opacity={0.88}/>
+                                    })}
+                                    <text x={LABEL_W+(total/maxVal)*CHART_W+6} y={y+BAR_H/2+5} fontSize={12} fontWeight={800} fill="#1e293b">{total}</text>
+                                  </g>
+                                )
+                              })}
+                            </svg>
+                          </div>
+                          <div className="flex flex-wrap gap-3 mt-3">
+                            {segments.map(s=>(
+                              <span key={s.key} className="flex items-center gap-1 text-xs text-slate-600">
+                                <span className="w-3 h-3 rounded-sm inline-block" style={{background:s.color}}/>{s.label}
+                              </span>
                             ))}
-                          </tr></thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {pipeline.by_product.map(p=>{
-                              const rate=p.total>0?((p.converted/p.total)*100).toFixed(1):0
+                          </div>
+                        </div>
+
+                        {/* Conversion rate bars */}
+                        <div className="card p-5">
+                          <h3 className="font-bold text-slate-800 mb-5">✅ Conversion Rate by Product</h3>
+                          <div className="space-y-4">
+                            {products.map(p=>{
+                              const rate = p.total>0 ? parseFloat(((p.converted/p.total)*100).toFixed(1)) : 0
+                              const color = rate>=20?'#16a34a':rate>=10?'#d97706':'#dc2626'
                               return (
-                                <tr key={p.product_id} className="hover:bg-slate-50 cursor-pointer" onClick={()=>openDrill(`${p.product_name} Leads`,{product_id:p.product_id})}>
-                                  <td className="px-3 py-3 font-medium whitespace-nowrap">{p.product_name}</td>
-                                  <td className="px-3 py-3 font-bold text-blue-600">{p.total}</td>
-                                  <td className="px-3 py-3">{p.new_leads||0}</td>
-                                  <td className="px-3 py-3 font-bold text-red-500">{p.hot||0}</td>
-                                  <td className="px-3 py-3 font-bold text-amber-500">{p.warm||0}</td>
-                                  <td className="px-3 py-3 text-slate-500">{p.cold||0}</td>
-                                  <td className="px-3 py-3 text-purple-600">{p.call_back||0}</td>
-                                  <td className="px-3 py-3 text-slate-400">{p.not_interested||0}</td>
-                                  <td className="px-3 py-3 font-bold text-green-600">{p.converted||0}</td>
-                                  <td className="px-3 py-3 font-bold">{rate}%</td>
-                                </tr>
+                                <div key={p.product_id}>
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <span className="text-sm font-semibold text-slate-700">{p.product_name}</span>
+                                    <span className="text-sm font-black" style={{color}}>{rate}%</span>
+                                  </div>
+                                  <div className="h-4 bg-slate-100 rounded-full overflow-hidden">
+                                    <div className="h-full rounded-full flex items-center justify-end pr-2 transition-all"
+                                      style={{width:`${Math.max(rate,1)}%`, background:color}}>
+                                      {rate>=8&&<span className="text-white text-xs font-bold">{p.converted||0}</span>}
+                                    </div>
+                                  </div>
+                                  <div className="flex justify-between text-xs text-slate-400 mt-1">
+                                    <span>{p.converted||0} converted</span>
+                                    <span>{p.total} total</span>
+                                  </div>
+                                </div>
                               )
                             })}
-                          </tbody>
-                          <tfoot className="bg-slate-50 border-t"><tr>
-                            <td className="px-3 py-3 font-bold">Total</td>
-                            {['total','new_leads','hot','warm','cold','call_back','not_interested','converted'].map(k=>(
-                              <td key={k} className="px-3 py-3 font-bold">{pipeline.by_product.reduce((s,r)=>s+parseInt(r[k]||0),0)}</td>
-                            ))}
-                            <td/>
-                          </tr></tfoot>
-                        </table>
+                          </div>
+                        </div>
                       </div>
-                  }
+                    )
+                  })()}
                 </div>
               )}
             </div>
@@ -905,39 +1218,122 @@ export default function ReportsPage() {
 
           {/* ── CONVERSION ── */}
           {tab === 'conversion' && (
-            <div className="card overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-100"><h3 className="font-bold text-slate-800">Agent Conversion Performance</h3></div>
-              {!Array.isArray(data) || !data.length ? <div className="p-12 text-center text-slate-400">No data</div>
-                : <table className="w-full text-sm">
-                    <thead className="bg-slate-50 border-b border-slate-200"><tr>
-                      {['Agent','Assigned','Calls','Hot+Warm','Converted','Conv %','Bar'].map(h=>(
-                        <th key={h} className="text-left px-4 py-3 text-xs text-slate-500 font-semibold uppercase">{h}</th>
-                      ))}
-                    </tr></thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {data.map(row=>{
-                        const interested=parseInt(row.hot||0)+parseInt(row.warm||0)
-                        const rate=parseFloat(row.conversion_rate||0)
-                        const perfColor=rate>=20?'#16a34a':rate>=10?'#d97706':'#dc2626'
-                        return (
-                          <tr key={row.agent_id} className="hover:bg-slate-50">
-                            <td className="px-4 py-3 font-bold">{row.agent_name}</td>
-                            <td className="px-4 py-3 text-blue-600 cursor-pointer hover:underline" onClick={()=>openDrill(`${row.agent_name}'s Leads`,{assigned_to:row.agent_id})}>{row.total_leads} ↗</td>
-                            <td className="px-4 py-3">{row.total_calls||0}</td>
-                            <td className="px-4 py-3 text-amber-600">{interested}</td>
-                            <td className="px-4 py-3 text-green-600 font-bold cursor-pointer hover:underline" onClick={()=>openDrill(`${row.agent_name} Converted`,{assigned_to:row.agent_id,status:'converted'})}>{row.converted||0} ↗</td>
-                            <td className="px-4 py-3"><span className="text-lg font-black" style={{color:perfColor}}>{rate}%</span></td>
-                            <td className="px-4 py-3">
-                              <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
-                                <div className="h-full rounded-full" style={{width:`${Math.min(100,rate*3)}%`,background:perfColor}}/>
+            <div className="space-y-4">
+              <div className="card overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100"><h3 className="font-bold text-slate-800">Agent Conversion Performance</h3></div>
+                {!Array.isArray(data) || !data.length ? <div className="p-12 text-center text-slate-400">No data</div>
+                  : <table className="w-full text-sm">
+                      <thead className="bg-slate-50 border-b border-slate-200"><tr>
+                        {['Agent','Assigned','Calls','Hot+Warm','Converted','Conv %','Bar'].map(h=>(
+                          <th key={h} className="text-left px-4 py-3 text-xs text-slate-500 font-semibold uppercase">{h}</th>
+                        ))}
+                      </tr></thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {data.map(row=>{
+                          const interested=parseInt(row.hot||0)+parseInt(row.warm||0)
+                          const rate=parseFloat(row.conversion_rate||0)
+                          const perfColor=rate>=20?'#16a34a':rate>=10?'#d97706':'#dc2626'
+                          return (
+                            <tr key={row.agent_id} className="hover:bg-slate-50">
+                              <td className="px-4 py-3 font-bold">{row.agent_name}</td>
+                              <td className="px-4 py-3 text-blue-600 cursor-pointer hover:underline" onClick={()=>openDrill(`${row.agent_name}'s Leads`,{assigned_to:row.agent_id})}>{row.total_leads} ↗</td>
+                              <td className="px-4 py-3">{row.total_calls||0}</td>
+                              <td className="px-4 py-3 text-amber-600">{interested}</td>
+                              <td className="px-4 py-3 text-green-600 font-bold cursor-pointer hover:underline" onClick={()=>openDrill(`${row.agent_name} Converted`,{assigned_to:row.agent_id,status:'converted'})}>{row.converted||0} ↗</td>
+                              <td className="px-4 py-3"><span className="text-lg font-black" style={{color:perfColor}}>{rate}%</span></td>
+                              <td className="px-4 py-3">
+                                <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                  <div className="h-full rounded-full" style={{width:`${Math.min(100,rate*3)}%`,background:perfColor}}/>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                }
+              </div>
+
+              {/* Conversion Charts */}
+              {Array.isArray(data) && data.length > 0 && (() => {
+                const maxRate = Math.max(...data.map(r=>parseFloat(r.conversion_rate||0)),1)
+                const maxCalls = Math.max(...data.map(r=>parseInt(r.total_calls||0)),1)
+                const maxLeads = Math.max(...data.map(r=>parseInt(r.total_leads||0)),1)
+                return (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+                    {/* Conversion Rate horizontal bars */}
+                    <div className="card p-5">
+                      <h3 className="font-bold text-slate-800 mb-5">✅ Conversion Rate by Agent</h3>
+                      <div className="space-y-4">
+                        {[...data].sort((a,b)=>parseFloat(b.conversion_rate||0)-parseFloat(a.conversion_rate||0)).map((row,i)=>{
+                          const rate = parseFloat(row.conversion_rate||0)
+                          const color = rate>=20?'#16a34a':rate>=10?'#d97706':'#dc2626'
+                          const MEDALS = ['🥇','🥈','🥉']
+                          return (
+                            <div key={row.agent_id}>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-sm font-semibold text-slate-700">
+                                  {MEDALS[i]||''} {row.agent_name}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-slate-400">{row.converted||0} converted</span>
+                                  <span className="text-sm font-black" style={{color}}>{rate}%</span>
+                                </div>
                               </div>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-              }
+                              <div className="h-5 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full flex items-center px-2 transition-all"
+                                  style={{width:`${Math.max((rate/maxRate)*100,1)}%`, background:color}}>
+                                  {rate>=5&&<span className="text-white text-xs font-bold">{rate}%</span>}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Calls vs Converted grouped comparison */}
+                    <div className="card p-5">
+                      <h3 className="font-bold text-slate-800 mb-5">📞 Calls vs Converted per Agent</h3>
+                      <div className="space-y-4">
+                        {data.map(row=>{
+                          const callsPct  = Math.round((parseInt(row.total_calls||0)/maxCalls)*100)
+                          const convPct   = Math.round((parseInt(row.converted||0)/Math.max(parseInt(row.total_leads||0),1))*100)
+                          return (
+                            <div key={row.agent_id} className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-semibold text-slate-700">{row.agent_name}</span>
+                                <span className="text-xs text-slate-400">{row.total_calls||0} calls · {row.converted||0} converted</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-slate-400 w-14 text-right">Calls</span>
+                                <div className="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
+                                  <div className="h-full rounded-full bg-blue-500 transition-all"
+                                    style={{width:`${Math.max(callsPct,1)}%`}}/>
+                                </div>
+                                <span className="text-xs font-bold text-blue-600 w-8">{row.total_calls||0}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-slate-400 w-14 text-right">Conv.</span>
+                                <div className="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
+                                  <div className="h-full rounded-full bg-green-500 transition-all"
+                                    style={{width:`${Math.max(convPct,1)}%`}}/>
+                                </div>
+                                <span className="text-xs font-bold text-green-600 w-8">{convPct}%</span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div className="flex gap-4 mt-4 pt-3 border-t border-slate-100">
+                        <span className="flex items-center gap-1.5 text-xs text-slate-500"><span className="w-3 h-3 rounded-full bg-blue-500 inline-block"/>Calls made</span>
+                        <span className="flex items-center gap-1.5 text-xs text-slate-500"><span className="w-3 h-3 rounded-full bg-green-500 inline-block"/>Conversion rate</span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
           )}
         </>
