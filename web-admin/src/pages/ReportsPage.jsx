@@ -1,7 +1,10 @@
-// web-admin/src/pages/ReportsPage.jsx — v4
-// Fixes: agent-wise all columns, weekly/monthly agent dropdown + lead fallback,
-//        pipeline full status columns in agent & product tabs,
-//        pending/upcoming: date range + agent/product/status filters + breakdown cards
+// web-admin/src/pages/ReportsPage.jsx — v5 FIXED
+// Fixes:
+// 1. isAdmin uses role_id === 1 (not role_name which doesn't exist on req.user)
+// 2. Agents fetch uses correct interceptor response path r?.data
+// 3. Products fetch uses correct interceptor response path
+// 4. followup_created → next_followup_date (column doesn't exist in call_logs)
+
 import React, { useEffect, useState, useCallback } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
@@ -72,7 +75,7 @@ function DrillModal({ title, leads, onClose }) {
         <div className="flex-1 overflow-y-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 sticky top-0">
-              <tr>{['Name / School','Phone','Agent','Status','Notes','Date'].map(h=>(
+              <tr>{['Name / School','Phone','Agent','Status','Notes','Date'].map(h => (
                 <th key={h} className="text-left px-4 py-3 text-xs text-slate-500 font-semibold uppercase">{h}</th>
               ))}</tr>
             </thead>
@@ -126,50 +129,58 @@ function AgentSelect({ agents, value, onChange, label = 'Agent', allLabel = 'All
 
 export default function ReportsPage() {
   const { user } = useAuth()
-  const isAdmin = user?.role_name === 'admin'
+
+  // FIX 1: Use role_id for isAdmin check — role_name column doesn't exist on users table
+  const isAdmin = user?.role_id === 1 || user?.role_name === 'admin'
 
   const today      = new Date().toISOString().split('T')[0]
   const monthAgo   = new Date(Date.now() - 30*86400000).toISOString().split('T')[0]
   const monthAhead = new Date(Date.now() + 30*86400000).toISOString().split('T')[0]
 
-  const [tab, setTab]                         = useState('overview')
-  const [data, setData]                       = useState([])
-  const [loading, setLoading]                 = useState(false)
-  const [agents, setAgents]                   = useState([])
-  const [products, setProducts]               = useState([])
+  const [tab, setTab]                       = useState('overview')
+  const [data, setData]                     = useState([])
+  const [loading, setLoading]               = useState(false)
+  const [agents, setAgents]                 = useState([])
+  const [products, setProducts]             = useState([])
 
-  const [dateFilter, setDateFilter]           = useState(today)
-  const [filterAgentDaily, setFilterAgentDaily]   = useState('')
-  const [filterAgentWeekly, setFilterAgentWeekly] = useState('')
+  const [dateFilter, setDateFilter]         = useState(today)
+  const [filterAgentDaily, setFilterAgentDaily]     = useState('')
+  const [filterAgentWeekly, setFilterAgentWeekly]   = useState('')
   const [filterAgentMonthly, setFilterAgentMonthly] = useState('')
 
-  const [fuDateFrom, setFuDateFrom]           = useState(monthAgo)
-  const [fuDateTo, setFuDateTo]               = useState(monthAhead)
-  const [fuAgent, setFuAgent]                 = useState('')
-  const [fuProduct, setFuProduct]             = useState('')
-  const [fuStatus, setFuStatus]               = useState('')
+  const [fuDateFrom, setFuDateFrom]         = useState(monthAgo)
+  const [fuDateTo, setFuDateTo]             = useState(monthAhead)
+  const [fuAgent, setFuAgent]               = useState('')
+  const [fuProduct, setFuProduct]           = useState('')
+  const [fuStatus, setFuStatus]             = useState('')
 
-  const [overview, setOverview]               = useState(null)
-  const [callStats, setCallStats]             = useState({})
-  const [pipeline, setPipeline]               = useState({ by_status: [], by_agent: [], by_product: [] })
-  const [pipelineTab, setPipelineTab]         = useState('status')
-  const [drillDown, setDrillDown]             = useState(null)
+  const [overview, setOverview]             = useState(null)
+  const [callStats, setCallStats]           = useState({})
+  const [pipeline, setPipeline]             = useState({ by_status: [], by_agent: [], by_product: [] })
+  const [pipelineTab, setPipelineTab]       = useState('status')
+  const [drillDown, setDrillDown]           = useState(null)
 
   useEffect(() => {
     if (isAdmin) {
-      api.get('/users')
+      // FIX 2: Use /chat/users which works for all roles, correct response path r?.data
+      api.get('/chat/users')
         .then(r => {
-          const list = r.data?.data || r.data || []
-          setAgents(Array.isArray(list) ? list.filter(u => ['agent','admin'].includes(u.role_name)) : [])
+          const list = r?.data || r || []
+          setAgents(Array.isArray(list) ? list : [])
         })
         .catch(() => {
-          api.get('/chat/users').then(r => {
-            setAgents(Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : [])
+          // Fallback to /users
+          api.get('/users').then(r => {
+            const list = r?.data || r || []
+            setAgents(Array.isArray(list) ? list.filter(u => ['agent','admin'].includes(u.role_name)) : [])
           }).catch(() => {})
         })
     }
+
+    // FIX 3: Correct interceptor response path for products
     api.get('/products/active').then(r => {
-      setProducts(Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : [])
+      const list = r?.data || r || []
+      setProducts(Array.isArray(list) ? list : [])
     }).catch(() => {})
   }, [isAdmin])
 
@@ -178,48 +189,48 @@ export default function ReportsPage() {
     try {
       if (tab === 'overview') {
         const [ovRes, statusRes, agentRes, callRes] = await Promise.all([
-          api.get('/reports/overview').catch(() => ({ data: {} })),
-          api.get('/reports/status-wise').catch(() => ({ data: [] })),
-          api.get('/reports/agent-wise').catch(() => ({ data: [] })),
-          api.get('/reports/call-stats').catch(() => ({ data: {} })),
+          api.get('/reports/overview').catch(() => ({})),
+          api.get('/reports/status-wise').catch(() => ({})),
+          api.get('/reports/agent-wise').catch(() => ({})),
+          api.get('/reports/call-stats').catch(() => ({})),
         ])
-        const ov = ovRes.data?.data || ovRes.data || {}
+        const ov = ovRes?.data || {}
         setOverview(ov)
-        const statusArr = Array.isArray(statusRes.data?.data) ? statusRes.data.data : Array.isArray(statusRes.data) ? statusRes.data : []
-        const agentArr  = Array.isArray(agentRes.data?.data)  ? agentRes.data.data  : Array.isArray(agentRes.data)  ? agentRes.data  : []
+        const statusArr = Array.isArray(statusRes?.data) ? statusRes.data : []
+        const agentArr  = Array.isArray(agentRes?.data)  ? agentRes.data  : []
         setData({ status: statusArr, agents: agentArr })
-        setCallStats(callRes.data?.data || callRes.data || {})
+        setCallStats(callRes?.data || {})
 
       } else if (tab === 'status') {
         const r = await api.get('/reports/status-wise')
-        setData(Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : [])
+        setData(Array.isArray(r?.data) ? r.data : [])
 
       } else if (tab === 'agent') {
         const r = await api.get('/reports/agent-wise')
-        const rows = Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : []
+        const rows = Array.isArray(r?.data) ? r.data : []
         setData(isAdmin ? rows : rows.filter(a => a.agent_id === user?.id))
 
       } else if (tab === 'daily') {
         const params = { date: dateFilter }
         if (isAdmin && filterAgentDaily) params.agent_id = filterAgentDaily
         const r = await api.get('/reports/daily-calls', { params })
-        setData(Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : [])
+        setData(Array.isArray(r?.data) ? r.data : [])
 
       } else if (tab === 'weekly') {
         const params = {}
         if (isAdmin && filterAgentWeekly) params.agent_id = filterAgentWeekly
         const r = await api.get('/reports/weekly-comparison', { params })
-        setData(Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : [])
+        setData(Array.isArray(r?.data) ? r.data : [])
 
       } else if (tab === 'monthly') {
         const params = {}
         if (isAdmin && filterAgentMonthly) params.agent_id = filterAgentMonthly
         const r = await api.get('/reports/monthly-comparison', { params })
-        setData(Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : [])
+        setData(Array.isArray(r?.data) ? r.data : [])
 
       } else if (tab === 'pipeline') {
         const r = await api.get('/reports/pipeline')
-        const d = r.data?.data || r.data || {}
+        const d = r?.data || {}
         setPipeline({
           by_status:  Array.isArray(d.by_status)  ? d.by_status  : [],
           by_agent:   Array.isArray(d.by_agent)   ? d.by_agent   : [],
@@ -228,23 +239,23 @@ export default function ReportsPage() {
 
       } else if (tab === 'pending') {
         const params = { from: fuDateFrom, to: fuDateTo }
-        if (isAdmin && fuAgent)   params.agent_id   = fuAgent
-        if (fuProduct) params.product_id = fuProduct
-        if (fuStatus)  params.status     = fuStatus
+        if (isAdmin && fuAgent) params.agent_id   = fuAgent
+        if (fuProduct)          params.product_id = fuProduct
+        if (fuStatus)           params.status     = fuStatus
         const r = await api.get('/reports/pending-followups', { params })
-        setData(Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : [])
+        setData(Array.isArray(r?.data) ? r.data : [])
 
       } else if (tab === 'upcoming') {
         const params = { from: fuDateFrom, to: fuDateTo }
-        if (isAdmin && fuAgent)   params.agent_id   = fuAgent
-        if (fuProduct) params.product_id = fuProduct
-        if (fuStatus)  params.status     = fuStatus
+        if (isAdmin && fuAgent) params.agent_id   = fuAgent
+        if (fuProduct)          params.product_id = fuProduct
+        if (fuStatus)           params.status     = fuStatus
         const r = await api.get('/reports/upcoming-followups', { params })
-        setData(Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : [])
+        setData(Array.isArray(r?.data) ? r.data : [])
 
       } else if (tab === 'conversion') {
         const r = await api.get('/reports/conversion')
-        setData(Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : [])
+        setData(Array.isArray(r?.data) ? r.data : [])
       }
     } catch (err) {
       console.error('Report error:', err)
@@ -263,20 +274,20 @@ export default function ReportsPage() {
   const openDrill = async (title, params) => {
     try {
       const r = await api.get('/leads', { params: { ...params, per_page: 200 } })
-      setDrillDown({ title, leads: Array.isArray(r.data) ? r.data : (r.data?.data || []) })
+      setDrillDown({ title, leads: Array.isArray(r?.data) ? r.data : (r?.data?.data || []) })
     } catch { setDrillDown({ title, leads: [] }) }
   }
   const openDataDrill = (title, rows) => setDrillDown({ title, leads: rows || [] })
 
-  const ov            = overview || {}
-  const totalLeads    = parseInt(ov.total_leads          || 0)
-  const hot           = parseInt(ov.hot_leads            || 0)
-  const warm          = parseInt(ov.warm_leads           || 0)
-  const converted     = parseInt(ov.converted_leads      || 0)
-  const callBack      = parseInt(ov.call_back_leads      || 0)
-  const newLeads      = parseInt(ov.new_leads            || 0)
-  const unattended    = parseInt(ov.unattended           || 0)
-  const convRate      = totalLeads > 0 ? ((converted / totalLeads) * 100).toFixed(1) : '0'
+  const ov         = overview || {}
+  const totalLeads = parseInt(ov.total_leads          || 0)
+  const hot        = parseInt(ov.hot_leads            || 0)
+  const warm       = parseInt(ov.warm_leads           || 0)
+  const converted  = parseInt(ov.converted_leads      || 0)
+  const callBack   = parseInt(ov.call_back_leads      || 0)
+  const newLeads   = parseInt(ov.new_leads            || 0)
+  const unattended = parseInt(ov.unattended           || 0)
+  const convRate   = totalLeads > 0 ? ((converted / totalLeads) * 100).toFixed(1) : '0'
 
   const statusData  = tab === 'overview' ? (data?.status  || []) : (Array.isArray(data) ? data : [])
   const agentDataOv = tab === 'overview' ? (data?.agents  || []) : (Array.isArray(data) ? data : [])
@@ -320,6 +331,7 @@ export default function ReportsPage() {
         <p className="text-slate-500 text-sm">Full CRM reporting suite</p>
       </div>
 
+      {/* Tab bar */}
       <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 flex-wrap">
         {TABS.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
@@ -329,6 +341,7 @@ export default function ReportsPage() {
         ))}
       </div>
 
+      {/* Filter bars */}
       {tab === 'daily' && (
         <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-xl p-3">
           <div className="flex items-center gap-2">
@@ -361,9 +374,9 @@ export default function ReportsPage() {
           {tab === 'overview' && (
             <div className="space-y-6">
               <div className="grid grid-cols-3 gap-4">
-                <StatCard label="Calls Today"      value={callStats.today     ||0} icon="📞" color="#2563eb" />
-                <StatCard label="Calls This Week"   value={callStats.this_week ||0} icon="📅" color="#7c3aed" />
-                <StatCard label="Calls This Month"  value={callStats.this_month||0} icon="📆" color="#0891b2" />
+                <StatCard label="Calls Today"     value={callStats.today      || 0} icon="📞" color="#2563eb" />
+                <StatCard label="Calls This Week"  value={callStats.this_week  || 0} icon="📅" color="#7c3aed" />
+                <StatCard label="Calls This Month" value={callStats.this_month || 0} icon="📆" color="#0891b2" />
               </div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard label="Total Leads" value={totalLeads} icon="👥" color="#2563eb" onClick={() => openDrill('All Leads', {})} />
@@ -382,12 +395,12 @@ export default function ReportsPage() {
                   <h3 className="font-bold text-slate-800 mb-4">Lead Status Breakdown</h3>
                   <div className="space-y-3">
                     {statusData.map(row => {
-                      const total = statusData.reduce((s,r)=>s+parseInt(r.count||0),0)
-                      const pct   = total>0?Math.round((parseInt(row.count)/total)*100):0
-                      const c     = STATUS_COLORS[row.status]||STATUS_COLORS.new
+                      const total = statusData.reduce((s,r) => s+parseInt(r.count||0), 0)
+                      const pct   = total>0 ? Math.round((parseInt(row.count)/total)*100) : 0
+                      const c     = STATUS_COLORS[row.status] || STATUS_COLORS.new
                       return (
                         <div key={row.status} className="flex items-center gap-4 cursor-pointer hover:bg-slate-50 p-2 rounded-lg"
-                          onClick={()=>openDrill(`${row.status?.replace(/_/g,' ')} Leads`,{status:row.status})}>
+                          onClick={() => openDrill(`${row.status?.replace(/_/g,' ')} Leads`,{status:row.status})}>
                           <div className="w-28 flex-shrink-0"><StatusBadge status={row.status}/></div>
                           <div className="flex-1 h-6 bg-slate-100 rounded-full overflow-hidden">
                             <div className="h-full rounded-full flex items-center px-2" style={{width:`${Math.max(pct,3)}%`,background:c.text}}>
@@ -437,13 +450,13 @@ export default function ReportsPage() {
           {tab === 'status' && (
             <div className="space-y-2">
               {!statusData.length ? <div className="card p-12 text-center text-slate-400">No data</div>
-                : statusData.map(row=>{
-                    const total=statusData.reduce((s,r)=>s+parseInt(r.count||0),0)
-                    const pct=total>0?Math.round((parseInt(row.count)/total)*100):0
-                    const c=STATUS_COLORS[row.status]||STATUS_COLORS.new
+                : statusData.map(row => {
+                    const total = statusData.reduce((s,r) => s+parseInt(r.count||0), 0)
+                    const pct   = total>0 ? Math.round((parseInt(row.count)/total)*100) : 0
+                    const c     = STATUS_COLORS[row.status] || STATUS_COLORS.new
                     return (
                       <div key={row.status} className="card p-4 flex items-center gap-4 cursor-pointer hover:shadow-md transition-all"
-                        onClick={()=>openDrill(`${row.status?.replace(/_/g,' ')} Leads`,{status:row.status})}>
+                        onClick={() => openDrill(`${row.status?.replace(/_/g,' ')} Leads`,{status:row.status})}>
                         <div className="w-32 flex-shrink-0"><StatusBadge status={row.status}/></div>
                         <div className="flex-1 h-6 bg-slate-100 rounded-full overflow-hidden">
                           <div className="h-full rounded-full flex items-center px-3" style={{width:`${Math.max(pct,2)}%`,background:c.text}}>
@@ -514,17 +527,19 @@ export default function ReportsPage() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                 {[
-                  ['Total Calls',(Array.isArray(data)?data:[]).length,'📞','#2563eb',null],
-                  ['Fresh (New)',(Array.isArray(data)?data:[]).filter(d=>d.status==='new').length,'🆕','#0891b2','new'],
-                  ['Hot Leads',(Array.isArray(data)?data:[]).filter(d=>d.status==='hot').length,'🔥','#dc2626','hot'],
-                  ['Warm Leads',(Array.isArray(data)?data:[]).filter(d=>d.status==='warm').length,'☀️','#d97706','warm'],
-                  ['Follow-ups Set',(Array.isArray(data)?data:[]).filter(d=>d.followup_created).length,'📅','#16a34a',null],
+                  ['Total Calls',    (Array.isArray(data)?data:[]).length,                                          '📞','#2563eb',null],
+                  ['Fresh (New)',    (Array.isArray(data)?data:[]).filter(d=>d.status==='new').length,              '🆕','#0891b2','new'],
+                  ['Hot Leads',      (Array.isArray(data)?data:[]).filter(d=>d.status==='hot').length,             '🔥','#dc2626','hot'],
+                  ['Warm Leads',     (Array.isArray(data)?data:[]).filter(d=>d.status==='warm').length,            '☀️','#d97706','warm'],
+                  // FIX 4: next_followup_date instead of followup_created (column doesn't exist in call_logs)
+                  ['Follow-ups Set', (Array.isArray(data)?data:[]).filter(d=>d.next_followup_date).length,         '📅','#16a34a',null],
                 ].map(([label,val,icon,color,status])=>(
                   <StatCard key={label} label={label} value={val} icon={icon} color={color}
                     onClick={()=>{const rows=Array.isArray(data)?data:[];openDataDrill(label,status?rows.filter(d=>d.status===status):rows)}} />
                 ))}
               </div>
-              {isAdmin && Array.isArray(data) && data.length>0 && (()=>{
+
+              {isAdmin && Array.isArray(data) && data.length > 0 && (()=>{
                 const agentMap={}
                 data.forEach(r=>{const k=r.agent_name||'Unassigned';agentMap[k]=(agentMap[k]||0)+1})
                 return (
@@ -543,8 +558,9 @@ export default function ReportsPage() {
                   </div>
                 )
               })()}
+
               <div className="card overflow-hidden">
-                {!Array.isArray(data)||!data.length
+                {!Array.isArray(data) || !data.length
                   ? <div className="p-12 text-center text-slate-400"><p className="text-4xl mb-3">📭</p><p>No calls for this date</p></div>
                   : <table className="w-full text-sm">
                       <thead className="bg-slate-50 border-b border-slate-200"><tr>
@@ -560,8 +576,17 @@ export default function ReportsPage() {
                             <td className="px-4 py-3 text-slate-500">{row.agent_name||'—'}</td>
                             <td className="px-4 py-3"><StatusBadge status={row.status}/></td>
                             <td className="px-4 py-3 text-xs text-slate-400 max-w-[160px] truncate">{row.discussion||'—'}</td>
-                            <td className="px-4 py-3"><span className={`text-xs font-medium px-2 py-0.5 rounded-full ${row.followup_created?'bg-green-100 text-green-700':'bg-slate-100 text-slate-500'}`}>{row.followup_created?'✓ Set':'—'}</span></td>
-                            <td className="px-4 py-3 text-xs text-slate-500">{row.called_at?(()=>{try{return format(new Date(row.called_at),'hh:mm a')}catch{return'—'}})():'—'}</td>
+                            {/* FIX 4: use next_followup_date — followup_created column does not exist in call_logs */}
+                            <td className="px-4 py-3">
+                              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${row.next_followup_date?'bg-green-100 text-green-700':'bg-slate-100 text-slate-500'}`}>
+                                {row.next_followup_date
+                                  ? `✓ ${(()=>{try{return format(new Date(row.next_followup_date),'dd MMM')}catch{return'Set'}})()}`
+                                  : '—'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-500">
+                              {row.called_at?(()=>{try{return format(new Date(row.called_at),'hh:mm a')}catch{return'—'}})():'—'}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -773,7 +798,7 @@ export default function ReportsPage() {
           )}
 
           {/* ── PENDING / UPCOMING ── */}
-          {['pending','upcoming'].includes(tab)&&(
+          {['pending','upcoming'].includes(tab) && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard label="Total" value={Array.isArray(data)?data.length:0} icon="📋" color="#2563eb" onClick={()=>openDataDrill('All Follow-ups',Array.isArray(data)?data:[])} />
@@ -782,8 +807,9 @@ export default function ReportsPage() {
                 <StatCard label="Overdue" value={(Array.isArray(data)?data:[]).filter(d=>d.followup_type==='missed').length} icon="⚠️" color="#7c3aed" onClick={()=>openDataDrill('Overdue',(Array.isArray(data)?data:[]).filter(d=>d.followup_type==='missed'))} />
               </div>
 
-              {Array.isArray(data)&&data.length>0&&(()=>{
-                const agentMap={};data.forEach(r=>{const k=r.agent_name||'Unassigned';agentMap[k]=(agentMap[k]||0)+1})
+              {Array.isArray(data) && data.length > 0 && (()=>{
+                const agentMap={}
+                data.forEach(r=>{const k=r.agent_name||'Unassigned';agentMap[k]=(agentMap[k]||0)+1})
                 return (
                   <div className="card p-4">
                     <h3 className="font-bold text-slate-700 mb-3">By Agent</h3>
@@ -801,8 +827,9 @@ export default function ReportsPage() {
                 )
               })()}
 
-              {Array.isArray(data)&&data.length>0&&(()=>{
-                const prodMap={};data.forEach(r=>{const k=r.product_name||'No Product';prodMap[k]=(prodMap[k]||0)+1})
+              {Array.isArray(data) && data.length > 0 && (()=>{
+                const prodMap={}
+                data.forEach(r=>{const k=r.product_name||'No Product';prodMap[k]=(prodMap[k]||0)+1})
                 return (
                   <div className="card p-4">
                     <h3 className="font-bold text-slate-700 mb-3">By Product</h3>
@@ -819,8 +846,9 @@ export default function ReportsPage() {
                 )
               })()}
 
-              {Array.isArray(data)&&data.length>0&&(()=>{
-                const statusMap={};data.forEach(r=>{const k=r.lead_status||r.status||'unknown';statusMap[k]=(statusMap[k]||0)+1})
+              {Array.isArray(data) && data.length > 0 && (()=>{
+                const statusMap={}
+                data.forEach(r=>{const k=r.lead_status||r.status||'unknown';statusMap[k]=(statusMap[k]||0)+1})
                 return (
                   <div className="card p-4">
                     <h3 className="font-bold text-slate-700 mb-3">By Status</h3>
@@ -839,7 +867,7 @@ export default function ReportsPage() {
               })()}
 
               <div className="card overflow-hidden">
-                {!Array.isArray(data)||!data.length
+                {!Array.isArray(data) || !data.length
                   ? <div className="p-12 text-center text-slate-400"><p className="text-4xl mb-3">🎉</p><p>No follow-ups for this filter</p></div>
                   : <table className="w-full text-sm">
                       <thead className="bg-slate-50 border-b border-slate-200"><tr>
@@ -876,10 +904,10 @@ export default function ReportsPage() {
           )}
 
           {/* ── CONVERSION ── */}
-          {tab==='conversion'&&(
+          {tab === 'conversion' && (
             <div className="card overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-100"><h3 className="font-bold text-slate-800">Agent Conversion Performance</h3></div>
-              {!Array.isArray(data)||!data.length ? <div className="p-12 text-center text-slate-400">No data</div>
+              {!Array.isArray(data) || !data.length ? <div className="p-12 text-center text-slate-400">No data</div>
                 : <table className="w-full text-sm">
                     <thead className="bg-slate-50 border-b border-slate-200"><tr>
                       {['Agent','Assigned','Calls','Hot+Warm','Converted','Conv %','Bar'].map(h=>(
@@ -899,7 +927,11 @@ export default function ReportsPage() {
                             <td className="px-4 py-3 text-amber-600">{interested}</td>
                             <td className="px-4 py-3 text-green-600 font-bold cursor-pointer hover:underline" onClick={()=>openDrill(`${row.agent_name} Converted`,{assigned_to:row.agent_id,status:'converted'})}>{row.converted||0} ↗</td>
                             <td className="px-4 py-3"><span className="text-lg font-black" style={{color:perfColor}}>{rate}%</span></td>
-                            <td className="px-4 py-3"><div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{width:`${Math.min(100,rate*3)}%`,background:perfColor}}/></div></td>
+                            <td className="px-4 py-3">
+                              <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full" style={{width:`${Math.min(100,rate*3)}%`,background:perfColor}}/>
+                              </div>
+                            </td>
                           </tr>
                         )
                       })}
@@ -911,7 +943,7 @@ export default function ReportsPage() {
         </>
       )}
 
-      {drillDown&&<DrillModal title={drillDown.title} leads={drillDown.leads} onClose={()=>setDrillDown(null)}/>}
+      {drillDown && <DrillModal title={drillDown.title} leads={drillDown.leads} onClose={() => setDrillDown(null)} />}
     </div>
   )
 }
