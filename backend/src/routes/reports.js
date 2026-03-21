@@ -91,8 +91,8 @@ router.get('/agent-wise', auth, async (req, res) => {
       LEFT JOIN leads l ON l.assigned_to = u.id ${scopeFilter}
       ${userFilter}
       GROUP BY u.id, u.name
-      ORDER BY total_leads DESC
-    `)
+      ORDER BY converted DESC, total_calls DESC, hot DESC
+`)
     res.json({ success: true, data: rows })
   } catch (err) {
     console.error('agent-wise error:', err.message)
