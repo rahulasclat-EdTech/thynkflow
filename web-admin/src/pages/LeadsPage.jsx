@@ -42,52 +42,37 @@ const PackageIcon = () => <Icon d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7
 const API = 'https://thynkflow.onrender.com/api'
 
 // ── status colours ──────────────────────────────────────────────
-// ✅ STATUS_COLORS is now built dynamically from /api/settings
-// so any new status (e.g. "Interested") auto-gets a colour
-const DEFAULT_STATUS_COLORS = {
-  new:            'bg-blue-100 text-blue-800',
-  hot:            'bg-red-100 text-red-800',
-  warm:           'bg-orange-100 text-orange-800',
-  cold:           'bg-slate-100 text-slate-700',
-  converted:      'bg-green-100 text-green-800',
+const STATUS_COLORS = {
+  new: 'bg-blue-100 text-blue-800',
+  hot: 'bg-red-100 text-red-800',
+  warm: 'bg-orange-100 text-orange-800',
+  cold: 'bg-slate-100 text-slate-700',
+  converted: 'bg-green-100 text-green-800',
   not_interested: 'bg-gray-100 text-gray-600',
-  call_back:      'bg-purple-100 text-purple-800',
+  call_back: 'bg-purple-100 text-purple-800',
 }
-// Will be populated once settings are fetched
-let STATUS_COLORS = { ...DEFAULT_STATUS_COLORS }
-
-// Tailwind-safe fallback classes for unknown statuses
-const FALLBACK_BADGE_CLASSES = [
+const _LEAD_FALLBACKS = [
   'bg-pink-100 text-pink-800','bg-teal-100 text-teal-800',
   'bg-yellow-100 text-yellow-800','bg-cyan-100 text-cyan-800',
   'bg-lime-100 text-lime-800','bg-violet-100 text-violet-800',
 ]
-let _fallbackIndex = 0
-
-function getStatusClass(status) {
-  if (STATUS_COLORS[status]) return STATUS_COLORS[status]
-  // Auto-assign a fallback class so unknown statuses still render
-  const cls = FALLBACK_BADGE_CLASSES[_fallbackIndex % FALLBACK_BADGE_CLASSES.length]
-  STATUS_COLORS[status] = cls
-  _fallbackIndex++
-  return cls
+let _leadFbIdx = 0
+function getLeadStatusClass(key) {
+  if (STATUS_COLORS[key]) return STATUS_COLORS[key]
+  const c = _LEAD_FALLBACKS[_leadFbIdx % _LEAD_FALLBACKS.length]; _leadFbIdx++
+  STATUS_COLORS[key] = c; return c
 }
-
-function buildLeadsStatusColors(statuses) {
-  // statuses: [{ key, color, label }] from app_settings
-  statuses.forEach((s, i) => {
-    if (!s.key) return
-    // Keep existing Tailwind classes for the original 7 — they look better
-    // For new ones, use a rotating fallback set
-    if (!DEFAULT_STATUS_COLORS[s.key]) {
-      STATUS_COLORS[s.key] = FALLBACK_BADGE_CLASSES[i % FALLBACK_BADGE_CLASSES.length]
-    }
+function applyLeadStatusColors(items) {
+  items.forEach((s, i) => {
+    const k = typeof s === 'string' ? s : s.key
+    if (k && !STATUS_COLORS[k])
+      STATUS_COLORS[k] = _LEAD_FALLBACKS[i % _LEAD_FALLBACKS.length]
   })
 }
 
 function Badge({ status }) {
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusClass(status)}`}>
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getLeadStatusClass(status)}`}>
       {status?.replace(/_/g, ' ')}
     </span>
   )
@@ -232,8 +217,7 @@ export default function LeadsPage() {
           }
         }).catch(() => {})
       const statusList = s.lead_status || s.statuses || s.status || []
-      // ✅ Build dynamic badge colors for any new statuses
-      if (statusList.length) buildLeadsStatusColors(statusList)
+      if (statusList.length) applyLeadStatusColors(statusList)
       setSettings({
         statuses:   statusList,
         sources:    s.lead_source || s.sources  || s.source  || [],
@@ -657,10 +641,7 @@ export default function LeadsPage() {
         <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1) }}
           className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
           <option value="">All Statuses</option>
-          {(settings.statuses.length
-            ? settings.statuses.map(st => typeof st === 'string' ? st : (st.key || st))
-            : Object.keys(DEFAULT_STATUS_COLORS)
-          ).map(s => (
+          {(settings.statuses.length ? settings.statuses.map(st => typeof st==='string' ? st : st.key) : Object.keys(STATUS_COLORS)).map(s => (
             <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
           ))}
         </select>
@@ -910,10 +891,7 @@ export default function LeadsPage() {
                           <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
                           <select value={editForm.status} onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
                             className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-                            {(settings.statuses.length
-                              ? settings.statuses.map(st => typeof st === 'string' ? st : (st.key || st))
-                              : Object.keys(DEFAULT_STATUS_COLORS)
-                            ).map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
+                            {(settings.statuses.length ? settings.statuses.map(st => typeof st==='string' ? st : st.key) : Object.keys(STATUS_COLORS)).map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
                           </select>
                         </div>
                         <div>
@@ -1230,10 +1208,7 @@ export default function LeadsPage() {
                       value={form.status}
                       onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
                       className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent">
-                      {(settings.statuses.length
-                        ? settings.statuses.map(st => typeof st === 'string' ? st : (st.key || st))
-                        : Object.keys(DEFAULT_STATUS_COLORS)
-                      ).map(s => (
+                      {(settings.statuses.length ? settings.statuses.map(st => typeof st==='string' ? st : st.key) : Object.keys(STATUS_COLORS)).map(s => (
                         <option key={s} value={s}>{s.replace(/_/g,' ')}</option>
                       ))}
                     </select>
@@ -1330,7 +1305,7 @@ export default function LeadsPage() {
                       <p className="text-sm text-gray-500">{form.phone || '—'} {form.email ? `· ${form.email}` : ''}</p>
                     </div>
                     <div className="ml-auto">
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold capitalize ${getStatusClass(form.status)}`}>
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold capitalize ${getLeadStatusClass(form.status)}`}>
                         {form.status?.replace(/_/g, ' ')}
                       </span>
                     </div>
