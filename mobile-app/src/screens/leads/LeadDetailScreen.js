@@ -18,6 +18,26 @@ const STATUS_COLORS = {
   not_interested: { bg:'#F3F4F6', text:'#6B7280' },
   call_back:      { bg:'#EDE9FE', text:'#5B21B6' },
 }
+const _MOB_FB = [
+  { bg:'#FCE7F3', text:'#9D174D' },{ bg:'#ECFDF5', text:'#065F46' },
+  { bg:'#FFF7ED', text:'#9A3412' },{ bg:'#F0F9FF', text:'#0369A1' },
+  { bg:'#FAF5FF', text:'#6B21A8' },{ bg:'#FEFCE8', text:'#854D0E' },
+]
+let _mFbIdx = 0
+function getMobStatusColor(key) {
+  if (STATUS_COLORS[key]) return STATUS_COLORS[key]
+  const c = _MOB_FB[_mFbIdx % _MOB_FB.length]; _mFbIdx++
+  STATUS_COLORS[key] = c; return c
+}
+function applyMobStatusColors(items) {
+  items.forEach(s => {
+    const k = typeof s === 'string' ? s : s.key
+    if (k && !STATUS_COLORS[k] && s.color)
+      STATUS_COLORS[k] = { bg: s.color + '28', text: s.color }
+  })
+}
+// ALL_STATUSES kept for backward compat — will grow as settings are applied
+let ALL_STATUSES = Object.keys(STATUS_COLORS)
 const COMM_ICONS   = { call:'call', whatsapp:'logo-whatsapp', email:'mail' }
 const COMM_COLORS  = { call:'#16A34A', whatsapp:'#15803D', email:'#1D4ED8' }
 
@@ -51,19 +71,13 @@ export default function LeadDetailScreen({ route, navigation }) {
     return () => sub.remove()
   }, [])
 
-  const [allStatuses, setAllStatuses] = useState([])
-
   useEffect(() => {
     Promise.all([api.get('/products/active'), api.get('/chat/users'), api.get('/settings')]).then(([p, u, s]) => {
       setProducts(p.data?.data || p.data || [])
       setAgents(Array.isArray(u.data?.data) ? u.data.data : (Array.isArray(u.data) ? u.data : []))
-      // ✅ Dynamic statuses
-      const sData    = s.data?.data || s.data || {}
-      const statuses = sData.lead_status || sData.statuses || []
-      if (statuses.length) {
-        applySettingsStatuses(statuses)
-        setAllStatuses(statuses.map(st => typeof st === 'string' ? st : (st.key || st)))
-      }
+      const sData = s.data?.data || s.data || {}
+      const sts = sData.lead_status || sData.statuses || []
+      if (sts.length) { applyMobStatusColors(sts); ALL_STATUSES = sts.map(s2 => typeof s2==='string'?s2:s2.key) }
     }).catch(()=>{})
   }, [])
 
@@ -156,7 +170,7 @@ export default function LeadDetailScreen({ route, navigation }) {
 
   if (!lead) return <View style={s.center}><Text>No lead data</Text></View>
 
-  const sc = getStatusColor(lead.status)
+  const sc = getMobStatusColor(lead.status)
   const productName = products.find(p=>p.id===parseInt(lead.product_id))?.name
 
   return (
@@ -217,8 +231,8 @@ export default function LeadDetailScreen({ route, navigation }) {
           <View style={s.section}>
             <Text style={s.secTitle}>Update Status</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {(allStatuses.length ? allStatuses : Object.keys(DEFAULT_STATUS_COLORS)).map(st=>{
-                const c=getStatusColor(st);const active=lead.status===st
+              {ALL_STATUSES.map(st=>{
+                const c=getMobStatusColor(st);const active=lead.status===st
                 return <TouchableOpacity key={st} onPress={()=>updateStatus(st)}
                   style={[s.stChip,{backgroundColor:active?c.text:c.bg}]}>
                   <Text style={[s.stChipText,{color:active?'#fff':c.text}]}>{st.replace(/_/g,' ')}</Text>
