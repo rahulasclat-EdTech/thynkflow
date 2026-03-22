@@ -12,44 +12,35 @@ import COLORS from '../../utils/colors'
 import CalendarPicker from '../../components/CalendarPicker'
 import VoiceInput from '../../components/VoiceInput'
 
-// ✅ STATUS_COLORS — default palette for original 7 statuses.
-//    New statuses added via Settings page are fetched at runtime.
-const DEFAULT_STATUS_COLORS = {
-  new:            { bg: '#DBEAFE', text: '#1E40AF' },
-  hot:            { bg: '#FEE2E2', text: '#991B1B' },
-  warm:           { bg: '#FFEDD5', text: '#9A3412' },
-  cold:           { bg: '#F3F4F6', text: '#374151' },
-  converted:      { bg: '#DCFCE7', text: '#166534' },
-  not_interested: { bg: '#F3F4F6', text: '#6B7280' },
-  call_back:      { bg: '#EDE9FE', text: '#5B21B6' },
+const STATUS_COLORS = {
+  new:            { bg:'#DBEAFE', text:'#1E40AF' },
+  hot:            { bg:'#FEE2E2', text:'#991B1B' },
+  warm:           { bg:'#FFEDD5', text:'#9A3412' },
+  cold:           { bg:'#F3F4F6', text:'#374151' },
+  converted:      { bg:'#DCFCE7', text:'#166534' },
+  not_interested: { bg:'#F3F4F6', text:'#6B7280' },
+  call_back:      { bg:'#EDE9FE', text:'#5B21B6' },
 }
-const MOBILE_FALLBACK_PALETTE = [
-  { bg: '#FCE7F3', text: '#9D174D' },{ bg: '#ECFDF5', text: '#065F46' },
-  { bg: '#FFF7ED', text: '#9A3412' },{ bg: '#F0F9FF', text: '#0369A1' },
-  { bg: '#FAF5FF', text: '#6B21A8' },{ bg: '#FEFCE8', text: '#854D0E' },
+const _MOB_FB = [
+  { bg:'#FCE7F3', text:'#9D174D' },{ bg:'#ECFDF5', text:'#065F46' },
+  { bg:'#FFF7ED', text:'#9A3412' },{ bg:'#F0F9FF', text:'#0369A1' },
+  { bg:'#FAF5FF', text:'#6B21A8' },{ bg:'#FEFCE8', text:'#854D0E' },
 ]
-
-// Mutable runtime map — populated from /api/settings on mount
-let STATUS_COLORS = { ...DEFAULT_STATUS_COLORS }
-let _mobileFbIdx  = 0
-
-function getStatusColor(key) {
+let _mFbIdx = 0
+function getMobStatusColor(key) {
   if (STATUS_COLORS[key]) return STATUS_COLORS[key]
-  const c = MOBILE_FALLBACK_PALETTE[_mobileFbIdx % MOBILE_FALLBACK_PALETTE.length]
-  STATUS_COLORS[key] = c
-  _mobileFbIdx++
-  return c
+  const c = _MOB_FB[_mFbIdx % _MOB_FB.length]; _mFbIdx++
+  STATUS_COLORS[key] = c; return c
 }
-
-function applySettingsStatuses(statuses) {
-  // statuses: [{ key, color, label }] from app_settings
-  statuses.forEach(s => {
-    if (!s.key) return
-    if (!DEFAULT_STATUS_COLORS[s.key] && s.color) {
-      STATUS_COLORS[s.key] = { bg: s.color + '28', text: s.color }
-    }
+function applyMobStatusColors(items) {
+  items.forEach(s => {
+    const k = typeof s === 'string' ? s : s.key
+    if (k && !STATUS_COLORS[k] && s.color)
+      STATUS_COLORS[k] = { bg: s.color + '28', text: s.color }
   })
 }
+// ALL_STATUSES kept for backward compat — will grow as settings are applied
+let ALL_STATUSES = Object.keys(STATUS_COLORS)
 
 export default function LeadsScreen({ navigation }) {
   const { user } = useAuth()
@@ -103,20 +94,14 @@ export default function LeadsScreen({ navigation }) {
 
   useEffect(() => { setPage(1); fetchLeads(1) }, [fetchLeads])
 
-  const [allStatuses, setAllStatuses] = useState([])
-
   useEffect(() => {
     Promise.all([api.get('/products/active'), api.get('/chat/users'), api.get('/settings')]).then(([p, u, s]) => {
       setProducts(p.data?.data || p.data || [])
       setAgents(Array.isArray(u.data?.data) ? u.data.data : (Array.isArray(u.data) ? u.data : []))
       const sData = s.data?.data || s.data || {}
       setLeadTypes(sData.lead_type || sData.lead_types || [{label:'B2B',key:'b2b'},{label:'B2C',key:'b2c'}])
-      // ✅ Dynamic statuses
-      const statuses = sData.lead_status || sData.statuses || []
-      if (statuses.length) {
-        applySettingsStatuses(statuses)
-        setAllStatuses(statuses.map(st => typeof st === 'string' ? st : (st.key || st)))
-      }
+      const sts = sData.lead_status || sData.statuses || []
+      if (sts.length) { applyMobStatusColors(sts); ALL_STATUSES = sts.map(s2 => typeof s2==='string'?s2:s2.key) }
     }).catch(() => {})
   }, [])
 
@@ -135,7 +120,7 @@ export default function LeadsScreen({ navigation }) {
   }
 
   const renderLead = ({ item }) => {
-    const sc = getStatusColor(item.status)
+    const sc = getMobStatusColor(item.status)
     const pname = products.find(p => p.id === parseInt(item.product_id))?.name
     return (
       <TouchableOpacity style={s.card} onPress={() => navigation.navigate('LeadDetail', { lead: item })}>
@@ -196,7 +181,7 @@ export default function LeadsScreen({ navigation }) {
 
       {/* Status chips - horizontal scrollable tabs */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filterBar}>
-        {[{label:'All',value:''}, ...(allStatuses.length ? allStatuses : Object.keys(DEFAULT_STATUS_COLORS)).map(s2=>({label:s2.replace(/_/g,' '),value:s2}))].map(item=>(
+        {[{label:'All',value:''}, ...ALL_STATUSES.map(s2=>({label:s2.replace(/_/g,' '),value:s2}))].map(item=>(
           <TouchableOpacity key={item.value} onPress={()=>{setFilterStatus(item.value);setPage(1)}}
             style={[s.chip, filterStatus===item.value && s.chipActive]}>
             <Text style={[s.chipTxt, filterStatus===item.value && s.chipTxtActive]}>{item.label}</Text>
@@ -339,8 +324,8 @@ function CreateLeadModal({ visible, onClose, onSave, products, agents, leadTypes
           <View style={{marginBottom:14}}>
             <Text style={s.lbl}>Status</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {(allStatuses.length ? allStatuses : Object.keys(DEFAULT_STATUS_COLORS)).map(st=>{
-                const c=getStatusColor(st);const sel=form.status===st
+              {ALL_STATUSES.map(st=>{
+                const c=getMobStatusColor(st);const sel=form.status===st
                 return <TouchableOpacity key={st} onPress={()=>f('status')(st)} style={[s.chip,sel&&s.chipActive,{marginRight:6}]}>
                   <Text style={[s.chipTxt,sel&&s.chipTxtActive]}>{st.replace(/_/g,' ')}</Text>
                 </TouchableOpacity>
