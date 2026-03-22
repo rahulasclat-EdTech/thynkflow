@@ -1,6 +1,5 @@
 // backend/src/routes/dashboard.js  — COMPLETE REPLACEMENT
-// ✅ FIX: Status counts now use GROUP BY — any new status added in Settings
-//         automatically appears in dashboard totals. No hardcoding.
+// Fixes: correct field names, agent-scoped queries, notifications, critical alerts
 const express = require('express')
 const db = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
@@ -11,46 +10,32 @@ function agentScope(user, alias = 'l') {
   return user.role_name === 'admin' ? '' : `AND ${alias}.assigned_to = '${user.id}'`
 }
 
-// ── Helper: build a status-keyed object from GROUP BY rows ─
-// e.g. [{ status:'hot', count:'12' }, ...] → { hot: 12, warm: 5, ... }
-function statusMap(rows) {
-  const map = {}
-  rows.forEach(r => { map[r.status] = parseInt(r.count || 0) })
-  return map
-}
-
 // ── GET /api/dashboard  (main stats) ─────────────────────
 router.get('/', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
 
-    // ✅ Dynamic: counts ALL statuses, not just the original 7
-    const { rows: statusRows } = await db.query(`
-      SELECT status, COUNT(*) AS count
-      FROM leads l
-      WHERE 1=1 ${scope}
-      GROUP BY status
-    `)
-    const byStatus = statusMap(statusRows)
-
-    // Fixed counts that don't depend on status list
-    const { rows: [misc] } = await db.query(`
+    const { rows: [totals] } = await db.query(`
       SELECT
-        COUNT(*)                                                        AS total_leads,
-        COUNT(CASE WHEN status NOT IN (
-              SELECT key FROM app_settings
-              WHERE category='lead_status' AND key IN ('converted','not_interested')
-              UNION ALL SELECT 'converted' UNION ALL SELECT 'not_interested'
-            ) AND updated_at < NOW() - INTERVAL '5 days' THEN 1 END)   AS unattended,
-        COUNT(CASE WHEN DATE(created_at) = CURRENT_DATE  THEN 1 END)   AS today_new
+        COUNT(*)                                                      AS total_leads,
+        COUNT(CASE WHEN status='new'            THEN 1 END)          AS new_leads,
+        COUNT(CASE WHEN status='hot'            THEN 1 END)          AS hot_leads,
+        COUNT(CASE WHEN status='warm'           THEN 1 END)          AS warm_leads,
+        COUNT(CASE WHEN status='cold'           THEN 1 END)          AS cold_leads,
+        COUNT(CASE WHEN status='converted'      THEN 1 END)          AS converted,
+        COUNT(CASE WHEN status='not_interested' THEN 1 END)          AS not_interested,
+        COUNT(CASE WHEN status='call_back'      THEN 1 END)          AS call_back,
+        COUNT(CASE WHEN status NOT IN ('converted','not_interested')
+              AND updated_at < NOW() - INTERVAL '5 days'  THEN 1 END) AS unattended,
+        COUNT(CASE WHEN DATE(created_at) = CURRENT_DATE  THEN 1 END) AS today_new
       FROM leads l WHERE 1=1 ${scope}
     `)
 
     const { rows: [calls] } = await db.query(`
       SELECT
-        COUNT(CASE WHEN DATE(cl.created_at) = CURRENT_DATE    THEN 1 END) AS today_calls,
-        COUNT(CASE WHEN cl.created_at >= NOW()-INTERVAL '7d'  THEN 1 END) AS week_calls,
-        COUNT(CASE WHEN cl.created_at >= NOW()-INTERVAL '30d' THEN 1 END) AS month_calls
+        COUNT(CASE WHEN DATE(cl.created_at) = CURRENT_DATE   THEN 1 END) AS today_calls,
+        COUNT(CASE WHEN cl.created_at >= NOW()-INTERVAL '7d' THEN 1 END) AS week_calls,
+        COUNT(CASE WHEN cl.created_at >= NOW()-INTERVAL '30d'THEN 1 END) AS month_calls
       FROM communication_logs cl
       JOIN leads l ON l.id = cl.lead_id
       WHERE cl.type = 'call' ${scope}
@@ -67,39 +52,15 @@ router.get('/', auth, async (req, res) => {
       WHERE 1=1 ${scope}
     `)
 
-    // ✅ Spread all dynamic status keys PLUS fixed fields.
-    // Legacy field names preserved so existing frontend fallbacks still work.
     res.json({
       success: true,
       data: {
         totals: {
-          // Fixed totals
-          total_leads:        parseInt(misc.total_leads   || 0),
-          unattended:         parseInt(misc.unattended    || 0),
-          today_new:          parseInt(misc.today_new     || 0),
-          today_calls:        parseInt(calls.today_calls  || 0),
-          week_calls:         parseInt(calls.week_calls   || 0),
-          month_calls:        parseInt(calls.month_calls  || 0),
-          upcoming_followups: parseInt(followups.upcoming || 0),
-          missed_followups:   parseInt(followups.missed   || 0),
-
-          // ✅ All statuses dynamically — new ones auto-appear here
-          ...byStatus,
-
-          // Legacy aliases so existing DashboardPage.jsx fallbacks keep working
-          new_leads:          byStatus['new']            || 0,
-          hot_leads:          byStatus['hot']            || 0,
-          warm_leads:         byStatus['warm']           || 0,
-          cold_leads:         byStatus['cold']           || 0,
-          converted:          byStatus['converted']      || 0,
-          not_interested:     byStatus['not_interested'] || 0,
-          call_back:          byStatus['call_back']      || 0,
-        },
-        // ✅ Also expose raw array so frontend can render all statuses dynamically
-        status_breakdown: statusRows.map(r => ({
-          status: r.status,
-          count:  parseInt(r.count || 0)
-        }))
+          ...totals,
+          ...calls,
+          upcoming_followups: followups.upcoming,
+          missed_followups:   followups.missed
+        }
       }
     })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
@@ -109,49 +70,21 @@ router.get('/', auth, async (req, res) => {
 router.get('/stats', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
-
-    // ✅ Dynamic status counts
-    const { rows: statusRows } = await db.query(`
-      SELECT status, COUNT(*) AS count
-      FROM leads l WHERE 1=1 ${scope}
-      GROUP BY status
-    `)
-    const byStatus = statusMap(statusRows)
-
-    const { rows: [misc] } = await db.query(`
+    const { rows: [totals] } = await db.query(`
       SELECT
-        COUNT(*)                                                       AS total_leads,
-        COUNT(CASE WHEN status NOT IN (
-              SELECT key FROM app_settings
-              WHERE category='lead_status' AND key IN ('converted','not_interested')
-              UNION ALL SELECT 'converted' UNION ALL SELECT 'not_interested'
-            ) AND updated_at < NOW()-INTERVAL '5 days' THEN 1 END)    AS unattended
+        COUNT(*)                                                      AS total_leads,
+        COUNT(CASE WHEN status='hot'            THEN 1 END)          AS hot_leads,
+        COUNT(CASE WHEN status='converted'      THEN 1 END)          AS converted_leads,
+        COUNT(CASE WHEN status NOT IN ('converted','not_interested')
+              AND updated_at < NOW()-INTERVAL '5 days'  THEN 1 END)  AS unattended,
+        COUNT(CASE WHEN status='new'            THEN 1 END)          AS new_leads,
+        COUNT(CASE WHEN status='warm'           THEN 1 END)          AS warm_leads,
+        COUNT(CASE WHEN status='cold'           THEN 1 END)          AS cold_leads,
+        COUNT(CASE WHEN status='call_back'      THEN 1 END)          AS call_back_leads,
+        COUNT(CASE WHEN status='not_interested' THEN 1 END)          AS not_interested_leads
       FROM leads l WHERE 1=1 ${scope}
     `)
-
-    res.json({
-      success: true,
-      data: {
-        totals: {
-          total_leads:           parseInt(misc.total_leads || 0),
-          unattended:            parseInt(misc.unattended  || 0),
-          // ✅ Dynamic
-          ...byStatus,
-          // Legacy _leads-suffix aliases for ReportsPage fallback
-          new_leads:             byStatus['new']            || 0,
-          hot_leads:             byStatus['hot']            || 0,
-          warm_leads:            byStatus['warm']           || 0,
-          cold_leads:            byStatus['cold']           || 0,
-          converted_leads:       byStatus['converted']      || 0,
-          not_interested_leads:  byStatus['not_interested'] || 0,
-          call_back_leads:       byStatus['call_back']      || 0,
-        },
-        status_breakdown: statusRows.map(r => ({
-          status: r.status,
-          count:  parseInt(r.count || 0)
-        }))
-      }
-    })
+    res.json({ success: true, data: { totals } })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
