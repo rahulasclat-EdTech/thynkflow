@@ -22,6 +22,26 @@ const STATUS_COLORS = {
   not_interested: { bg:'#F3F4F6', text:'#6B7280' },
   call_back:      { bg:'#EDE9FE', text:'#5B21B6' },
 }
+const _MOB_FB = [
+  { bg:'#FCE7F3', text:'#9D174D' },{ bg:'#ECFDF5', text:'#065F46' },
+  { bg:'#FFF7ED', text:'#9A3412' },{ bg:'#F0F9FF', text:'#0369A1' },
+  { bg:'#FAF5FF', text:'#6B21A8' },{ bg:'#FEFCE8', text:'#854D0E' },
+]
+let _mFbIdx = 0
+function getMobStatusColor(key) {
+  if (STATUS_COLORS[key]) return STATUS_COLORS[key]
+  const c = _MOB_FB[_mFbIdx % _MOB_FB.length]; _mFbIdx++
+  STATUS_COLORS[key] = c; return c
+}
+function applyMobStatusColors(items) {
+  items.forEach(s => {
+    const k = typeof s === 'string' ? s : s.key
+    if (k && !STATUS_COLORS[k] && s.color)
+      STATUS_COLORS[k] = { bg: s.color + '28', text: s.color }
+  })
+}
+// ALL_STATUSES kept for backward compat — will grow as settings are applied
+let ALL_STATUSES = Object.keys(STATUS_COLORS)
 
 function formatDate(d) {
   if (!d) return ''
@@ -64,9 +84,6 @@ export default function FollowUpScreen({ navigation }) {
     return () => sub.remove()
   }, [])
 
-  const [allStatuses, setAllStatuses] = useState([])
-  const allStatusesRef = useRef([])
-
   const fetchFollowups = useCallback(async () => {
     try {
       const statusParam = statusFilter ? `&lead_status=${statusFilter}` : ''
@@ -76,14 +93,9 @@ export default function FollowUpScreen({ navigation }) {
         api.get('/chat/users'),
         api.get('/settings').catch(() => ({ data: {} })),
       ])
-      // ✅ Apply dynamic status colors on every fetch (cheap, idempotent)
       const sD = settRes.data?.data || settRes.data || {}
       const sts = sD.lead_status || sD.statuses || []
-      if (sts.length) applySettingsStatuses(sts)
-      if (!allStatusesRef.current.length && sts.length) {
-        allStatusesRef.current = sts.map(st => typeof st === 'string' ? st : (st.key || st))
-        setAllStatuses([...allStatusesRef.current])
-      }
+      if (sts.length) { applyMobStatusColors(sts); ALL_STATUSES = sts.map(s2 => typeof s2==='string'?s2:s2.key) }
       const raw = fuRes.data?.data || fuRes.data || []
       const rows = Array.isArray(raw) ? raw : []
       setFollowups(rows)
@@ -124,7 +136,7 @@ export default function FollowUpScreen({ navigation }) {
 
   const renderItem = ({ item }) => {
     const overdue = isOverdue(item.follow_up_date || item.scheduled_at)
-    const sc = getStatusColor(item.lead_status || item.status)
+    const sc = getMobStatusColor(item.lead_status || item.status)
     return (
       <View style={[s.card, overdue && s.cardOverdue]}>
         <View style={s.cardTop}>
@@ -178,7 +190,7 @@ export default function FollowUpScreen({ navigation }) {
 
       {/* Lead status filter - compact horizontal chips */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[s.filterBar, {paddingBottom:4}]}>
-        {[{label:'All Status',value:''}, ...(allStatuses.length ? allStatuses : Object.keys(DEFAULT_STATUS_COLORS)).map(k=>({label:k.replace(/_/g,' '),value:k}))].map(item=>(
+        {[{label:'All Status',value:''}, ...ALL_STATUSES.map(k=>({label:k.replace(/_/g,' '),value:k}))].map(item=>(
           <TouchableOpacity key={item.value} onPress={()=>setStatusFilter(item.value)}
             style={[s.chip, statusFilter===item.value && s.chipActive]}>
             <Text style={[s.chipTxt, statusFilter===item.value && s.chipTxtActive]}>{item.label}</Text>
@@ -289,8 +301,8 @@ function UpdateFollowUpModal({ visible, followup, agents, onClose, onSave }) {
           <View style={s.section}>
             <Text style={s.secTitle}>📊 Update Status</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {(allStatuses.length ? allStatuses : Object.keys(DEFAULT_STATUS_COLORS)).map(st => {
-                const c=getStatusColor(st);const active=status===st
+              {ALL_STATUSES.map(st => {
+                const c=getMobStatusColor(st);const active=status===st
                 return <TouchableOpacity key={st} onPress={()=>setStatus(st)}
                   style={[s.stChip,{backgroundColor:active?c.text:c.bg,marginRight:6}]}>
                   <Text style={[s.stChipText,{color:active?'#fff':c.text}]}>{st.replace(/_/g,' ')}</Text>
