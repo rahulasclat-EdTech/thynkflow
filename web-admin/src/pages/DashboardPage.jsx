@@ -1,56 +1,44 @@
-// web-admin/src/pages/DashboardPage.jsx — COMPLETE REPLACEMENT
-// ✅ FIX: STATUS_COLORS now built dynamically from /api/settings so any new
-//         status added in Settings page auto-appears everywhere — badges,
-//         status breakdown cards, drill-down modals, follow-up rows, etc.
+// web-admin/src/pages/DashboardPage.jsx — CLEAN REWRITE
+// API: GET /dashboard → { data: { totals: { total_leads, hot_leads, warm_leads,
+//      cold_leads, converted, not_interested, call_back, new_leads, unattended,
+//      today_calls, week_calls, month_calls } } }
 import React, { useEffect, useState, useCallback } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import { format } from 'date-fns'
 
-// ── Fallback palette for statuses that have no color in app_settings ──────
-const FALLBACK_COLORS = [
-  { bg: '#dbeafe', text: '#1e40af' }, { bg: '#fee2e2', text: '#991b1b' },
-  { bg: '#fef3c7', text: '#92400e' }, { bg: '#e2e8f0', text: '#475569' },
-  { bg: '#dcfce7', text: '#14532d' }, { bg: '#f1f5f9', text: '#64748b' },
-  { bg: '#ede9fe', text: '#5b21b6' }, { bg: '#fce7f3', text: '#9d174d' },
-  { bg: '#ecfdf5', text: '#065f46' }, { bg: '#fff7ed', text: '#9a3412' },
-]
-
-// Built at runtime from /api/settings — key → { bg, text }
-let _statusColorCache = {}
-
-function getStatusColor(key, index = 0) {
-  if (_statusColorCache[key]) return _statusColorCache[key]
-  return FALLBACK_COLORS[index % FALLBACK_COLORS.length]
+// Base colors for original 7 statuses
+const STATUS_COLORS = {
+  new:            { bg: '#dbeafe', text: '#1e40af' },
+  hot:            { bg: '#fee2e2', text: '#991b1b' },
+  warm:           { bg: '#fef3c7', text: '#92400e' },
+  cold:           { bg: '#e2e8f0', text: '#475569' },
+  converted:      { bg: '#dcfce7', text: '#14532d' },
+  not_interested: { bg: '#f1f5f9', text: '#64748b' },
+  call_back:      { bg: '#ede9fe', text: '#5b21b6' },
 }
-
-// Builds the cache from the settings API response array
-// items: [{ key, color, label }]
-function buildStatusColorCache(items) {
-  const cache = {}
-  items.forEach((item, i) => {
-    const hex   = item.color || '#6366f1'
-    const alpha = hex + '28' // ~16% opacity for bg
-    cache[item.key] = {
-      bg:   alpha,
-      text: hex,
-    }
+// Fallback palette for new statuses added via Settings page
+const _FALLBACK = [
+  { bg: '#fce7f3', text: '#9d174d' },{ bg: '#ecfdf5', text: '#065f46' },
+  { bg: '#fff7ed', text: '#9a3412' },{ bg: '#f0f9ff', text: '#0369a1' },
+  { bg: '#faf5ff', text: '#6b21a8' },{ bg: '#fefce8', text: '#854d0e' },
+]
+let _fbIdx = 0
+function getStatusColor(key) {
+  if (STATUS_COLORS[key]) return STATUS_COLORS[key]
+  const c = _FALLBACK[_fbIdx % _FALLBACK.length]; _fbIdx++
+  STATUS_COLORS[key] = c; return c
+}
+function applyStatusColors(items) {
+  // items: [{ key, color, label }] from app_settings
+  items.forEach(s => {
+    if (s.key && !STATUS_COLORS[s.key] && s.color)
+      STATUS_COLORS[s.key] = { bg: s.color + '28', text: s.color }
   })
-  // Always keep safe fallbacks for the original 7
-  const defaults = {
-    new:            { bg: '#dbeafe', text: '#1e40af' },
-    hot:            { bg: '#fee2e2', text: '#991b1b' },
-    warm:           { bg: '#fef3c7', text: '#92400e' },
-    cold:           { bg: '#e2e8f0', text: '#475569' },
-    converted:      { bg: '#dcfce7', text: '#14532d' },
-    not_interested: { bg: '#f1f5f9', text: '#64748b' },
-    call_back:      { bg: '#ede9fe', text: '#5b21b6' },
-  }
-  _statusColorCache = { ...defaults, ...cache }
 }
 
 function StatusBadge({ status }) {
-  const c = _statusColorCache[status] || FALLBACK_COLORS[0]
+  const c = getStatusColor(status)
   return (
     <span className="text-xs font-bold px-2 py-0.5 rounded-full capitalize"
       style={{ background: c.bg, color: c.text }}>
@@ -117,15 +105,13 @@ export default function DashboardPage() {
   const { user } = useAuth()
   const isAdmin = user?.role_name === 'admin'
 
-  const [stats, setStats]               = useState(null)
-  const [critical, setCritical]         = useState(null)
-  const [agentData, setAgentData]       = useState([])
-  const [followups, setFollowups]       = useState([])
-  const [loading, setLoading]           = useState(true)
-  const [drillDown, setDrillDown]       = useState(null)
+  const [stats, setStats]         = useState(null)
+  const [critical, setCritical]   = useState(null)
+  const [agentData, setAgentData] = useState([])
+  const [followups, setFollowups] = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [drillDown, setDrillDown] = useState(null)
   const [showCritical, setShowCritical] = useState(false)
-  // ✅ Dynamic statuses fetched from Settings page
-  const [allStatuses, setAllStatuses]   = useState([])
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -138,14 +124,14 @@ export default function DashboardPage() {
         api.get('/settings').catch(() => ({ data: {} })),
       ])
 
-      // ✅ Build color cache from settings so new statuses get correct colors
-      const sData    = settRes.data?.data || settRes.data || {}
-      const statuses = sData.lead_status || sData.statuses || []
-      if (statuses.length) {
-        buildStatusColorCache(statuses)
-        setAllStatuses(statuses)
-      }
+      // Apply dynamic status colors from Settings page
+      const sData = settRes.data?.data || settRes.data || {}
+      const statList = sData.lead_status || sData.statuses || []
+      if (statList.length) applyStatusColors(statList)
 
+      // /dashboard returns { success, data: { totals: { total_leads, hot_leads, warm_leads,
+      //   cold_leads, converted, not_interested, call_back, new_leads, unattended,
+      //   today_calls, week_calls, month_calls } } }
       const rawTotals = dashRes.data?.data?.totals || {}
       setStats(rawTotals)
 
@@ -176,38 +162,20 @@ export default function DashboardPage() {
     </div>
   )
 
-  // ✅ Fixed counts (not status-dependent)
-  const totalLeads = parseInt(stats?.total_leads || 0)
-  const unattended = parseInt(stats?.unattended  || 0)
-  const todayCalls = parseInt(stats?.today_calls || 0)
-  const weekCalls  = parseInt(stats?.week_calls  || 0)
-  const monthCalls = parseInt(stats?.month_calls || 0)
-
-  // ✅ Dynamic per-status counts — works for any status key including new ones
-  const getStatusCount = (key) => {
-    // dashboard returns both direct key (e.g. 'hot') AND legacy alias (e.g. 'hot_leads')
-    return parseInt(stats?.[key] || stats?.[key + '_leads'] || stats?.[key.replace(/_/g,'')] || 0)
-  }
-
-  // Legacy vars kept so existing JSX below still compiles unchanged
-  const converted     = getStatusCount('converted')
-  const hot           = getStatusCount('hot')
-  const warm          = getStatusCount('warm')
+  // /dashboard returns these exact field names:
+  const totalLeads    = parseInt(stats?.total_leads    || 0)
+  const hot           = parseInt(stats?.hot_leads      || 0)   // hot_leads
+  const warm          = parseInt(stats?.warm_leads     || 0)   // warm_leads
+  const cold          = parseInt(stats?.cold_leads     || 0)   // cold_leads
+  const converted     = parseInt(stats?.converted      || 0)   // converted (no _leads)
+  const callBack      = parseInt(stats?.call_back      || 0)   // call_back (no _leads)
+  const notInterested = parseInt(stats?.not_interested || 0)   // not_interested (no _leads)
+  const newLeads      = parseInt(stats?.new_leads      || 0)
+  const unattended    = parseInt(stats?.unattended     || 0)
+  const todayCalls    = parseInt(stats?.today_calls    || 0)
+  const weekCalls     = parseInt(stats?.week_calls     || 0)
+  const monthCalls    = parseInt(stats?.month_calls    || 0)
   const convRate      = totalLeads > 0 ? ((converted / totalLeads) * 100).toFixed(1) : '0'
-
-  // ✅ Build status breakdown from the status_breakdown array returned by backend
-  // Falls back to reading individual keys from stats if array not present
-  const statusBreakdown = (() => {
-    const raw = stats?.__statusBreakdown || []
-    if (raw.length) return raw
-    // Fallback: build from allStatuses + stats keys
-    if (allStatuses.length) {
-      return allStatuses.map(s => ({ status: s.key, count: getStatusCount(s.key) }))
-    }
-    // Last resort: original 7
-    return ['new','hot','warm','cold','call_back','not_interested','converted']
-      .map(k => ({ status: k, count: getStatusCount(k) }))
-  })()
 
   const critUnattended = (critical?.unattended       || []).length
   const critMissed     = (critical?.missed_followups || []).length
@@ -290,43 +258,40 @@ export default function DashboardPage() {
           onClick={() => openDrill('Unattended Leads', { unattended: 'true' })} />
       </div>
 
-      {/* ✅ Status breakdown — fully dynamic, shows ALL statuses including new ones */}
+      {/* Status breakdown — 8 statuses all clickable */}
       <div className="card p-5">
         <h3 className="font-bold text-slate-800 mb-4">📊 Lead Status Breakdown</h3>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {statusBreakdown.map((item, idx) => {
-            const c     = _statusColorCache[item.status] || FALLBACK_COLORS[idx % FALLBACK_COLORS.length]
-            const val   = item.count || 0
-            const label = item.status?.replace(/_/g, ' ')
-            return (
-              <div key={item.status}
-                className="p-4 rounded-xl cursor-pointer hover:shadow-md transition-all border-2 border-transparent hover:border-opacity-50"
-                style={{ backgroundColor: c.bg, borderColor: c.text }}
-                onClick={() => openDrill(`${label} Leads`, { status: item.status })}>
-                <p className="text-2xl font-black" style={{ color: c.text }}>{val}</p>
-                <p className="text-xs font-semibold mt-1 capitalize" style={{ color: c.text }}>{label}</p>
-                <div className="mt-2 h-1.5 bg-white/50 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full" style={{
-                    width: `${totalLeads > 0 ? Math.max((val / totalLeads) * 100, 2) : 0}%`,
-                    backgroundColor: c.text
-                  }} />
-                </div>
+          {[
+            { label: 'New',           val: newLeads,      status: 'new',            color: '#1e40af', bg: '#dbeafe' },
+            { label: 'Hot',           val: hot,           status: 'hot',            color: '#991b1b', bg: '#fee2e2' },
+            { label: 'Warm',          val: warm,          status: 'warm',           color: '#92400e', bg: '#fef3c7' },
+            { label: 'Cold',          val: cold,          status: 'cold',           color: '#475569', bg: '#e2e8f0' },
+            { label: 'Call Back',     val: callBack,      status: 'call_back',      color: '#5b21b6', bg: '#ede9fe' },
+            { label: 'Not Interested',val: notInterested, status: 'not_interested', color: '#64748b', bg: '#f1f5f9' },
+            { label: 'Converted',     val: converted,     status: 'converted',      color: '#14532d', bg: '#dcfce7' },
+            { label: 'Unattended',    val: unattended,    status: null,             color: '#ea580c', bg: '#ffedd5' },
+            // ✅ Dynamic: any status in DB not in the above 7 gets auto-added here
+            ...Object.keys(STATUS_COLORS)
+              .filter(k => !['new','hot','warm','cold','call_back','not_interested','converted'].includes(k))
+              .map(k => ({ label: k.replace(/_/g,' '), val: parseInt(stats?.[k] || 0), status: k, color: STATUS_COLORS[k].text, bg: STATUS_COLORS[k].bg })),
+          ].map(item => (
+            <div key={item.label}
+              className="p-4 rounded-xl cursor-pointer hover:shadow-md transition-all border-2 border-transparent hover:border-opacity-50"
+              style={{ backgroundColor: item.bg, borderColor: item.color }}
+              onClick={() => item.status
+                ? openDrill(`${item.label} Leads`, { status: item.status })
+                : openDrill('Unattended Leads', { unattended: 'true' })}>
+              <p className="text-2xl font-black" style={{ color: item.color }}>{item.val}</p>
+              <p className="text-xs font-semibold mt-1" style={{ color: item.color }}>{item.label}</p>
+              <div className="mt-2 h-1.5 bg-white/50 rounded-full overflow-hidden">
+                <div className="h-full rounded-full" style={{
+                  width: `${totalLeads > 0 ? Math.max((item.val / totalLeads) * 100, 2) : 0}%`,
+                  backgroundColor: item.color
+                }} />
               </div>
-            )
-          })}
-          {/* Unattended is not a status — always shown as special card */}
-          <div className="p-4 rounded-xl cursor-pointer hover:shadow-md transition-all border-2 border-transparent hover:border-opacity-50"
-            style={{ backgroundColor: '#ffedd5', borderColor: '#ea580c' }}
-            onClick={() => openDrill('Unattended Leads', { unattended: 'true' })}>
-            <p className="text-2xl font-black" style={{ color: '#ea580c' }}>{unattended}</p>
-            <p className="text-xs font-semibold mt-1" style={{ color: '#ea580c' }}>Unattended</p>
-            <div className="mt-2 h-1.5 bg-white/50 rounded-full overflow-hidden">
-              <div className="h-full rounded-full" style={{
-                width: `${totalLeads > 0 ? Math.max((unattended / totalLeads) * 100, 2) : 0}%`,
-                backgroundColor: '#ea580c'
-              }} />
             </div>
-          </div>
+          ))}
         </div>
       </div>
 
