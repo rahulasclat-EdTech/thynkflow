@@ -30,9 +30,26 @@ const STATUS_COLORS = {
   not_interested: { bg: '#f1f5f9', text: '#64748b' },
   call_back:      { bg: '#ede9fe', text: '#5b21b6' },
 }
+const _REP_FALLBACK = [
+  { bg: '#fce7f3', text: '#9d174d' },{ bg: '#ecfdf5', text: '#065f46' },
+  { bg: '#fff7ed', text: '#9a3412' },{ bg: '#f0f9ff', text: '#0369a1' },
+  { bg: '#faf5ff', text: '#6b21a8' },{ bg: '#fefce8', text: '#854d0e' },
+]
+let _repFbIdx = 0
+function getRepStatusColor(key) {
+  if (STATUS_COLORS[key]) return STATUS_COLORS[key]
+  const c = _REP_FALLBACK[_repFbIdx % _REP_FALLBACK.length]; _repFbIdx++
+  STATUS_COLORS[key] = c; return c
+}
+function applyRepStatusColors(items) {
+  items.forEach(s => {
+    if (s.key && !STATUS_COLORS[s.key] && s.color)
+      STATUS_COLORS[s.key] = { bg: s.color + '28', text: s.color }
+  })
+}
 
 function StatusBadge({ status }) {
-  const c = getReportStatusColor(status)
+  const c = getRepStatusColor(status)
   return (
     <span className="text-xs font-bold px-2 py-0.5 rounded-full capitalize"
       style={{ background: c.bg, color: c.text }}>
@@ -126,7 +143,7 @@ export default function ReportsPage() {
   const [pipelineTab, setPipelineTab] = useState('status')
   const [drillDown, setDrillDown]   = useState(null)
 
-  // ✅ Load agents + settings (for dynamic status colors)
+  // Load agents + settings (for dynamic status colours)
   useEffect(() => {
     if (isAdmin) {
       api.get('/chat/users').then(r => {
@@ -134,11 +151,10 @@ export default function ReportsPage() {
         setAgents(Array.isArray(list) ? list : [])
       }).catch(() => {})
     }
-    // Fetch settings to build color map for any new statuses
     api.get('/settings').then(r => {
-      const sData    = r.data?.data || r.data || {}
-      const statuses = sData.lead_status || sData.statuses || []
-      if (statuses.length) buildReportStatusColors(statuses)
+      const s = r.data?.data || r.data || {}
+      const items = s.lead_status || s.statuses || []
+      if (items.length) applyRepStatusColors(items)
     }).catch(() => {})
   }, [isAdmin])
 
@@ -331,7 +347,7 @@ export default function ReportsPage() {
                     {statusData.map(row => {
                       const total = statusData.reduce((s, r) => s + parseInt(r.count || 0), 0)
                       const pct   = total > 0 ? Math.round((parseInt(row.count) / total) * 100) : 0
-                      const c     = getReportStatusColor(row.status)
+                      const c     = getRepStatusColor(row.status)
                       return (
                         <div key={row.status}
                           className="flex items-center gap-4 cursor-pointer hover:bg-slate-50 p-2 rounded-lg"
@@ -396,7 +412,7 @@ export default function ReportsPage() {
                 : statusData.map(row => {
                     const total = statusData.reduce((s, r) => s + parseInt(r.count || 0), 0)
                     const pct   = total > 0 ? Math.round((parseInt(row.count) / total) * 100) : 0
-                    const c     = getReportStatusColor(row.status)
+                    const c     = getRepStatusColor(row.status)
                     return (
                       <div key={row.status}
                         className="card p-4 flex items-center gap-4 cursor-pointer hover:shadow-md hover:border-blue-200 transition-all"
@@ -656,7 +672,7 @@ export default function ReportsPage() {
                         const remaining = pipeline.by_status.filter(r=>!order.includes(r.status))
                         return [...ordered,...remaining].map((row,i) => {
                           const pct = total > 0 ? Math.round((parseInt(row.count)/total)*100) : 0
-                          const c = getReportStatusColor(row.status)
+                          const c = getRepStatusColor(row.status)
                           return (
                             <div key={row.status} className="flex items-center gap-4 cursor-pointer"
                               onClick={() => openDrill(`${row.status.replace(/_/g,' ')} Leads`, { status: row.status })}>
