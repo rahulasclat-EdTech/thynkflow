@@ -1,6 +1,6 @@
 // backend/src/routes/reports.js  — COMPLETE REPLACEMENT
-// ✅ FIX: All status counts now use GROUP BY — any new status added in Settings
-//         automatically appears in all reports. No hardcoding.
+// Fixes: correct field names, agent scope, weekly/monthly comparison,
+//        daily detailed report, call stats, follow-up date column, pipeline
 const express = require('express')
 const db = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
@@ -14,48 +14,25 @@ function agentScope(user, alias = 'l') {
 router.get('/overview', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
-
-    // ✅ Dynamic status breakdown
-    const { rows: statusRows } = await db.query(`
-      SELECT status, COUNT(*) AS count
-      FROM leads l WHERE 1=1 ${scope}
-      GROUP BY status
-    `)
-    const byStatus = {}
-    statusRows.forEach(r => { byStatus[r.status] = parseInt(r.count || 0) })
-
-    const { rows: [misc] } = await db.query(`
+    const { rows: [r] } = await db.query(`
       SELECT
-        COUNT(*)                                                       AS total_leads,
+        COUNT(*)                                                 AS total_leads,
+        COUNT(CASE WHEN status='new'            THEN 1 END)     AS new_leads,
+        COUNT(CASE WHEN status='hot'            THEN 1 END)     AS hot_leads,
+        COUNT(CASE WHEN status='warm'           THEN 1 END)     AS warm_leads,
+        COUNT(CASE WHEN status='cold'           THEN 1 END)     AS cold_leads,
+        COUNT(CASE WHEN status='converted'      THEN 1 END)     AS converted_leads,
+        COUNT(CASE WHEN status='not_interested' THEN 1 END)     AS not_interested_leads,
+        COUNT(CASE WHEN status='call_back'      THEN 1 END)     AS call_back_leads,
         COUNT(CASE WHEN status NOT IN ('converted','not_interested')
-              AND updated_at < NOW()-INTERVAL '5 days' THEN 1 END)    AS unattended
+              AND updated_at < NOW()-INTERVAL '5 days' THEN 1 END) AS unattended
       FROM leads l WHERE 1=1 ${scope}
     `)
-
-    res.json({
-      success: true,
-      data: {
-        total_leads:           parseInt(misc.total_leads || 0),
-        unattended:            parseInt(misc.unattended  || 0),
-        // ✅ All dynamic statuses
-        ...byStatus,
-        // Legacy _leads-suffix aliases so existing frontend works unchanged
-        new_leads:             byStatus['new']            || 0,
-        hot_leads:             byStatus['hot']            || 0,
-        warm_leads:            byStatus['warm']           || 0,
-        cold_leads:            byStatus['cold']           || 0,
-        converted_leads:       byStatus['converted']      || 0,
-        not_interested_leads:  byStatus['not_interested'] || 0,
-        call_back_leads:       byStatus['call_back']      || 0,
-        // Raw array for new dynamic rendering
-        status_breakdown: statusRows.map(r => ({ status: r.status, count: parseInt(r.count || 0) }))
-      }
-    })
+    res.json({ success: true, data: r })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
 // ── Status wise ───────────────────────────────────────────
-// ✅ Already dynamic — returns all statuses from DB
 router.get('/status-wise', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
@@ -69,31 +46,23 @@ router.get('/status-wise', auth, async (req, res) => {
 })
 
 // ── Agent wise ────────────────────────────────────────────
-// ✅ FIX: Added dynamic per-status columns for all active statuses
 router.get('/agent-wise', auth, async (req, res) => {
   try {
     const scopeFilter = req.user.role_name !== 'admin' ? `AND l.assigned_to = '${req.user.id}'` : ''
-
-    // Get all active statuses for dynamic columns
-    const { rows: activeStatuses } = await db.query(`
-      SELECT key FROM app_settings
-      WHERE category = 'lead_status' AND is_active = true
-      ORDER BY sort_order
-    `)
-
-    // Build dynamic CASE columns per status
-    const statusCols = activeStatuses.map(s =>
-      `COUNT(CASE WHEN l.status='${s.key}' THEN 1 END) AS "${s.key}"`
-    ).join(',\n        ')
-
     const { rows } = await db.query(`
       SELECT
         u.id AS agent_id, u.name AS agent_name,
-        COUNT(l.id) AS total_leads,
-        ${statusCols},
+        COUNT(l.id)                                              AS total_leads,
+        COUNT(CASE WHEN l.status='hot'            THEN 1 END)   AS hot,
+        COUNT(CASE WHEN l.status='warm'           THEN 1 END)   AS warm,
+        COUNT(CASE WHEN l.status='cold'           THEN 1 END)   AS cold,
+        COUNT(CASE WHEN l.status='converted'      THEN 1 END)   AS converted,
+        COUNT(CASE WHEN l.status='new'            THEN 1 END)   AS new_leads,
+        COUNT(CASE WHEN l.status='call_back'      THEN 1 END)   AS call_back,
+        COUNT(CASE WHEN l.status='not_interested' THEN 1 END)   AS not_interested,
         COUNT(CASE WHEN l.status NOT IN ('converted','not_interested')
               AND l.updated_at < NOW()-INTERVAL '5 days' THEN 1 END) AS unattended,
-        COALESCE(c.total_calls, 0) AS total_calls
+        COALESCE(c.total_calls, 0)                              AS total_calls
       FROM users u
       LEFT JOIN leads l ON l.assigned_to = u.id ${scopeFilter}
       LEFT JOIN (
@@ -116,6 +85,7 @@ router.get('/daily-calls', auth, async (req, res) => {
     const { date, agent_id } = req.query
     const targetDate = date || new Date().toISOString().split('T')[0]
     let scope = agentScope(req.user)
+    // Admin can filter by specific agent
     if (req.user.role_name === 'admin' && agent_id) {
       scope = `AND l.assigned_to = '${agent_id}'`
     }
@@ -229,9 +199,9 @@ router.get('/call-stats', auth, async (req, res) => {
     const scope = agentScope(req.user, 'cl')
     const { rows: [r] } = await db.query(`
       SELECT
-        COUNT(CASE WHEN DATE(cl.created_at)=CURRENT_DATE       THEN 1 END) AS today,
-        COUNT(CASE WHEN cl.created_at>=NOW()-INTERVAL '7 days'  THEN 1 END) AS this_week,
-        COUNT(CASE WHEN cl.created_at>=NOW()-INTERVAL '30 days' THEN 1 END) AS this_month,
+        COUNT(CASE WHEN DATE(cl.created_at)=CURRENT_DATE      THEN 1 END) AS today,
+        COUNT(CASE WHEN cl.created_at>=NOW()-INTERVAL '7 days' THEN 1 END) AS this_week,
+        COUNT(CASE WHEN cl.created_at>=NOW()-INTERVAL '30 days'THEN 1 END) AS this_month,
         COUNT(*) AS total_all_time
       FROM communication_logs cl
       JOIN leads l ON l.id = cl.lead_id
@@ -242,25 +212,24 @@ router.get('/call-stats', auth, async (req, res) => {
 })
 
 // ── Pipeline ──────────────────────────────────────────────
-// ✅ by_status is fully dynamic
 router.get('/pipeline', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
 
-    // ✅ All statuses dynamically — no hardcoding
+    // Status wise
     const { rows: byStatus } = await db.query(`
       SELECT status, COUNT(*) AS count FROM leads l WHERE 1=1 ${scope}
       GROUP BY status ORDER BY count DESC
     `)
 
-    // Agent wise — core fixed columns + total
+    // Agent wise
     const { rows: byAgent } = await db.query(`
       SELECT u.name AS agent_name, u.id AS agent_id,
         COUNT(l.id) AS total,
-        COUNT(CASE WHEN l.status='hot'       THEN 1 END) AS hot,
-        COUNT(CASE WHEN l.status='warm'      THEN 1 END) AS warm,
+        COUNT(CASE WHEN l.status='hot'  THEN 1 END) AS hot,
+        COUNT(CASE WHEN l.status='warm' THEN 1 END) AS warm,
         COUNT(CASE WHEN l.status='converted' THEN 1 END) AS converted,
-        COUNT(CASE WHEN l.status='new'       THEN 1 END) AS new_leads
+        COUNT(CASE WHEN l.status='new'  THEN 1 END) AS new_leads
       FROM leads l JOIN users u ON l.assigned_to = u.id WHERE 1=1 ${scope}
       GROUP BY u.id, u.name ORDER BY total DESC
     `)
