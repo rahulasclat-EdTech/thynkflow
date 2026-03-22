@@ -7,7 +7,6 @@ import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import { format } from 'date-fns'
 
-// Base colors for original 7 statuses
 const STATUS_COLORS = {
   new:            { bg: '#dbeafe', text: '#1e40af' },
   hot:            { bg: '#fee2e2', text: '#991b1b' },
@@ -17,28 +16,9 @@ const STATUS_COLORS = {
   not_interested: { bg: '#f1f5f9', text: '#64748b' },
   call_back:      { bg: '#ede9fe', text: '#5b21b6' },
 }
-// Fallback palette for new statuses added via Settings page
-const _FALLBACK = [
-  { bg: '#fce7f3', text: '#9d174d' },{ bg: '#ecfdf5', text: '#065f46' },
-  { bg: '#fff7ed', text: '#9a3412' },{ bg: '#f0f9ff', text: '#0369a1' },
-  { bg: '#faf5ff', text: '#6b21a8' },{ bg: '#fefce8', text: '#854d0e' },
-]
-let _fbIdx = 0
-function getStatusColor(key) {
-  if (STATUS_COLORS[key]) return STATUS_COLORS[key]
-  const c = _FALLBACK[_fbIdx % _FALLBACK.length]; _fbIdx++
-  STATUS_COLORS[key] = c; return c
-}
-function applyStatusColors(items) {
-  // items: [{ key, color, label }] from app_settings
-  items.forEach(s => {
-    if (s.key && !STATUS_COLORS[s.key] && s.color)
-      STATUS_COLORS[s.key] = { bg: s.color + '28', text: s.color }
-  })
-}
 
 function StatusBadge({ status }) {
-  const c = getStatusColor(status)
+  const c = STATUS_COLORS[status] || STATUS_COLORS.new
   return (
     <span className="text-xs font-bold px-2 py-0.5 rounded-full capitalize"
       style={{ background: c.bg, color: c.text }}>
@@ -116,23 +96,38 @@ export default function DashboardPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [dashRes, critRes, agentRes, fuRes, settRes] = await Promise.all([
+      const [ovRes, callRes, dashRes, critRes, agentRes, fuRes] = await Promise.all([
+        api.get('/reports/overview').catch(() => ({ data: {} })),
+        api.get('/reports/call-stats').catch(() => ({ data: {} })),
         api.get('/dashboard').catch(() => ({ data: {} })),
         api.get('/dashboard/critical').catch(() => ({ data: {} })),
         api.get('/reports/agent-wise').catch(() => ({ data: [] })),
         api.get('/reports/upcoming-followups').catch(() => ({ data: [] })),
-        api.get('/settings').catch(() => ({ data: {} })),
       ])
 
-      // Apply dynamic status colors from Settings page
-      const sData = settRes.data?.data || settRes.data || {}
-      const statList = sData.lead_status || sData.statuses || []
-      if (statList.length) applyStatusColors(statList)
+      // Primary: /reports/overview returns flat { total_leads, hot_leads, ... converted_leads, call_back_leads }
+      // Fallback: /dashboard returns { data: { totals: { ... converted, call_back (no _leads suffix) } } }
+      const ov        = ovRes.data?.data || ovRes.data || {}
+      const dashTotals = dashRes.data?.data?.totals || {}
+      const calls     = callRes.data?.data || callRes.data || {}
 
-      // /dashboard returns { success, data: { totals: { total_leads, hot_leads, warm_leads,
-      //   cold_leads, converted, not_interested, call_back, new_leads, unattended,
-      //   today_calls, week_calls, month_calls } } }
-      const rawTotals = dashRes.data?.data?.totals || {}
+      // Merge: prefer overview fields, fill gaps from dashboard totals, add call stats
+      const rawTotals = {
+        total_leads:    ov.total_leads    || dashTotals.total_leads    || 0,
+        new_leads:      ov.new_leads      || dashTotals.new_leads      || 0,
+        hot_leads:      ov.hot_leads      || dashTotals.hot_leads      || 0,
+        warm_leads:     ov.warm_leads     || dashTotals.warm_leads     || 0,
+        cold_leads:     ov.cold_leads     || dashTotals.cold_leads     || 0,
+        // overview uses _leads suffix, dashboard uses no suffix — handle both
+        converted:      ov.converted_leads      || ov.converted      || dashTotals.converted      || 0,
+        not_interested: ov.not_interested_leads  || ov.not_interested  || dashTotals.not_interested  || 0,
+        call_back:      ov.call_back_leads       || ov.call_back       || dashTotals.call_back       || 0,
+        unattended:     ov.unattended     || dashTotals.unattended     || 0,
+        // call counts come from /reports/call-stats
+        today_calls:    calls.today       || dashTotals.today_calls    || 0,
+        week_calls:     calls.this_week   || dashTotals.week_calls     || 0,
+        month_calls:    calls.this_month  || dashTotals.month_calls    || 0,
+      }
       setStats(rawTotals)
 
       setCritical(critRes.data?.data || {})
@@ -147,6 +142,12 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
+
+  // Auto-refresh every 30 seconds so any agent activity reflects immediately
+  useEffect(() => {
+    const t = setInterval(fetchAll, 30000)
+    return () => clearInterval(t)
+  }, [fetchAll])
 
   const openDrill = async (title, params) => {
     try {
@@ -271,10 +272,6 @@ export default function DashboardPage() {
             { label: 'Not Interested',val: notInterested, status: 'not_interested', color: '#64748b', bg: '#f1f5f9' },
             { label: 'Converted',     val: converted,     status: 'converted',      color: '#14532d', bg: '#dcfce7' },
             { label: 'Unattended',    val: unattended,    status: null,             color: '#ea580c', bg: '#ffedd5' },
-            // ✅ Dynamic: any status in DB not in the above 7 gets auto-added here
-            ...Object.keys(STATUS_COLORS)
-              .filter(k => !['new','hot','warm','cold','call_back','not_interested','converted'].includes(k))
-              .map(k => ({ label: k.replace(/_/g,' '), val: parseInt(stats?.[k] || 0), status: k, color: STATUS_COLORS[k].text, bg: STATUS_COLORS[k].bg })),
           ].map(item => (
             <div key={item.label}
               className="p-4 rounded-xl cursor-pointer hover:shadow-md transition-all border-2 border-transparent hover:border-opacity-50"
