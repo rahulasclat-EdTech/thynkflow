@@ -1,8 +1,6 @@
-// backend/src/routes/dashboard.js  — FIXED
-// Changes vs previous version:
-//   1. GET /  — calls query: try communication_logs, fallback to call_logs
-//   2. GET /  — followups query: use call_logs.next_followup_date (no followups table)
-//   3. GET /critical — missed_followups: use call_logs.next_followup_date (no followups table)
+// backend/src/routes/dashboard.js  — COMPLETE REPLACEMENT
+// ✅ FIX: Status counts now use GROUP BY — any new status added in Settings
+//         automatically appears in dashboard totals. No hardcoding.
 const express = require('express')
 const db = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
@@ -13,83 +11,95 @@ function agentScope(user, alias = 'l') {
   return user.role_name === 'admin' ? '' : `AND ${alias}.assigned_to = '${user.id}'`
 }
 
+// ── Helper: build a status-keyed object from GROUP BY rows ─
+// e.g. [{ status:'hot', count:'12' }, ...] → { hot: 12, warm: 5, ... }
+function statusMap(rows) {
+  const map = {}
+  rows.forEach(r => { map[r.status] = parseInt(r.count || 0) })
+  return map
+}
+
 // ── GET /api/dashboard  (main stats) ─────────────────────
 router.get('/', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
 
-    const { rows: [totals] } = await db.query(`
+    // ✅ Dynamic: counts ALL statuses, not just the original 7
+    const { rows: statusRows } = await db.query(`
+      SELECT status, COUNT(*) AS count
+      FROM leads l
+      WHERE 1=1 ${scope}
+      GROUP BY status
+    `)
+    const byStatus = statusMap(statusRows)
+
+    // Fixed counts that don't depend on status list
+    const { rows: [misc] } = await db.query(`
       SELECT
-        COUNT(*)                                                      AS total_leads,
-        COUNT(CASE WHEN status='new'            THEN 1 END)          AS new_leads,
-        COUNT(CASE WHEN status='hot'            THEN 1 END)          AS hot_leads,
-        COUNT(CASE WHEN status='warm'           THEN 1 END)          AS warm_leads,
-        COUNT(CASE WHEN status='cold'           THEN 1 END)          AS cold_leads,
-        COUNT(CASE WHEN status='converted'      THEN 1 END)          AS converted,
-        COUNT(CASE WHEN status='not_interested' THEN 1 END)          AS not_interested,
-        COUNT(CASE WHEN status='call_back'      THEN 1 END)          AS call_back,
-        COUNT(CASE WHEN status NOT IN ('converted','not_interested')
-              AND updated_at < NOW() - INTERVAL '5 days'  THEN 1 END) AS unattended,
-        COUNT(CASE WHEN DATE(created_at) = CURRENT_DATE  THEN 1 END) AS today_new
+        COUNT(*)                                                        AS total_leads,
+        COUNT(CASE WHEN status NOT IN (
+              SELECT key FROM app_settings
+              WHERE category='lead_status' AND key IN ('converted','not_interested')
+              UNION ALL SELECT 'converted' UNION ALL SELECT 'not_interested'
+            ) AND updated_at < NOW() - INTERVAL '5 days' THEN 1 END)   AS unattended,
+        COUNT(CASE WHEN DATE(created_at) = CURRENT_DATE  THEN 1 END)   AS today_new
       FROM leads l WHERE 1=1 ${scope}
     `)
 
-    // ── Call counts: try communication_logs first, fallback to call_logs ──
-    let calls = { today_calls: 0, week_calls: 0, month_calls: 0 }
-    try {
-      const { rows: [c] } = await db.query(`
-        SELECT
-          COUNT(CASE WHEN DATE(cl.created_at) = CURRENT_DATE    THEN 1 END) AS today_calls,
-          COUNT(CASE WHEN cl.created_at >= NOW()-INTERVAL '7d'  THEN 1 END) AS week_calls,
-          COUNT(CASE WHEN cl.created_at >= NOW()-INTERVAL '30d' THEN 1 END) AS month_calls
-        FROM communication_logs cl
-        JOIN leads l ON l.id = cl.lead_id
-        WHERE cl.type = 'call' ${scope}
-      `)
-      calls = c
-    } catch {
-      try {
-        const { rows: [c] } = await db.query(`
-          SELECT
-            COUNT(CASE WHEN DATE(cl.called_at) = CURRENT_DATE    THEN 1 END) AS today_calls,
-            COUNT(CASE WHEN cl.called_at >= NOW()-INTERVAL '7d'  THEN 1 END) AS week_calls,
-            COUNT(CASE WHEN cl.called_at >= NOW()-INTERVAL '30d' THEN 1 END) AS month_calls
-          FROM call_logs cl
-          JOIN leads l ON l.id = cl.lead_id WHERE 1=1 ${scope}
-        `)
-        calls = c
-      } catch { /* keep zeros */ }
-    }
+    const { rows: [calls] } = await db.query(`
+      SELECT
+        COUNT(CASE WHEN DATE(cl.created_at) = CURRENT_DATE    THEN 1 END) AS today_calls,
+        COUNT(CASE WHEN cl.created_at >= NOW()-INTERVAL '7d'  THEN 1 END) AS week_calls,
+        COUNT(CASE WHEN cl.created_at >= NOW()-INTERVAL '30d' THEN 1 END) AS month_calls
+      FROM communication_logs cl
+      JOIN leads l ON l.id = cl.lead_id
+      WHERE cl.type = 'call' ${scope}
+    `)
 
-    // ── Follow-up counts: use call_logs.next_followup_date ──
-    // (There is no separate followups table — dates live on call_logs)
-    let followups = { upcoming: 0, missed: 0 }
-    try {
-      const { rows: [f] } = await db.query(`
-        SELECT
-          COUNT(CASE WHEN latest.next_followup_date >= CURRENT_DATE THEN 1 END) AS upcoming,
-          COUNT(CASE WHEN latest.next_followup_date <  CURRENT_DATE THEN 1 END) AS missed
-        FROM (
-          SELECT DISTINCT ON (cl.lead_id) cl.lead_id, cl.next_followup_date
-          FROM call_logs cl
-          WHERE cl.next_followup_date IS NOT NULL
-          ORDER BY cl.lead_id, cl.called_at DESC
-        ) latest
-        JOIN leads l ON l.id = latest.lead_id
-        WHERE l.status NOT IN ('converted','not_interested') ${scope}
-      `)
-      followups = f
-    } catch { /* keep zeros */ }
+    const { rows: [followups] } = await db.query(`
+      SELECT
+        COUNT(CASE WHEN f.follow_up_date >= CURRENT_DATE
+              AND (f.status IS NULL OR f.status='pending') THEN 1 END) AS upcoming,
+        COUNT(CASE WHEN f.follow_up_date < CURRENT_DATE
+              AND (f.status IS NULL OR f.status='pending') THEN 1 END) AS missed
+      FROM followups f
+      JOIN leads l ON l.id = f.lead_id
+      WHERE 1=1 ${scope}
+    `)
 
+    // ✅ Spread all dynamic status keys PLUS fixed fields.
+    // Legacy field names preserved so existing frontend fallbacks still work.
     res.json({
       success: true,
       data: {
         totals: {
-          ...totals,
-          ...calls,
-          upcoming_followups: followups.upcoming,
-          missed_followups:   followups.missed
-        }
+          // Fixed totals
+          total_leads:        parseInt(misc.total_leads   || 0),
+          unattended:         parseInt(misc.unattended    || 0),
+          today_new:          parseInt(misc.today_new     || 0),
+          today_calls:        parseInt(calls.today_calls  || 0),
+          week_calls:         parseInt(calls.week_calls   || 0),
+          month_calls:        parseInt(calls.month_calls  || 0),
+          upcoming_followups: parseInt(followups.upcoming || 0),
+          missed_followups:   parseInt(followups.missed   || 0),
+
+          // ✅ All statuses dynamically — new ones auto-appear here
+          ...byStatus,
+
+          // Legacy aliases so existing DashboardPage.jsx fallbacks keep working
+          new_leads:          byStatus['new']            || 0,
+          hot_leads:          byStatus['hot']            || 0,
+          warm_leads:         byStatus['warm']           || 0,
+          cold_leads:         byStatus['cold']           || 0,
+          converted:          byStatus['converted']      || 0,
+          not_interested:     byStatus['not_interested'] || 0,
+          call_back:          byStatus['call_back']      || 0,
+        },
+        // ✅ Also expose raw array so frontend can render all statuses dynamically
+        status_breakdown: statusRows.map(r => ({
+          status: r.status,
+          count:  parseInt(r.count || 0)
+        }))
       }
     })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
@@ -99,21 +109,49 @@ router.get('/', auth, async (req, res) => {
 router.get('/stats', auth, async (req, res) => {
   try {
     const scope = agentScope(req.user)
-    const { rows: [totals] } = await db.query(`
+
+    // ✅ Dynamic status counts
+    const { rows: statusRows } = await db.query(`
+      SELECT status, COUNT(*) AS count
+      FROM leads l WHERE 1=1 ${scope}
+      GROUP BY status
+    `)
+    const byStatus = statusMap(statusRows)
+
+    const { rows: [misc] } = await db.query(`
       SELECT
-        COUNT(*)                                                      AS total_leads,
-        COUNT(CASE WHEN status='hot'            THEN 1 END)          AS hot_leads,
-        COUNT(CASE WHEN status='converted'      THEN 1 END)          AS converted_leads,
-        COUNT(CASE WHEN status NOT IN ('converted','not_interested')
-              AND updated_at < NOW()-INTERVAL '5 days'  THEN 1 END)  AS unattended,
-        COUNT(CASE WHEN status='new'            THEN 1 END)          AS new_leads,
-        COUNT(CASE WHEN status='warm'           THEN 1 END)          AS warm_leads,
-        COUNT(CASE WHEN status='cold'           THEN 1 END)          AS cold_leads,
-        COUNT(CASE WHEN status='call_back'      THEN 1 END)          AS call_back_leads,
-        COUNT(CASE WHEN status='not_interested' THEN 1 END)          AS not_interested_leads
+        COUNT(*)                                                       AS total_leads,
+        COUNT(CASE WHEN status NOT IN (
+              SELECT key FROM app_settings
+              WHERE category='lead_status' AND key IN ('converted','not_interested')
+              UNION ALL SELECT 'converted' UNION ALL SELECT 'not_interested'
+            ) AND updated_at < NOW()-INTERVAL '5 days' THEN 1 END)    AS unattended
       FROM leads l WHERE 1=1 ${scope}
     `)
-    res.json({ success: true, data: { totals } })
+
+    res.json({
+      success: true,
+      data: {
+        totals: {
+          total_leads:           parseInt(misc.total_leads || 0),
+          unattended:            parseInt(misc.unattended  || 0),
+          // ✅ Dynamic
+          ...byStatus,
+          // Legacy _leads-suffix aliases for ReportsPage fallback
+          new_leads:             byStatus['new']            || 0,
+          hot_leads:             byStatus['hot']            || 0,
+          warm_leads:            byStatus['warm']           || 0,
+          cold_leads:            byStatus['cold']           || 0,
+          converted_leads:       byStatus['converted']      || 0,
+          not_interested_leads:  byStatus['not_interested'] || 0,
+          call_back_leads:       byStatus['call_back']      || 0,
+        },
+        status_breakdown: statusRows.map(r => ({
+          status: r.status,
+          count:  parseInt(r.count || 0)
+        }))
+      }
+    })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
@@ -132,34 +170,20 @@ router.get('/critical', auth, async (req, res) => {
       ORDER BY l.updated_at ASC LIMIT 50
     `)
 
-    // ── Missed follow-ups: read from call_logs.next_followup_date ──
-    // (no separate followups table in this schema)
-    let missedFollowups = []
-    try {
-      const { rows } = await db.query(`
-        SELECT
-          latest.lead_id,
-          latest.next_followup_date                                AS follow_up_date,
-          latest.discussion                                        AS notes,
-          COALESCE(l.contact_name, l.school_name)                 AS lead_name,
-          l.phone, l.status AS lead_status,
-          u.name AS agent_name,
-          EXTRACT(DAY FROM NOW() - latest.next_followup_date)::int AS days_overdue
-        FROM (
-          SELECT DISTINCT ON (cl.lead_id)
-            cl.lead_id, cl.next_followup_date, cl.discussion
-          FROM call_logs cl
-          WHERE cl.next_followup_date IS NOT NULL
-          ORDER BY cl.lead_id, cl.called_at DESC
-        ) latest
-        JOIN leads l ON l.id = latest.lead_id
-        LEFT JOIN users u ON l.assigned_to = u.id
-        WHERE latest.next_followup_date < CURRENT_DATE - INTERVAL '3 days'
-          AND l.status NOT IN ('converted','not_interested') ${scope}
-        ORDER BY latest.next_followup_date ASC LIMIT 50
-      `)
-      missedFollowups = rows
-    } catch { /* keep empty */ }
+    const { rows: missedFollowups } = await db.query(`
+      SELECT f.id, f.follow_up_date, f.notes,
+        COALESCE(l.contact_name, l.school_name) AS lead_name,
+        l.phone, l.status AS lead_status, l.id AS lead_id,
+        u.name AS agent_name,
+        EXTRACT(DAY FROM NOW() - f.follow_up_date)::int AS days_overdue
+      FROM followups f
+      JOIN leads l ON l.id = f.lead_id
+      LEFT JOIN users u ON l.assigned_to = u.id
+      WHERE f.follow_up_date < CURRENT_DATE
+        AND (f.status IS NULL OR f.status = 'pending') ${scope}
+        AND f.follow_up_date < NOW() - INTERVAL '3 days'
+      ORDER BY f.follow_up_date ASC LIMIT 50
+    `)
 
     res.json({ success: true, data: { unattended, missed_followups: missedFollowups } })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
