@@ -99,9 +99,25 @@ export default function LeadsScreen({ navigation }) {
       setProducts(p.data?.data || p.data || [])
       setAgents(Array.isArray(u.data?.data) ? u.data.data : (Array.isArray(u.data) ? u.data : []))
       const sData = s.data?.data || s.data || {}
-      setLeadTypes(sData.lead_type || sData.lead_types || [{label:'B2B',key:'b2b'},{label:'B2C',key:'b2c'}])
-      const sts = sData.lead_status || sData.statuses || []
-      if (sts.length) { applyMobStatusColors(sts); ALL_STATUSES = sts.map(s2 => typeof s2==='string'?s2:s2.key) }
+
+      // Normalise settings rows (DB objects, {label,key}, or plain strings) → {label,key}
+      const normalise = (arr) =>
+        (Array.isArray(arr) ? arr : []).map(item => {
+          if (typeof item === 'string') return { label: item, key: item }
+          const lbl = String(item.label || item.name || item.key || item)
+          const ky  = String(item.key   || item.value || lbl)
+          return { label: lbl, key: ky }
+        })
+
+      const rawLeadTypes = sData.lead_type || sData.lead_types || [{label:'B2B',key:'b2b'},{label:'B2C',key:'b2c'}]
+      setLeadTypes(normalise(rawLeadTypes))
+
+      const rawStatuses = sData.lead_status || sData.statuses || []
+      if (rawStatuses.length) {
+        const normSts = normalise(rawStatuses)
+        applyMobStatusColors(normSts)
+        ALL_STATUSES = normSts.map(s2 => s2.key)
+      }
     }).catch(() => {})
   }, [])
 
@@ -310,7 +326,7 @@ function CreateLeadModal({ visible, onClose, onSave, products, agents, leadTypes
             <Text style={s.lbl}>Lead Type</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {[{label:'',key:''},...leadTypes].map(t=>{
-                const lbl = t?.label||t
+                const lbl = String(t?.label || t?.key || t || '')
                 const sel = form.lead_type === lbl
                 return <TouchableOpacity key={t?.key||lbl||'none'} onPress={()=>setForm(f=>({...f,lead_type:lbl}))}
                   style={[s.chip, sel&&s.chipActive, {marginRight:6}]}>
