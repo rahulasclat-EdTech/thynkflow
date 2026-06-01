@@ -16,6 +16,7 @@ import ActivityPage from './pages/ActivityPage'
 import ChatPage from './pages/ChatPage'
 import PerformancePage from './pages/PerformancePage'
 import CampaignsPage from './pages/CampaignsPage'
+import IntegrationsPage from './pages/IntegrationsPage'
 
 function PrivateRoute({ children }) {
   const { user } = useAuth()
@@ -48,7 +49,8 @@ export default function App() {
           <Route path="activities"  element={<ActivityPage />} />
           <Route path="chat"        element={<ChatPage />} />
           <Route path="performance" element={<PerformancePage />} />
-          <Route path="campaigns"   element={<AdminRoute><CampaignsPage /></AdminRoute>} />
+          <Route path="campaigns"     element={<AdminRoute><CampaignsPage /></AdminRoute>} />
+          <Route path="integrations"  element={<AdminRoute><IntegrationsPage /></AdminRoute>} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

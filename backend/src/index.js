@@ -16,7 +16,8 @@ const activityRoutes    = require('./routes/activities');
 const chatRoutes        = require('./routes/chat');
 const notifRoutes       = require('./routes/notifications');
 const performanceRoutes = require('./routes/performance');
-const campaignRoutes    = require('./routes/campaigns');
+const campaignRoutes       = require('./routes/campaigns');
+const integrationRoutes    = require('./routes/integrations');
 
 const app = express();
 app.use(cors({
@@ -41,7 +42,8 @@ app.use('/api/activities',  activityRoutes);
 app.use('/api/chat',        chatRoutes);
 app.use('/api/notifications', notifRoutes);
 app.use('/api/performance', performanceRoutes);
-app.use('/api/campaigns',  campaignRoutes);
+app.use('/api/campaigns',     campaignRoutes);
+app.use('/api/integrations',  integrationRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', app: 'ThynkFlow' }));
 app.use((err, req, res, next) => {

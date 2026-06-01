@@ -1,26 +1,15 @@
 // backend/src/routes/emails.js
-// FIX: role_name check now uses req.user.role_name from auth middleware (already joined)
+// SMTP now reads from DB via integrations.js (falls back to env vars)
 const express    = require('express')
 const nodemailer = require('nodemailer')
 const db         = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
+const { buildTransporter, getFromAddress } = require('./integrations')
 
 const router = express.Router()
 
-function createTransporter() {
-  const port   = parseInt(process.env.SMTP_PORT || '587')
-  const secure = port === 465
-  return nodemailer.createTransport({
-    host:   process.env.SMTP_HOST || 'smtp.gmail.com',
-    port,
-    secure,
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-    tls:  { rejectUnauthorized: false },
-    connectionTimeout: 15000,
-    greetingTimeout:   15000,
-    socketTimeout:     15000,
-  })
-}
+// DB-driven — reads from app_config table, falls back to env vars
+const createTransporter = buildTransporter
 
 function fillTemplate(text, vars = {}) {
   return text
@@ -130,8 +119,8 @@ router.post('/send', auth, async (req, res) => {
 
   let status = 'sent', errorMsg = null
   try {
-    const transporter = createTransporter()
-    const from = process.env.SMTP_FROM || `ThynkFlow Sales <${process.env.SMTP_USER}>`
+    const transporter = await createTransporter()
+    const from = await getFromAddress()
     await transporter.sendMail({
       from, to: to_name ? `${to_name} <${to_email}>` : to_email,
       subject, text: body, html: body.replace(/\n/g, '<br>'),
@@ -167,8 +156,8 @@ router.post('/bulk', auth, async (req, res) => {
   )
   if (!leads.length) return res.status(400).json({ success: false, message: 'No leads with valid email addresses' })
 
-  const transporter = createTransporter()
-  const from        = process.env.SMTP_FROM || `ThynkFlow Sales <${process.env.SMTP_USER}>`
+  const transporter = await createTransporter()
+  const from        = await getFromAddress()
   const agentName   = req.user.name  || 'Team ThynkFlow'
   const agentPhone  = req.user.phone || ''
 
@@ -225,7 +214,7 @@ router.get('/history', auth, async (req, res) => {
 // GET /api/emails/test
 router.get('/test', auth, adminOnly, async (req, res) => {
   try {
-    const transporter = createTransporter()
+    const transporter = await createTransporter()
     await transporter.verify()
     res.json({ success: true, message: 'SMTP connection successful ✅' })
   } catch (err) { res.status(500).json({ success: false, message: `SMTP failed: ${err.message}` }) }
