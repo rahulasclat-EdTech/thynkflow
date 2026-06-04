@@ -70,17 +70,9 @@ export default function AssignPage() {
 
   // Load agents + products + schools on mount + fetch all leads for summary
   useEffect(() => {
-    ;(async () => {
-      try {
-        const r = await api.get('/chat/users')
-        setAgents(Array.isArray(r.data?.data) ? r.data.data : (Array.isArray(r.data) ? r.data : []))
-      } catch {
-        try {
-          const r = await api.get('/users')
-          setAgents(Array.isArray(r.data?.data) ? r.data.data : (Array.isArray(r.data) ? r.data : []))
-        } catch {}
-      }
-    })()
+    api.get('/users').then(r => {
+      setAgents(Array.isArray(r.data?.data) ? r.data.data : (Array.isArray(r.data) ? r.data : []))
+    }).catch(() => {})
     api.get('/products/active').then(r => {
       setProducts(Array.isArray(r.data?.data) ? r.data.data : (Array.isArray(r.data) ? r.data : []))
     }).catch(() => {})
@@ -110,7 +102,7 @@ export default function AssignPage() {
       if (search)           params.search      = search
       if (filterStatus)     params.status      = filterStatus
       if (filterSchool)     params.school_name = filterSchool
-      if (filterUnassigned || activeTab === 'no_agent') {
+      if (filterUnassignedAgent || filterUnassigned || activeTab === 'no_agent') {
         params.unassigned = 'true'
       } else if (filterAgent) {
         params.assigned_to = filterAgent
@@ -121,7 +113,7 @@ export default function AssignPage() {
 
       // Client-side tab filters
       if (activeTab === 'no_agent')     rows = rows.filter(l => !l.assigned_to && !l.agent_name)
-      if (activeTab === 'no_product')   rows = rows.filter(l => !l.product_id)
+      if (activeTab === 'no_product' || filterNoProduct) rows = rows.filter(l => !l.product_id)
       if (activeTab === 'both_missing') rows = rows.filter(l => (!l.assigned_to && !l.agent_name) && !l.product_id)
       if (activeTab === 'converted')    rows = rows.filter(l => l.status === 'converted')
       if (activeTab === 'hot')          rows = rows.filter(l => l.status === 'hot')
@@ -130,7 +122,7 @@ export default function AssignPage() {
       setTotal(tot)
     } catch { toast.error('Failed to load leads') }
     finally { setLoading(false) }
-  }, [search, filterStatus, filterAgent, filterSchool, filterUnassigned, perPage, activeTab])
+  }, [search, filterStatus, filterAgent, filterSchool, filterUnassigned, filterUnassignedAgent, filterNoProduct, perPage, activeTab])
 
   useEffect(() => { fetchLeads() }, [fetchLeads])
   useEffect(() => {
@@ -331,8 +323,8 @@ export default function AssignPage() {
           {Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
         </select>
 
-        <select value={filterAgent} onChange={e => setFilterAgent(e.target.value)}
-          disabled={activeTab === 'no_agent'}
+        <select value={filterAgent} onChange={e => { setFilterAgent(e.target.value); if (e.target.value) setFilterUnassignedAgent(false) }}
+          disabled={filterUnassignedAgent || activeTab === 'no_agent'}
           className="border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-40">
           <option value="">All Agents</option>
           {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -344,7 +336,20 @@ export default function AssignPage() {
           {schools.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
 
-        <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterAgent(''); setFilterSchool(''); setActiveTab('all') }}
+        {/* Quick filter chips */}
+        <button
+          onClick={() => { setFilterUnassignedAgent(v => !v); setFilterAgent(''); setActiveTab('all') }}
+          className={`border-2 rounded-xl px-3 py-2 text-sm font-semibold transition-colors ${filterUnassignedAgent ? 'bg-green-600 border-green-600 text-white' : 'border-green-300 text-green-700 hover:bg-green-50'}`}>
+          👤 Unassigned Only
+        </button>
+
+        <button
+          onClick={() => { setFilterNoProduct(v => !v); setActiveTab('all') }}
+          className={`border-2 rounded-xl px-3 py-2 text-sm font-semibold transition-colors ${filterNoProduct ? 'bg-orange-500 border-orange-500 text-white' : 'border-orange-300 text-orange-700 hover:bg-orange-50'}`}>
+          📦 No Product Only
+        </button>
+
+        <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterAgent(''); setFilterSchool(''); setFilterUnassignedAgent(false); setFilterNoProduct(false); setActiveTab('all') }}
           className="border-2 rounded-xl px-3 py-2 text-sm text-slate-500 hover:bg-slate-50 font-medium">
           ✕ Clear
         </button>
@@ -386,7 +391,7 @@ export default function AssignPage() {
                     checked={selected.length === leads.length && leads.length > 0}
                     onChange={toggleAll} className="rounded accent-white" />
                 </th>
-                {['Name','School','Phone','Status','Product','Assigned To','Type'].map(h => (
+                {['Name','School','City','Phone','Status','Product','Assigned To','Type'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs text-indigo-100 font-bold uppercase tracking-wider whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -411,6 +416,9 @@ export default function AssignPage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500 max-w-[130px]">
                       <span className="truncate block">{lead.school_name || '—'}</span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-500">
+                      {lead.city || <span className="text-slate-300">—</span>}
                     </td>
                     <td className="px-4 py-3 font-mono text-blue-600 font-semibold text-xs">{lead.phone}</td>
                     <td className="px-4 py-3"><Badge status={lead.status} /></td>

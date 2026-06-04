@@ -298,7 +298,7 @@ router.post('/bulk', auth, async (req, res) => {
         lead.status                               || 'new',
         lead.product_id                           || null,
         lead.creation_comment?.toString().trim()  || null,
-        lead.assigned_to                          || req.user.id,
+        lead.assigned_to                          || null,   // import → unassigned by default
         lead.lead_type?.toString().trim()         || 'B2C',
         lead.creation_comment?.toString().trim()  || null
       )

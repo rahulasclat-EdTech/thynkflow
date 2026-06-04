@@ -245,7 +245,7 @@ export default function LeadsPage() {
       const [leadsRes, prodRes, agentRes, settRes] = await Promise.all([
         api.get(`/leads?${params}`),
         api.get('/products/active'),
-        (async () => { try { return await api.get('/chat/users') } catch { try { return await api.get('/users') } catch { return {} } } })(),
+        api.get('/users'),
         api.get('/settings'),
       ])
       const body = leadsRes || {}
@@ -566,6 +566,7 @@ export default function LeadsPage() {
               <tr style={{ background: 'linear-gradient(135deg, #312e81 0%, #4f46e5 50%, #7c3aed 100%)' }}>
                 <SortableHeader label="Name"    field="contact_name" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <SortableHeader label="School"  field="school_name"  sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                <SortableHeader label="City"    field="city"         sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <th className="px-4 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-indigo-200">Type</th>
                 <SortableHeader label="Phone"   field="phone"        sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <SortableHeader label="Product" field="product_name" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
@@ -589,6 +590,9 @@ export default function LeadsPage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500 max-w-[120px]">
                       <span className="truncate block">{lead.school_name || '—'}</span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-500">
+                      {lead.city || <span className="text-slate-300">—</span>}
                     </td>
                     <td className="px-4 py-3">
                       {lead.lead_type
@@ -1017,7 +1021,7 @@ export default function LeadsPage() {
                   <select value={form.assigned_to||user?.id||''} onChange={e=>setForm(f=>({...f,assigned_to:e.target.value}))}
                     className="w-full border-2 border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
                     <option value={user?.id||''}>{user?.name||'Me'} (me)</option>
-                    {agents.filter(a=>a.id!==user?.id).map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+                    {agents.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 </div>
               </div>
