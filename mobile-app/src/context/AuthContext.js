@@ -13,15 +13,24 @@ export function AuthProvider({ children }) {
       try {
         const stored = await SecureStore.getItemAsync('tf_user')
         if (stored) setUser(JSON.parse(stored))
-      } catch {}
+      } catch {
+        // Corrupted keychain (device re-enroll, app reinstall) — clear and force re-login
+        try { await SecureStore.deleteItemAsync('tf_token') } catch {}
+        try { await SecureStore.deleteItemAsync('tf_user')  } catch {}
+      }
       setLoading(false)
     })()
   }, [])
 
   const login = async (email, password) => {
+    // Clear any corrupted keychain entries before writing new ones
+    try { await SecureStore.deleteItemAsync('tf_token') } catch {}
+    try { await SecureStore.deleteItemAsync('tf_user')  } catch {}
+
     const res = await api.post('/auth/login', { email, password })
-    await SecureStore.setItemAsync('tf_token', res.token)
-    await SecureStore.setItemAsync('tf_user', JSON.stringify(res.user))
+
+    try { await SecureStore.setItemAsync('tf_token', res.token) } catch {}
+    try { await SecureStore.setItemAsync('tf_user', JSON.stringify(res.user)) } catch {}
     setUser(res.user)
     return res.user
   }

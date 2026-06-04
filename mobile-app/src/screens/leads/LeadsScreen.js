@@ -95,29 +95,14 @@ export default function LeadsScreen({ navigation }) {
   useEffect(() => { setPage(1); fetchLeads(1) }, [fetchLeads])
 
   useEffect(() => {
-    Promise.all([api.get('/products/active'), api.get('/chat/users'), api.get('/settings')]).then(([p, u, s]) => {
+    Promise.all([api.get('/products/active'), api.get('/users'), api.get('/settings')]).then(([p, u, s]) => {
       setProducts(p.data?.data || p.data || [])
+      // Use /users (not /chat/users) so admin appears in assign dropdown
       setAgents(Array.isArray(u.data?.data) ? u.data.data : (Array.isArray(u.data) ? u.data : []))
       const sData = s.data?.data || s.data || {}
-
-      // Normalise settings rows (DB objects, {label,key}, or plain strings) → {label,key}
-      const normalise = (arr) =>
-        (Array.isArray(arr) ? arr : []).map(item => {
-          if (typeof item === 'string') return { label: item, key: item }
-          const lbl = String(item.label || item.name || item.key || item)
-          const ky  = String(item.key   || item.value || lbl)
-          return { label: lbl, key: ky }
-        })
-
-      const rawLeadTypes = sData.lead_type || sData.lead_types || [{label:'B2B',key:'b2b'},{label:'B2C',key:'b2c'}]
-      setLeadTypes(normalise(rawLeadTypes))
-
-      const rawStatuses = sData.lead_status || sData.statuses || []
-      if (rawStatuses.length) {
-        const normSts = normalise(rawStatuses)
-        applyMobStatusColors(normSts)
-        ALL_STATUSES = normSts.map(s2 => s2.key)
-      }
+      setLeadTypes(sData.lead_type || sData.lead_types || [{label:'B2B',key:'b2b'},{label:'B2C',key:'b2c'}])
+      const sts = sData.lead_status || sData.statuses || []
+      if (sts.length) { applyMobStatusColors(sts); ALL_STATUSES = sts.map(s2 => typeof s2==='string'?s2:s2.key) }
     }).catch(() => {})
   }, [])
 
@@ -160,6 +145,20 @@ export default function LeadsScreen({ navigation }) {
             <Text style={[s.sBadgeText, { color: sc.text }]}>{item.status?.replace(/_/g,' ')}</Text>
           </View>
         </View>
+        {(item.creation_comment || item.admin_remark) && (
+          <View style={{paddingHorizontal:2,paddingBottom:6}}>
+            {item.creation_comment ? (
+              <Text style={{fontSize:11,color:'#6B7280',lineHeight:16}} numberOfLines={2}>
+                💬 {item.creation_comment}
+              </Text>
+            ) : null}
+            {item.admin_remark ? (
+              <Text style={{fontSize:11,color:'#7C3AED',lineHeight:16,marginTop:2}} numberOfLines={1}>
+                📝 {item.admin_remark}
+              </Text>
+            ) : null}
+          </View>
+        )}
         <View style={s.actions}>
           <TouchableOpacity style={[s.aBtn, { backgroundColor:'#DCFCE7' }]} onPress={() => handleCall(item)}>
             <Ionicons name="call" size={14} color="#16A34A" /><Text style={[s.aTxt,{color:'#16A34A'}]}>Call</Text>
@@ -195,26 +194,29 @@ export default function LeadsScreen({ navigation }) {
         </View>
       </View>
 
-      {/* Status chips - horizontal scrollable tabs */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filterBar}>
-        {[{label:'All',value:''}, ...ALL_STATUSES.map(s2=>({label:s2.replace(/_/g,' '),value:s2}))].map(item=>(
-          <TouchableOpacity key={item.value} onPress={()=>{setFilterStatus(item.value);setPage(1)}}
-            style={[s.chip, filterStatus===item.value && s.chipActive]}>
-            <Text style={[s.chipTxt, filterStatus===item.value && s.chipTxtActive]}>{item.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {products.length>0 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[s.filterBar,{paddingBottom:4}]}>
-          {[{name:'All Products',id:''}, ...products].map(p=>(
-            <TouchableOpacity key={String(p.id)} onPress={()=>{setFilterProduct(p.id?String(p.id):'');setPage(1)}}
-              style={[s.chip, filterProduct===(p.id?String(p.id):'') && s.chipActive]}>
-              <Text style={[s.chipTxt, filterProduct===(p.id?String(p.id):'') && s.chipTxtActive]}>{p.name}</Text>
+      {/* Filter chips — each row is independently scrollable, no overlap */}
+      <View style={{backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#F3F4F6'}}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{paddingHorizontal:12,paddingTop:6,paddingBottom:4,flexDirection:'row',alignItems:'center'}}>
+          {[{label:'All',value:''}, ...ALL_STATUSES.map(s2=>({label:s2.replace(/_/g,' '),value:s2}))].map(item=>(
+            <TouchableOpacity key={item.value} onPress={()=>{setFilterStatus(item.value);setPage(1)}}
+              style={[s.chip, filterStatus===item.value && s.chipActive]}>
+              <Text style={[s.chipTxt, filterStatus===item.value && s.chipTxtActive]}>{item.label}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
-      )}
+        {products.length>0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{paddingHorizontal:12,paddingTop:2,paddingBottom:6,flexDirection:'row',alignItems:'center'}}>
+            {[{name:'All Products',id:''}, ...products].map(p=>(
+              <TouchableOpacity key={String(p.id)} onPress={()=>{setFilterProduct(p.id?String(p.id):'');setPage(1)}}
+                style={[s.chip, filterProduct===(p.id?String(p.id):'') && s.chipActive]}>
+                <Text style={[s.chipTxt, filterProduct===(p.id?String(p.id):'') && s.chipTxtActive]}>{p.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
+      </View>
 
       {loading ? <View style={s.center}><ActivityIndicator size="large" color={COLORS.primary} /></View> : (
         <FlatList data={leads} keyExtractor={item=>String(item.id)} renderItem={renderLead}
@@ -326,7 +328,7 @@ function CreateLeadModal({ visible, onClose, onSave, products, agents, leadTypes
             <Text style={s.lbl}>Lead Type</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {[{label:'',key:''},...leadTypes].map(t=>{
-                const lbl = String(t?.label || t?.key || t || '')
+                const lbl = t?.label||t
                 const sel = form.lead_type === lbl
                 return <TouchableOpacity key={t?.key||lbl||'none'} onPress={()=>setForm(f=>({...f,lead_type:lbl}))}
                   style={[s.chip, sel&&s.chipActive, {marginRight:6}]}>
@@ -442,7 +444,7 @@ const s = StyleSheet.create({
   addBtn:    {width:38,height:38,borderRadius:19,backgroundColor:'#4F46E5',alignItems:'center',justifyContent:'center'},
   searchBox: {flexDirection:'row',alignItems:'center',backgroundColor:'#F3F4F6',borderRadius:10,paddingHorizontal:12,paddingVertical:8},
   searchInput:{flex:1,fontSize:14,color:'#111827'},
-  filterBar: {paddingVertical:4,paddingHorizontal:12,backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#F3F4F6',maxHeight:42},
+  filterBar: {paddingVertical:6,paddingHorizontal:12,backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#F3F4F6',flexGrow:0},
   chip:      {paddingHorizontal:10,paddingVertical:0,borderRadius:20,backgroundColor:'#F3F4F6',marginRight:5,height:30,alignItems:'center',justifyContent:'center'},
   chipActive:{backgroundColor:'#4F46E5',shadowColor:'#4F46E5',shadowOpacity:0.3,shadowRadius:4,elevation:3},
   chipTxt:   {fontSize:11,color:'#374151',textTransform:'capitalize',fontWeight:'500'},

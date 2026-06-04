@@ -53,7 +53,7 @@ function NewChatModal({ visible, onClose, onCreated, isAdmin }) {
   useEffect(() => {
     if (visible) {
       setUsers([]) // clear previous
-      api.get('/chat/users')
+      api.get('/users')
         .then(r => {
           const list = r.data?.data || r.data || []
           setUsers(Array.isArray(list) ? list : [])

@@ -57,8 +57,9 @@ export default function PostCallScreen({ route, navigation }) {
   const [showCal, setShowCal]           = useState(false)
 
   useEffect(() => {
-    Promise.all([api.get('/products/active'), api.get('/chat/users'), api.get('/settings')]).then(([p, u, s]) => {
+    Promise.all([api.get('/products/active'), api.get('/users'), api.get('/settings')]).then(([p, u, s]) => {
       setProducts(p.data?.data || p.data || [])
+      // Use /users so admin appears in assign dropdown
       setAgents(Array.isArray(u.data?.data) ? u.data.data : (Array.isArray(u.data) ? u.data : []))
       const sData = s.data?.data || s.data || {}
       setLeadTypes(sData.lead_type || sData.leadType || [])
