@@ -380,7 +380,7 @@ export default function LeadsPage() {
     if (!form.phone?.trim()) return toast.error('Phone required')
     setSaving(true)
     try {
-      const res = await api.post('/leads', { name:form.name.trim(), contact_name:form.name.trim(), school_name:form.school_name||null, lead_type:form.lead_type||null, creation_comment:form.creation_comment||null, phone:form.phone.trim(), email:form.email||null, city:form.city||null, source:form.source||null, status:form.status||'new', product_id:form.product_id||null, product_detail:form.product_detail||null, assigned_to:form.assigned_to||null, admin_remark:form.admin_remark||null })
+      const res = await api.post('/leads', { name:form.name.trim(), contact_name:form.name.trim(), school_name:form.school_name||null, lead_type:form.lead_type||null, creation_comment:form.notes||form.creation_comment||null, phone:form.phone.trim(), email:form.email||null, city:form.city||null, source:form.source||null, status:form.status||'new', product_id:form.product_id||null, product_detail:form.product_detail||null, assigned_to:form.assigned_to||null, admin_remark:form.admin_remark||null })
       const newLead = (res||{}).data || res
       if (form.follow_up_date && newLead?.id) api.post('/followups',{lead_id:newLead.id,follow_up_date:form.follow_up_date,notes:form.notes||''}).catch(()=>{})
       toast.success('Lead created! 🎉'); setShowCreateModal(false); setForm(emptyForm)
