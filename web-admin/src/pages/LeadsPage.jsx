@@ -586,7 +586,7 @@ export default function LeadsPage() {
                     style={{ background: meta.bg, borderLeft: `4px solid ${meta.border}` }}>
                     <td className="px-4 py-3">
                       <div className="font-bold text-slate-800 text-sm">{lead.name || lead.contact_name || '—'}</div>
-                      {(lead.admin_remark || lead.creation_comment) && <div className="text-xs text-slate-400 truncate max-w-[150px] mt-0.5">📝 {lead.admin_remark || lead.creation_comment}</div>}
+                      {(lead.last_remark || lead.admin_remark || lead.creation_comment) && <div className="text-xs text-slate-400 truncate max-w-[150px] mt-0.5">📝 {lead.last_remark || lead.admin_remark || lead.creation_comment}</div>}
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500 max-w-[120px]">
                       <span className="truncate block">{lead.school_name || '—'}</span>
