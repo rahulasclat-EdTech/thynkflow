@@ -145,16 +145,16 @@ export default function LeadsScreen({ navigation }) {
             <Text style={[s.sBadgeText, { color: sc.text }]}>{item.status?.replace(/_/g,' ')}</Text>
           </View>
         </View>
-        {(item.creation_comment || item.admin_remark) && (
+        {(item.admin_remark || item.creation_comment) && (
           <View style={{paddingHorizontal:2,paddingBottom:6}}>
-            {item.creation_comment ? (
-              <Text style={{fontSize:11,color:'#6B7280',lineHeight:16}} numberOfLines={2}>
-                💬 {item.creation_comment}
+            {item.admin_remark ? (
+              <Text style={{fontSize:11,color:'#7C3AED',lineHeight:16}} numberOfLines={2}>
+                📝 {item.admin_remark}
               </Text>
             ) : null}
-            {item.admin_remark ? (
-              <Text style={{fontSize:11,color:'#7C3AED',lineHeight:16,marginTop:2}} numberOfLines={1}>
-                📝 {item.admin_remark}
+            {item.creation_comment ? (
+              <Text style={{fontSize:11,color:'#6B7280',lineHeight:16,marginTop:2}} numberOfLines={1}>
+                💬 {item.creation_comment}
               </Text>
             ) : null}
           </View>
