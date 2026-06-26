@@ -145,8 +145,12 @@ export default function ReportsPage() {
 
   const [dateFilter, setDateFilter]         = useState(today)
   const [filterAgentDaily, setFilterAgentDaily]     = useState('')
-  const [filterAgentWeekly, setFilterAgentWeekly]   = useState('')
-  const [filterAgentMonthly, setFilterAgentMonthly] = useState('')
+  const [filterAgentWeekly, setFilterAgentWeekly]         = useState('')
+  const [filterAgentMonthly, setFilterAgentMonthly]       = useState('')
+  const [filterProductWeekly, setFilterProductWeekly]     = useState('')
+  const [filterProductMonthly, setFilterProductMonthly]   = useState('')
+  const [filterProductAgentWise, setFilterProductAgentWise] = useState('')
+  const [filterProductConversion, setFilterProductConversion] = useState('')
 
   const [fuDateFrom, setFuDateFrom]         = useState(monthAgo)
   const [fuDateTo, setFuDateTo]             = useState(monthAhead)
@@ -206,7 +210,9 @@ export default function ReportsPage() {
         setData(Array.isArray(r?.data) ? r.data : [])
 
       } else if (tab === 'agent') {
-        const r = await api.get('/reports/agent-wise')
+        const params = {}
+        if (filterProductAgentWise) params.product_id = filterProductAgentWise
+        const r = await api.get('/reports/agent-wise', { params })
         const rows = Array.isArray(r?.data) ? r.data : []
         setData(isAdmin ? rows : rows.filter(a => a.agent_id === user?.id))
 
@@ -219,12 +225,14 @@ export default function ReportsPage() {
       } else if (tab === 'weekly') {
         const params = {}
         if (isAdmin && filterAgentWeekly) params.agent_id = filterAgentWeekly
+        if (filterProductWeekly) params.product_id = filterProductWeekly
         const r = await api.get('/reports/weekly-comparison', { params })
         setData(Array.isArray(r?.data) ? r.data : [])
 
       } else if (tab === 'monthly') {
         const params = {}
         if (isAdmin && filterAgentMonthly) params.agent_id = filterAgentMonthly
+        if (filterProductMonthly) params.product_id = filterProductMonthly
         const r = await api.get('/reports/monthly-comparison', { params })
         setData(Array.isArray(r?.data) ? r.data : [])
 
@@ -254,7 +262,9 @@ export default function ReportsPage() {
         setData(Array.isArray(r?.data) ? r.data : [])
 
       } else if (tab === 'conversion') {
-        const r = await api.get('/reports/conversion')
+        const params = {}
+        if (filterProductConversion) params.product_id = filterProductConversion
+        const r = await api.get('/reports/conversion', { params })
         setData(Array.isArray(r?.data) ? r.data : [])
       }
     } catch (err) {
@@ -263,6 +273,7 @@ export default function ReportsPage() {
       if (tab === 'pipeline') setPipeline({ by_status: [], by_agent: [], by_product: [] })
     } finally { setLoading(false) }
   }, [tab, dateFilter, filterAgentDaily, filterAgentWeekly, filterAgentMonthly,
+      filterProductWeekly, filterProductMonthly, filterProductAgentWise, filterProductConversion,
       fuDateFrom, fuDateTo, fuAgent, fuProduct, fuStatus, isAdmin, user?.id])
 
   useEffect(() => { fetchData() }, [fetchData])
@@ -351,14 +362,70 @@ export default function ReportsPage() {
           {isAdmin && <AgentSelect agents={agents} value={filterAgentDaily} onChange={setFilterAgentDaily} />}
         </div>
       )}
-      {tab === 'weekly' && isAdmin && (
-        <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-xl p-3">
-          <AgentSelect agents={agents} value={filterAgentWeekly} onChange={setFilterAgentWeekly} label="Filter by Agent" />
+      {tab === 'weekly' && (
+        <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-xl p-3">
+          {isAdmin && <AgentSelect agents={agents} value={filterAgentWeekly} onChange={setFilterAgentWeekly} label="Filter by Agent" />}
+          {products.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Product:</label>
+              <select className="input w-44 text-sm" value={filterProductWeekly} onChange={e => setFilterProductWeekly(e.target.value)}>
+                <option value="">All Products</option>
+                {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          )}
+          {(filterAgentWeekly || filterProductWeekly) && (
+            <button onClick={() => { setFilterAgentWeekly(''); setFilterProductWeekly('') }}
+              className="text-xs text-slate-400 hover:text-slate-600 underline">Reset</button>
+          )}
         </div>
       )}
-      {tab === 'monthly' && isAdmin && (
-        <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-xl p-3">
-          <AgentSelect agents={agents} value={filterAgentMonthly} onChange={setFilterAgentMonthly} label="Filter by Agent" />
+      {tab === 'monthly' && (
+        <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-xl p-3">
+          {isAdmin && <AgentSelect agents={agents} value={filterAgentMonthly} onChange={setFilterAgentMonthly} label="Filter by Agent" />}
+          {products.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Product:</label>
+              <select className="input w-44 text-sm" value={filterProductMonthly} onChange={e => setFilterProductMonthly(e.target.value)}>
+                <option value="">All Products</option>
+                {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          )}
+          {(filterAgentMonthly || filterProductMonthly) && (
+            <button onClick={() => { setFilterAgentMonthly(''); setFilterProductMonthly('') }}
+              className="text-xs text-slate-400 hover:text-slate-600 underline">Reset</button>
+          )}
+        </div>
+      )}
+      {tab === 'agent' && products.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-xl p-3">
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Product:</label>
+            <select className="input w-44 text-sm" value={filterProductAgentWise} onChange={e => setFilterProductAgentWise(e.target.value)}>
+              <option value="">All Products</option>
+              {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          {filterProductAgentWise && (
+            <button onClick={() => setFilterProductAgentWise('')}
+              className="text-xs text-slate-400 hover:text-slate-600 underline">Reset</button>
+          )}
+        </div>
+      )}
+      {tab === 'conversion' && products.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-xl p-3">
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Product:</label>
+            <select className="input w-44 text-sm" value={filterProductConversion} onChange={e => setFilterProductConversion(e.target.value)}>
+              <option value="">All Products</option>
+              {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          {filterProductConversion && (
+            <button onClick={() => setFilterProductConversion('')}
+              className="text-xs text-slate-400 hover:text-slate-600 underline">Reset</button>
+          )}
         </div>
       )}
       {(tab === 'pending' || tab === 'upcoming') && FUFilters}

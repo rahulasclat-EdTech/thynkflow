@@ -98,7 +98,73 @@ router.get('/dashboard', auth, async (req, res) => {
   }
 })
 
-router.get('/', auth, adminOnly, async (req, res) => {
+router.get('/trends', auth, async (req, res) => {
+  try {
+    const { agent_id, product_id, from, to } = req.query
+    let scope = agentScope(req.user)
+    if (req.user.role_name === 'admin' && agent_id) scope += ` AND l.assigned_to = '${agent_id}'`
+    if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
+
+    const dateFrom = from || new Date(Date.now() - 90 * 86400000).toISOString().split('T')[0]
+    const dateTo   = to   || new Date().toISOString().split('T')[0]
+
+    const { rows } = await db.query(`
+      SELECT
+        TO_CHAR(DATE_TRUNC('week', l.created_at), 'DD Mon') AS period_label,
+        DATE_TRUNC('week', l.created_at) AS period_start,
+        COUNT(l.id) AS total_leads,
+        COUNT(CASE WHEN l.status='converted'      THEN 1 END) AS converted,
+        COUNT(CASE WHEN l.status='hot'            THEN 1 END) AS hot,
+        COUNT(CASE WHEN l.status='warm'           THEN 1 END) AS warm,
+        COUNT(CASE WHEN l.status='not_interested' THEN 1 END) AS not_interested
+      FROM leads l
+      WHERE l.created_at::date BETWEEN $1 AND $2 ${scope}
+      GROUP BY DATE_TRUNC('week', l.created_at)
+      ORDER BY period_start ASC
+    `, [dateFrom, dateTo])
+    res.json({ success: true, data: rows })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
+
+router.get('/conversion', auth, async (req, res) => {
+  try {
+    const { agent_id, product_id, from, to } = req.query
+    let scope = agentScope(req.user)
+    if (req.user.role_name === 'admin' && agent_id) scope += ` AND l.assigned_to = '${agent_id}'`
+    if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
+
+    const dateFrom = from || new Date(Date.now() - 90 * 86400000).toISOString().split('T')[0]
+    const dateTo   = to   || new Date().toISOString().split('T')[0]
+
+    const { rows } = await db.query(`
+      SELECT
+        u.id AS agent_id, u.name AS agent_name,
+        p.id AS product_id, p.name AS product_name,
+        COUNT(l.id) AS total_leads,
+        COUNT(CASE WHEN l.status='converted' THEN 1 END) AS converted,
+        ROUND(CASE WHEN COUNT(l.id)>0
+          THEN COUNT(CASE WHEN l.status='converted' THEN 1 END)::numeric/COUNT(l.id)*100
+          ELSE 0 END, 1) AS conversion_rate,
+        COALESCE((
+          SELECT COUNT(*) FROM communication_logs cl
+          WHERE cl.agent_id = u.id AND cl.type='call'
+            AND cl.lead_id IN (SELECT id FROM leads WHERE product_id=p.id)
+        ), 0) AS total_calls
+      FROM users u
+      JOIN roles r ON r.id = u.role_id
+      JOIN leads l ON l.assigned_to = u.id ${scope}
+        AND l.created_at::date BETWEEN $1 AND $2
+      JOIN products p ON p.id = l.product_id
+      WHERE r.name IN ('agent','admin') AND u.is_active=true AND p.is_active=true
+      GROUP BY u.id, u.name, p.id, p.name
+      HAVING COUNT(l.id) > 0
+      ORDER BY conversion_rate DESC, total_leads DESC
+    `, [dateFrom, dateTo])
+    res.json({ success: true, data: rows })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
+
+
   try {
     const { rows } = await db.query(
       `SELECT p.*, COUNT(l.id) AS lead_count FROM products p LEFT JOIN leads l ON l.product_id = p.id GROUP BY p.id ORDER BY p.name`

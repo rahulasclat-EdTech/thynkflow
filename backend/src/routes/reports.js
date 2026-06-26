@@ -60,7 +60,9 @@ router.get('/status-wise', auth, async (req, res) => {
 router.get('/agent-wise', auth, async (req, res) => {
   try {
     const admin = isAdmin(req.user)
-    const scopeFilter = admin ? '' : `AND l.assigned_to = '${req.user.id}'`
+    const { product_id } = req.query
+    const productFilter = product_id ? `AND l.product_id = ${parseInt(product_id)}` : ''
+    const scopeFilter = admin ? productFilter : `AND l.assigned_to = '${req.user.id}' ${productFilter}`
 
     // FIX: JOIN roles table instead of using role_name column
     // FIX: use communication_logs.agent_id (not sender_id)
@@ -153,9 +155,10 @@ router.get('/daily-calls', auth, async (req, res) => {
 // ── Weekly comparison ── UNTOUCHED (was working) ──────────
 router.get('/weekly-comparison', auth, async (req, res) => {
   try {
-    const { agent_id } = req.query
+    const { agent_id, product_id } = req.query
     let scope = agentScope(req.user)
     if (isAdmin(req.user) && agent_id) scope = `AND l.assigned_to = '${agent_id}'`
+    if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
 
     let rows = []
     // Try communication_logs first
@@ -226,9 +229,10 @@ router.get('/weekly-comparison', auth, async (req, res) => {
 // ── Monthly comparison ── UNTOUCHED (was working) ─────────
 router.get('/monthly-comparison', auth, async (req, res) => {
   try {
-    const { agent_id } = req.query
+    const { agent_id, product_id } = req.query
     let scope = agentScope(req.user)
     if (isAdmin(req.user) && agent_id) scope = `AND l.assigned_to = '${agent_id}'`
+    if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
 
     let rows = []
     try {
@@ -489,7 +493,9 @@ router.get('/daily-summary', auth, async (req, res) => {
 router.get('/conversion', auth, async (req, res) => {
   try {
     const admin = isAdmin(req.user)
-    const scopeFilter = admin ? '' : `AND l.assigned_to = '${req.user.id}'`
+    const { product_id } = req.query
+    const productFilter = product_id ? `AND l.product_id = ${parseInt(product_id)}` : ''
+    const scopeFilter = admin ? productFilter : `AND l.assigned_to = '${req.user.id}' ${productFilter}`
 
     // FIX: role_id JOIN + communication_logs.agent_id (not sender_id)
     const { rows } = await db.query(`

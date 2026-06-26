@@ -11,6 +11,7 @@ import ReportsPage from './pages/ReportsPage'
 import UsersPage from './pages/UsersPage'
 import SettingsPage from './pages/SettingsPage'
 import ProductDashboardPage from './pages/ProductDashboardPage'
+import ProductAnalyticsPage from './pages/ProductAnalyticsPage'
 import EmailPage from './pages/EmailPage'
 import ActivityPage from './pages/ActivityPage'
 import ChatPage from './pages/ChatPage'
@@ -42,7 +43,8 @@ export default function App() {
           <Route path="followups"   element={<FollowUpsPage />} />
           <Route path="assign"      element={<AdminRoute><AssignPage /></AdminRoute>} />
           <Route path="reports"     element={<ReportsPage />} />
-          <Route path="products"    element={<ProductDashboardPage />} />
+          <Route path="products"           element={<ProductDashboardPage />} />
+          <Route path="product-analytics" element={<ProductAnalyticsPage />} />
           <Route path="users"       element={<AdminRoute><UsersPage /></AdminRoute>} />
           <Route path="settings"    element={<AdminRoute><SettingsPage /></AdminRoute>} />
           <Route path="email"       element={<EmailPage />} />
