@@ -19,6 +19,7 @@ const performanceRoutes = require('./routes/performance');
 const campaignRoutes       = require('./routes/campaigns');
 const integrationRoutes    = require('./routes/integrations');
 const metaWebhookRoutes    = require('./routes/meta_webhook');
+const metaFormMapsRoutes   = require('./routes/meta_form_maps');
 
 const app = express();
 app.use(cors({
@@ -54,6 +55,7 @@ app.use('/api/performance', performanceRoutes);
 app.use('/api/campaigns',     campaignRoutes);
 app.use('/api/integrations',  integrationRoutes);
 app.use('/api/meta',           metaWebhookRoutes);
+app.use('/api/meta',           metaFormMapsRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', app: 'ThynkFlow' }));
 app.use((err, req, res, next) => {

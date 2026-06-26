@@ -88,6 +88,27 @@ function SortableHeader({ label, field, sortField, sortDir, onSort }) {
   )
 }
 
+
+const SOURCE_COLORS = {
+  meta_lead_ad: { bg:'#eff6ff', color:'#1d4ed8', border:'#bfdbfe', icon:'📘', label:'Meta Ad' },
+  facebook:     { bg:'#eff6ff', color:'#1d4ed8', border:'#bfdbfe', icon:'📘', label:'Facebook' },
+  instagram:    { bg:'#fdf2f8', color:'#9d174d', border:'#fbcfe8', icon:'📸', label:'Instagram' },
+  google:       { bg:'#fefce8', color:'#854d0e', border:'#fde68a', icon:'🔍', label:'Google' },
+  whatsapp:     { bg:'#ecfdf5', color:'#065f46', border:'#6ee7b7', icon:'💬', label:'WhatsApp' },
+  website:      { bg:'#f0fdf4', color:'#166534', border:'#bbf7d0', icon:'🌐', label:'Website' },
+  referral:     { bg:'#faf5ff', color:'#6b21a8', border:'#e9d5ff', icon:'🤝', label:'Referral' },
+  manual:       { bg:'#f8fafc', color:'#475569', border:'#e2e8f0', icon:'✋', label:'Manual' },
+}
+function SourceTag({ source }) {
+  const s = SOURCE_COLORS[source] || { bg:'#f8fafc', color:'#64748b', border:'#e2e8f0', icon:'•', label: source || '—' }
+  return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border"
+      style={{ background:s.bg, color:s.color, borderColor:s.border }}>
+      {s.icon} {s.label}
+    </span>
+  )
+}
+
 export default function LeadsPage() {
   const { user } = useAuth()
   const isAdmin = user?.role_id === 1 || user?.role_name === 'admin'
@@ -111,6 +132,9 @@ export default function LeadsPage() {
   const [PER_PAGE, setPER_PAGE]           = useState(50)
   const [filterUnassigned, setFilterUnassigned] = useState(false)
   const [filterNoProduct, setFilterNoProduct]   = useState(false)
+  const [filterSource, setFilterSource]         = useState('')
+  const [filterCampaign, setFilterCampaign]     = useState('')
+  const [campaigns, setCampaigns]               = useState([])
   const [sortField, setSortField] = useState('created_at')
   const [sortDir, setSortDir]     = useState('desc')
   const [activeTab, setActiveTab] = useState('all')
@@ -240,13 +264,16 @@ export default function LeadsPage() {
         ...(filterAgent   && { assigned_to: filterAgent }),
         ...(filterProduct && { product_id: filterProduct }),
         ...(filterSchool  && { school_name: filterSchool }),
-        ...(filterUnassigned && { unassigned: 'true' }),
+        ...(filterUnassigned  && { unassigned: 'true' }),
+        ...(filterSource     && { source: filterSource }),
+        ...(filterCampaign   && { campaign_id: filterCampaign }),
       })
-      const [leadsRes, prodRes, agentRes, settRes] = await Promise.all([
+      const [leadsRes, prodRes, agentRes, settRes, campRes] = await Promise.all([
         api.get(`/leads?${params}`),
         api.get('/products/active'),
         api.get('/users'),
         api.get('/settings'),
+        api.get('/campaigns'),
       ])
       const body = leadsRes || {}
       let rows = Array.isArray(body) ? body : (body.data || body.leads || [])
@@ -259,6 +286,9 @@ export default function LeadsPage() {
       const agentBody = agentRes || {}
       setAgents(Array.isArray(agentBody) ? agentBody : (Array.isArray(agentBody.data) ? agentBody.data : []))
 
+      const campBody = campRes || {}
+      setCampaigns(Array.isArray(campBody) ? campBody : (campBody.data || []))
+
       const sBody = settRes || {}
       const s = Array.isArray(sBody) ? {} : (sBody.data || sBody || {})
       setSettings({
@@ -269,7 +299,7 @@ export default function LeadsPage() {
       })
     } catch { toast.error('Failed to load leads') }
     finally { setLoading(false) }
-  }, [page, PER_PAGE, search, filterStatus, filterAgent, filterProduct, filterSchool, filterUnassigned])
+  }, [page, PER_PAGE, search, filterStatus, filterAgent, filterProduct, filterSchool, filterUnassigned, filterSource, filterCampaign])
 
   useEffect(() => { fetchAll(); fetchAllLeads() }, [fetchAll])
   useEffect(() => { const t = setInterval(() => { fetchAll(); fetchAllLeads() }, 30000); return () => clearInterval(t) }, [fetchAll])
@@ -520,12 +550,29 @@ export default function LeadsPage() {
           <option value="">All Schools</option>
           {schools.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
+        <select value={filterSource} onChange={e => { setFilterSource(e.target.value); setPage(1) }}
+          className="border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
+          <option value="">All Sources</option>
+          <option value="meta_lead_ad">📘 Meta Lead Ad</option>
+          <option value="facebook">📘 Facebook</option>
+          <option value="instagram">📸 Instagram</option>
+          <option value="google">🔍 Google</option>
+          <option value="whatsapp">💬 WhatsApp</option>
+          <option value="website">🌐 Website</option>
+          <option value="referral">🤝 Referral</option>
+          <option value="manual">✋ Manual</option>
+        </select>
+        <select value={filterCampaign} onChange={e => { setFilterCampaign(e.target.value); setPage(1) }}
+          className="border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
+          <option value="">All Campaigns</option>
+          {campaigns.map(cp => <option key={cp.id} value={cp.id}>{cp.name}</option>)}
+        </select>
         <select value={PER_PAGE} onChange={e => { setPER_PAGE(Number(e.target.value)); setPage(1) }}
           className="border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
           {[25,50,100,200,500].map(n => <option key={n} value={n}>{n} / page</option>)}
         </select>
-        {(search||filterStatus||filterAgent||filterProduct||filterSchool||filterUnassigned||filterNoProduct||activeTab!=='all') && (
-          <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterAgent(''); setFilterProduct(''); setFilterSchool(''); setFilterUnassigned(false); setFilterNoProduct(false); setActiveTab('all'); setPage(1) }}
+        {(search||filterStatus||filterAgent||filterProduct||filterSchool||filterUnassigned||filterNoProduct||filterSource||filterCampaign||activeTab!=='all') && (
+          <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterAgent(''); setFilterProduct(''); setFilterSchool(''); setFilterUnassigned(false); setFilterNoProduct(false); setFilterSource(''); setFilterCampaign(''); setActiveTab('all'); setPage(1) }}
             className="border-2 rounded-xl px-3 py-2 text-xs font-bold text-red-500 border-red-200 hover:bg-red-50">
             ✕ Clear All
           </button>
@@ -573,6 +620,7 @@ export default function LeadsPage() {
                 <SortableHeader label="Status"  field="status"       sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <SortableHeader label="Agent"   field="agent_name"   sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <SortableHeader label="Date"    field="created_at"   sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                <SortableHeader label="Source"  field="source"       sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <th className="px-4 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-indigo-200">Actions</th>
               </tr>
             </thead>
@@ -626,6 +674,9 @@ export default function LeadsPage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-400 font-medium">
                       {lead.created_at ? format(parseISO(lead.created_at), 'dd MMM yy') : '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <SourceTag source={lead.source} />
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1" onClick={e => e.stopPropagation()}>
