@@ -18,22 +18,12 @@ const notifRoutes       = require('./routes/notifications');
 const performanceRoutes = require('./routes/performance');
 const campaignRoutes       = require('./routes/campaigns');
 const integrationRoutes    = require('./routes/integrations');
-const metaWebhookRoutes    = require('./routes/meta_webhook');
-const metaFormMapsRoutes   = require('./routes/meta_form_maps');
 
 const app = express();
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
   credentials: true
 }));
-// Capture raw body for Meta webhook signature verification
-app.use('/api/meta/webhook', express.raw({ type: 'application/json', limit: '2mb' }), (req, res, next) => {
-  if (Buffer.isBuffer(req.body)) {
-    req.rawBody = req.body;
-    req.body    = JSON.parse(req.body.toString('utf8') || '{}');
-  }
-  next();
-});
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
@@ -54,8 +44,6 @@ app.use('/api/notifications', notifRoutes);
 app.use('/api/performance', performanceRoutes);
 app.use('/api/campaigns',     campaignRoutes);
 app.use('/api/integrations',  integrationRoutes);
-app.use('/api/meta',           metaWebhookRoutes);
-app.use('/api/meta',           metaFormMapsRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', app: 'ThynkFlow' }));
 app.use((err, req, res, next) => {

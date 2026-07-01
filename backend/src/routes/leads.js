@@ -63,16 +63,6 @@ router.get('/', auth, async (req, res) => {
       where.push(`l.status NOT IN ('converted','not_interested')`)
     }
 
-    if (req.query.source) {
-      where.push(`l.source = $${i++}`)
-      params.push(req.query.source)
-    }
-
-    if (req.query.campaign_id) {
-      where.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.lead_id = l.id AND cl.campaign_id = $${i++})`)
-      params.push(req.query.campaign_id)
-    }
-
     if (req.query.search) {
       where.push(`(l.school_name ILIKE $${i} OR l.contact_name ILIKE $${i} OR l.phone ILIKE $${i} OR l.email ILIKE $${i})`)
       params.push(`%${req.query.search}%`)

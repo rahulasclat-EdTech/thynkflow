@@ -18,7 +18,6 @@ import ChatPage from './pages/ChatPage'
 import PerformancePage from './pages/PerformancePage'
 import CampaignsPage from './pages/CampaignsPage'
 import IntegrationsPage from './pages/IntegrationsPage'
-import MetaFormsPage from './pages/MetaFormsPage'
 
 function PrivateRoute({ children }) {
   const { user } = useAuth()
@@ -54,7 +53,6 @@ export default function App() {
           <Route path="performance" element={<PerformancePage />} />
           <Route path="campaigns"     element={<AdminRoute><CampaignsPage /></AdminRoute>} />
           <Route path="integrations"  element={<AdminRoute><IntegrationsPage /></AdminRoute>} />
-          <Route path="meta-forms"    element={<AdminRoute><MetaFormsPage /></AdminRoute>} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

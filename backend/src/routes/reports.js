@@ -24,7 +24,9 @@ function isAdmin(user) {
 // ── Overview ── UNTOUCHED (was working) ───────────────────
 router.get('/overview', auth, async (req, res) => {
   try {
-    const scope = agentScope(req.user)
+    const { product_id } = req.query
+    let scope = agentScope(req.user)
+    if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
     const { rows: [r] } = await db.query(`
       SELECT
         COUNT(*)                                                          AS total_leads,
@@ -43,10 +45,12 @@ router.get('/overview', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Status wise ── UNTOUCHED ──────────────────────────────
+// ── Status wise ──────────────────────────────────────────
 router.get('/status-wise', auth, async (req, res) => {
   try {
-    const scope = agentScope(req.user)
+    const { product_id } = req.query
+    let scope = agentScope(req.user)
+    if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
     const { rows } = await db.query(`
       SELECT status, COUNT(*) AS count
       FROM leads l WHERE 1=1 ${scope}
@@ -56,16 +60,19 @@ router.get('/status-wise', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Agent wise ── FIXED: sender_id→agent_id, role_name→role JOIN ──
+// ── Agent wise ──────────────────────────────────────────
 router.get('/agent-wise', auth, async (req, res) => {
   try {
     const admin = isAdmin(req.user)
     const { product_id } = req.query
-    const productFilter = product_id ? `AND l.product_id = ${parseInt(product_id)}` : ''
-    const scopeFilter = admin ? productFilter : `AND l.assigned_to = '${req.user.id}' ${productFilter}`
+    const prodId = product_id ? parseInt(product_id) : null
 
-    // FIX: JOIN roles table instead of using role_name column
-    // FIX: use communication_logs.agent_id (not sender_id)
+    // Build WHERE clause filters (not JOIN ON, to avoid LEFT JOIN masking)
+    const whereClauses = []
+    if (!admin) whereClauses.push(`l.assigned_to = '${req.user.id}'`)
+    if (prodId)  whereClauses.push(`l.product_id = ${prodId}`)
+    const leadsWhere = whereClauses.length ? 'AND ' + whereClauses.join(' AND ') : ''
+
     const userFilter = admin
       ? `JOIN roles r ON r.id = u.role_id WHERE r.name IN ('agent','admin') AND u.is_active = true`
       : `JOIN roles r ON r.id = u.role_id WHERE u.id = '${req.user.id}'`
@@ -87,12 +94,15 @@ router.get('/agent-wise', auth, async (req, res) => {
         COALESCE((
           SELECT COUNT(*)
           FROM communication_logs cl
+          JOIN leads lc ON lc.id = cl.lead_id
           WHERE cl.agent_id = u.id AND cl.type = 'call'
+            ${prodId ? `AND lc.product_id = ${prodId}` : ''}
         ), 0) AS total_calls
       FROM users u
-      LEFT JOIN leads l ON l.assigned_to = u.id ${scopeFilter}
+      LEFT JOIN leads l ON l.assigned_to = u.id ${leadsWhere}
       ${userFilter}
       GROUP BY u.id, u.name
+      HAVING COUNT(l.id) > 0
       ORDER BY converted DESC, total_calls DESC, hot DESC
 `)
     res.json({ success: true, data: rows })
@@ -489,15 +499,19 @@ router.get('/daily-summary', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 
-// ── Conversion ── FIXED: sender_id→agent_id, role_name→role JOIN ─
+// ── Conversion ──────────────────────────────────────────
 router.get('/conversion', auth, async (req, res) => {
   try {
     const admin = isAdmin(req.user)
     const { product_id } = req.query
-    const productFilter = product_id ? `AND l.product_id = ${parseInt(product_id)}` : ''
-    const scopeFilter = admin ? productFilter : `AND l.assigned_to = '${req.user.id}' ${productFilter}`
+    const prodId = product_id ? parseInt(product_id) : null
 
-    // FIX: role_id JOIN + communication_logs.agent_id (not sender_id)
+    // Build WHERE conditions (use WHERE not JOIN ON to prevent LEFT JOIN masking)
+    const whereClauses = []
+    if (!admin) whereClauses.push(`l.assigned_to = '${req.user.id}'`)
+    if (prodId)  whereClauses.push(`l.product_id = ${prodId}`)
+    const leadsWhere = whereClauses.length ? 'AND ' + whereClauses.join(' AND ') : ''
+
     const { rows } = await db.query(`
       SELECT
         u.id   AS agent_id,
@@ -510,14 +524,16 @@ router.get('/conversion', auth, async (req, res) => {
               AND l.updated_at < NOW()-INTERVAL '5 days' THEN 1 END)         AS unattended,
         COALESCE((
           SELECT COUNT(*) FROM communication_logs cl
+          JOIN leads lc ON lc.id = cl.lead_id
           WHERE cl.agent_id = u.id AND cl.type = 'call'
+            ${prodId ? `AND lc.product_id = ${prodId}` : ''}
         ), 0) AS total_calls,
         ROUND(CASE WHEN COUNT(l.id) > 0
           THEN COUNT(CASE WHEN l.status='converted' THEN 1 END)::numeric / COUNT(l.id) * 100
           ELSE 0 END, 1) AS conversion_rate
       FROM users u
       JOIN roles r ON r.id = u.role_id
-      LEFT JOIN leads l ON l.assigned_to = u.id ${scopeFilter}
+      LEFT JOIN leads l ON l.assigned_to = u.id ${leadsWhere}
       WHERE r.name IN ('agent','admin') AND u.is_active = true
       GROUP BY u.id, u.name
       HAVING COUNT(l.id) > 0

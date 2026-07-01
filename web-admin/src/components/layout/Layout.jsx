@@ -15,7 +15,6 @@ const navItems = [
   { to: '/performance', label: 'Performance',  icon: '🏆', adminOnly: false },
   { to: '/campaigns',    label: 'Campaigns',    icon: '📣', adminOnly: true  },
   { to: '/integrations', label: 'Integrations', icon: '🔗', adminOnly: true  },
-  { to: '/meta-forms',   label: 'Meta Forms',   icon: '📘', adminOnly: true  },
   { to: '/email',       label: 'Email',        icon: '📧', adminOnly: false },
   { to: '/chat',        label: 'Chat',         icon: '💬', adminOnly: false },
   { to: '/assign',      label: 'Assign Leads', icon: '↗',  adminOnly: true },

@@ -147,10 +147,12 @@ export default function ReportsPage() {
   const [filterAgentDaily, setFilterAgentDaily]     = useState('')
   const [filterAgentWeekly, setFilterAgentWeekly]         = useState('')
   const [filterAgentMonthly, setFilterAgentMonthly]       = useState('')
-  const [filterProductWeekly, setFilterProductWeekly]     = useState('')
-  const [filterProductMonthly, setFilterProductMonthly]   = useState('')
-  const [filterProductAgentWise, setFilterProductAgentWise] = useState('')
+  const [filterProductWeekly, setFilterProductWeekly]         = useState('')
+  const [filterProductMonthly, setFilterProductMonthly]       = useState('')
+  const [filterProductAgentWise, setFilterProductAgentWise]   = useState('')
   const [filterProductConversion, setFilterProductConversion] = useState('')
+  const [filterProductOverview, setFilterProductOverview]     = useState('')
+  const [filterProductStatus, setFilterProductStatus]         = useState('')
 
   const [fuDateFrom, setFuDateFrom]         = useState(monthAgo)
   const [fuDateTo, setFuDateTo]             = useState(monthAhead)
@@ -192,10 +194,11 @@ export default function ReportsPage() {
     setLoading(true)
     try {
       if (tab === 'overview') {
+        const ovParams = filterProductOverview ? { product_id: filterProductOverview } : {}
         const [ovRes, statusRes, agentRes, callRes] = await Promise.all([
-          api.get('/reports/overview').catch(() => ({})),
-          api.get('/reports/status-wise').catch(() => ({})),
-          api.get('/reports/agent-wise').catch(() => ({})),
+          api.get('/reports/overview',    { params: ovParams }).catch(() => ({})),
+          api.get('/reports/status-wise', { params: ovParams }).catch(() => ({})),
+          api.get('/reports/agent-wise',  { params: ovParams }).catch(() => ({})),
           api.get('/reports/call-stats').catch(() => ({})),
         ])
         const ov = ovRes?.data || {}
@@ -206,7 +209,8 @@ export default function ReportsPage() {
         setCallStats(callRes?.data || {})
 
       } else if (tab === 'status') {
-        const r = await api.get('/reports/status-wise')
+        const params = filterProductStatus ? { product_id: filterProductStatus } : {}
+        const r = await api.get('/reports/status-wise', { params })
         setData(Array.isArray(r?.data) ? r.data : [])
 
       } else if (tab === 'agent') {
@@ -273,6 +277,7 @@ export default function ReportsPage() {
       if (tab === 'pipeline') setPipeline({ by_status: [], by_agent: [], by_product: [] })
     } finally { setLoading(false) }
   }, [tab, dateFilter, filterAgentDaily, filterAgentWeekly, filterAgentMonthly,
+      filterProductOverview, filterProductStatus,
       filterProductWeekly, filterProductMonthly, filterProductAgentWise, filterProductConversion,
       fuDateFrom, fuDateTo, fuAgent, fuProduct, fuStatus, isAdmin, user?.id])
 
@@ -353,7 +358,36 @@ export default function ReportsPage() {
       </div>
 
       {/* Filter bars */}
-      {tab === 'daily' && (
+      {tab === 'overview' && products.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-xl p-3">
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Product:</label>
+            <select className="input w-44 text-sm" value={filterProductOverview} onChange={e => setFilterProductOverview(e.target.value)}>
+              <option value="">All Products</option>
+              {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          {filterProductOverview && (
+            <button onClick={() => setFilterProductOverview('')}
+              className="text-xs text-slate-400 hover:text-slate-600 underline">Reset</button>
+          )}
+        </div>
+      )}
+      {tab === 'status' && products.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-xl p-3">
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Product:</label>
+            <select className="input w-44 text-sm" value={filterProductStatus} onChange={e => setFilterProductStatus(e.target.value)}>
+              <option value="">All Products</option>
+              {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          {filterProductStatus && (
+            <button onClick={() => setFilterProductStatus('')}
+              className="text-xs text-slate-400 hover:text-slate-600 underline">Reset</button>
+          )}
+        </div>
+      )}
         <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-xl p-3">
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium text-slate-600">Date:</label>
