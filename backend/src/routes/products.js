@@ -165,6 +165,7 @@ router.get('/conversion', auth, async (req, res) => {
 })
 
 
+router.get('/', auth, async (req, res) => {
   try {
     const { rows } = await db.query(
       `SELECT p.*, COUNT(l.id) AS lead_count FROM products p LEFT JOIN leads l ON l.product_id = p.id GROUP BY p.id ORDER BY p.name`
