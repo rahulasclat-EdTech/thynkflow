@@ -8,7 +8,15 @@ import toast from 'react-hot-toast'
 import { format, parseISO } from 'date-fns'
 
 function StatusBadge({ status }) {
-  const map = { sent:'bg-green-100 text-green-700', failed:'bg-red-100 text-red-700', bounced:'bg-orange-100 text-orange-700' }
+  const map = {
+    sent:        'bg-blue-100 text-blue-700',
+    delivered:   'bg-teal-100 text-teal-700',
+    opened:      'bg-purple-100 text-purple-700',
+    clicked:     'bg-green-100 text-green-700',
+    bounced:     'bg-orange-100 text-orange-700',
+    complained:  'bg-red-100 text-red-700',
+    failed:      'bg-red-100 text-red-700',
+  }
   return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${map[status]||'bg-gray-100 text-gray-600'}`}>{status}</span>
 }
 
@@ -28,6 +36,7 @@ export default function EmailPage() {
   const [templates, setTemplates]   = useState([])
   const [history, setHistory]       = useState([])
   const [loading, setLoading]       = useState(false)
+  const [stats, setStats]           = useState(null)
 
   // compose
   const [selectedLead, setSelectedLead]     = useState(null)
@@ -73,8 +82,15 @@ export default function EmailPage() {
     } catch {} finally { setLoading(false) }
   }, [])
 
+  const fetchStats = useCallback(async () => {
+    try {
+      const r = await api.get('/emails/stats')
+      setStats(r?.data || null)
+    } catch {}
+  }, [])
+
   useEffect(() => { fetchTemplates() }, [fetchTemplates])
-  useEffect(() => { if (tab === 'history') fetchHistory() }, [tab, fetchHistory])
+  useEffect(() => { if (tab === 'history') { fetchHistory(); fetchStats() } }, [tab, fetchHistory, fetchStats])
 
   const searchLeads = async (q, isBulk = false) => {
     if (!q || q.length < 2) { isBulk ? setBulkResults([]) : setLeadResults([]); return }
@@ -342,6 +358,23 @@ export default function EmailPage() {
       {/* HISTORY */}
       {tab === 'history' && (
         <div>
+          {stats && stats.total > 0 && (
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
+              {[
+                ['Sent',       stats.total,                                              'text-blue-600'],
+                ['Delivered',  stats.byStatus.delivered||0,                              'text-teal-600'],
+                ['Opened',     (stats.byStatus.opened||0)+(stats.byStatus.clicked||0),    'text-purple-600'],
+                ['Clicked',    stats.byStatus.clicked||0,                                'text-green-600'],
+                ['Bounced',    stats.byStatus.bounced||0,                                'text-orange-600'],
+                ['Failed',     (stats.byStatus.failed||0)+(stats.byStatus.complained||0), 'text-red-600'],
+              ].map(([label, value, color]) => (
+                <div key={label} className="bg-white border rounded-xl p-3 text-center">
+                  <p className={`text-xl font-bold ${color}`}>{value}</p>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide">{label}</p>
+                </div>
+              ))}
+            </div>
+          )}
           {loading ? (
             <div className="text-center py-16 text-gray-400">Loading history…</div>
           ) : !history.length ? (
@@ -351,7 +384,7 @@ export default function EmailPage() {
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    {['To','Subject','Agent','Status','Sent At','Action'].map(h => (
+                    {['To','Subject','Agent','Status','Opens','Clicks','Sent At','Action'].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{h}</th>
                     ))}
                   </tr>
@@ -365,7 +398,14 @@ export default function EmailPage() {
                       </td>
                       <td className="px-4 py-3 max-w-xs"><p className="truncate text-gray-800">{email.subject}</p></td>
                       <td className="px-4 py-3 text-gray-600">{email.agent_name||'—'}</td>
-                      <td className="px-4 py-3"><StatusBadge status={email.status} /></td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={email.status} />
+                        {email.status === 'bounced' && email.bounce_type && (
+                          <p className="text-[10px] text-orange-500 mt-1">{email.bounce_type}{email.bounce_subtype ? ` / ${email.bounce_subtype}` : ''}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 text-xs">{email.open_count > 0 ? `👁️ ${email.open_count}` : '—'}</td>
+                      <td className="px-4 py-3 text-gray-500 text-xs">{email.click_count > 0 ? `🖱️ ${email.click_count}` : '—'}</td>
                       <td className="px-4 py-3 text-gray-400 text-xs">
                         {email.sent_at?format(parseISO(email.sent_at),'dd MMM yy HH:mm'):'—'}
                       </td>
@@ -433,6 +473,15 @@ export default function EmailPage() {
                 <div><span className="text-gray-500">Sent:</span> {viewEmail.sent_at?format(parseISO(viewEmail.sent_at),'dd MMM yyyy HH:mm'):'—'}</div>
                 <div><span className="text-gray-500">Status:</span> <StatusBadge status={viewEmail.status} /></div>
               </div>
+              {(viewEmail.delivered_at || viewEmail.opened_at || viewEmail.clicked_at || viewEmail.bounced_at || viewEmail.complained_at) && (
+                <div className="grid grid-cols-2 gap-2 text-xs text-gray-500 mt-3 pt-3 border-t border-gray-200">
+                  {viewEmail.delivered_at && <div>✅ Delivered {format(parseISO(viewEmail.delivered_at),'dd MMM HH:mm')}</div>}
+                  {viewEmail.opened_at   && <div>👁️ First opened {format(parseISO(viewEmail.opened_at),'dd MMM HH:mm')} · {viewEmail.open_count}x</div>}
+                  {viewEmail.clicked_at  && <div>🖱️ First click {format(parseISO(viewEmail.clicked_at),'dd MMM HH:mm')} · {viewEmail.click_count}x</div>}
+                  {viewEmail.bounced_at  && <div>⚠️ Bounced {format(parseISO(viewEmail.bounced_at),'dd MMM HH:mm')} — {viewEmail.bounce_type}{viewEmail.bounce_subtype?` / ${viewEmail.bounce_subtype}`:''}</div>}
+                  {viewEmail.complained_at && <div>🚩 Marked as spam {format(parseISO(viewEmail.complained_at),'dd MMM HH:mm')}</div>}
+                </div>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-5">
               <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">{viewEmail.body}</pre>

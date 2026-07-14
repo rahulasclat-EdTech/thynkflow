@@ -4,7 +4,7 @@ const express    = require('express')
 const nodemailer = require('nodemailer')
 const db         = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
-const { buildTransporter, getFromAddress } = require('./integrations')
+const { buildTransporter, getFromAddress, getSendMeta } = require('./integrations')
 
 const router = express.Router()
 
@@ -18,6 +18,18 @@ function fillTemplate(text, vars = {}) {
     .replace(/{{agent_phone}}/g, vars.agent_phone || '')
     .replace(/{{product}}/g,     vars.product     || '')
     .replace(/{{company}}/g,     vars.company     || 'ThynkSuccess')
+}
+
+/**
+ * When sending through Amazon SES with a Configuration Set, this header tells
+ * SES to route Send/Delivery/Bounce/Complaint/Open/Click events to whatever
+ * SNS topic that configuration set is wired to (see routes/webhooks.js).
+ * No-op for plain SMTP.
+ */
+function sesHeaders(sendMeta) {
+  return sendMeta.provider === 'ses' && sendMeta.configurationSet
+    ? { 'X-SES-CONFIGURATION-SET': sendMeta.configurationSet }
+    : undefined
 }
 
 async function ensureTables() {
@@ -46,6 +58,23 @@ async function ensureTables() {
       created_at  TIMESTAMP DEFAULT NOW()
     );
   `)
+
+  // Engagement-tracking columns (SES delivery/bounce/open/click events land here
+  // via /api/webhooks/ses). Added as a migration so existing installs upgrade cleanly.
+  await db.query(`
+    ALTER TABLE email_logs ADD COLUMN IF NOT EXISTS ses_message_id VARCHAR(255);
+    ALTER TABLE email_logs ADD COLUMN IF NOT EXISTS delivered_at   TIMESTAMP;
+    ALTER TABLE email_logs ADD COLUMN IF NOT EXISTS opened_at      TIMESTAMP;
+    ALTER TABLE email_logs ADD COLUMN IF NOT EXISTS open_count     INTEGER DEFAULT 0;
+    ALTER TABLE email_logs ADD COLUMN IF NOT EXISTS clicked_at     TIMESTAMP;
+    ALTER TABLE email_logs ADD COLUMN IF NOT EXISTS click_count    INTEGER DEFAULT 0;
+    ALTER TABLE email_logs ADD COLUMN IF NOT EXISTS bounced_at     TIMESTAMP;
+    ALTER TABLE email_logs ADD COLUMN IF NOT EXISTS bounce_type    VARCHAR(50);
+    ALTER TABLE email_logs ADD COLUMN IF NOT EXISTS bounce_subtype VARCHAR(50);
+    ALTER TABLE email_logs ADD COLUMN IF NOT EXISTS complained_at  TIMESTAMP;
+    CREATE INDEX IF NOT EXISTS idx_email_logs_ses_message_id ON email_logs (ses_message_id);
+  `)
+
   const { rows } = await db.query('SELECT COUNT(*) FROM email_templates')
   if (parseInt(rows[0].count) === 0) {
     await db.query(`
@@ -117,20 +146,23 @@ router.post('/send', auth, async (req, res) => {
   const { lead_id, to_email, to_name, subject, body, template_id } = req.body
   if (!to_email||!subject||!body) return res.status(400).json({ success: false, message: 'to_email, subject and body required' })
 
-  let status = 'sent', errorMsg = null
+  let status = 'sent', errorMsg = null, sesMessageId = null
   try {
     const transporter = await createTransporter()
-    const from = await getFromAddress()
-    await transporter.sendMail({
+    const from        = await getFromAddress()
+    const sendMeta    = await getSendMeta()
+    const info = await transporter.sendMail({
       from, to: to_name ? `${to_name} <${to_email}>` : to_email,
       subject, text: body, html: body.replace(/\n/g, '<br>'),
+      headers: sesHeaders(sendMeta),
     })
+    if (sendMeta.provider === 'ses') sesMessageId = info.messageId || null
   } catch (err) { status='failed'; errorMsg=err.message }
 
   try {
     await db.query(
-      `INSERT INTO email_logs (lead_id, agent_id, to_email, to_name, subject, body, template_id, status, error_msg) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [lead_id||null, req.user.id, to_email, to_name||null, subject, body, template_id||null, status, errorMsg]
+      `INSERT INTO email_logs (lead_id, agent_id, to_email, to_name, subject, body, template_id, status, error_msg, ses_message_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [lead_id||null, req.user.id, to_email, to_name||null, subject, body, template_id||null, status, errorMsg, sesMessageId]
     )
     if (lead_id) {
       await db.query(
@@ -158,6 +190,7 @@ router.post('/bulk', auth, async (req, res) => {
 
   const transporter = await createTransporter()
   const from        = await getFromAddress()
+  const sendMeta     = await getSendMeta()
   const agentName   = req.user.name  || 'Team ThynkFlow'
   const agentPhone  = req.user.phone || ''
 
@@ -167,16 +200,20 @@ router.post('/bulk', auth, async (req, res) => {
     const leadName   = lead.contact_name || lead.school_name || 'there'
     const filledSub  = fillTemplate(subject, { lead_name: leadName, agent_name: agentName, agent_phone: agentPhone })
     const filledBody = fillTemplate(body,    { lead_name: leadName, agent_name: agentName, agent_phone: agentPhone })
-    let   st='sent', errMsg=null
+    let   st='sent', errMsg=null, sesMessageId=null
 
     try {
-      await transporter.sendMail({ from, to:`${leadName} <${lead.email}>`, subject:filledSub, text:filledBody, html:filledBody.replace(/\n/g,'<br>') })
+      const info = await transporter.sendMail({
+        from, to:`${leadName} <${lead.email}>`, subject:filledSub, text:filledBody, html:filledBody.replace(/\n/g,'<br>'),
+        headers: sesHeaders(sendMeta),
+      })
+      if (sendMeta.provider === 'ses') sesMessageId = info.messageId || null
       sent++
     } catch (err) { st='failed'; errMsg=err.message; failed++ }
 
     await db.query(
-      `INSERT INTO email_logs (lead_id, agent_id, to_email, to_name, subject, body, template_id, status, error_msg) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [lead.id, req.user.id, lead.email, leadName, filledSub, filledBody, template_id||null, st, errMsg]
+      `INSERT INTO email_logs (lead_id, agent_id, to_email, to_name, subject, body, template_id, status, error_msg, ses_message_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [lead.id, req.user.id, lead.email, leadName, filledSub, filledBody, template_id||null, st, errMsg, sesMessageId]
     ).catch(() => {})
 
     await new Promise(r => setTimeout(r, 200))
@@ -208,6 +245,23 @@ router.get('/history', auth, async (req, res) => {
       isAdmin ? [] : [req.user.id]
     )
     res.json({ success: true, data: rows })
+  } catch (err) { res.status(500).json({ success: false, message: err.message }) }
+})
+
+// GET /api/emails/stats
+// Aggregate counts for the history/report view — sent, delivered, opened, clicked, bounced, failed
+router.get('/stats', auth, async (req, res) => {
+  try {
+    const isAdmin = req.user.role_name === 'admin'
+    const { rows } = await db.query(
+      isAdmin
+        ? `SELECT status, COUNT(*)::int AS count FROM email_logs GROUP BY status`
+        : `SELECT status, COUNT(*)::int AS count FROM email_logs WHERE agent_id=$1 GROUP BY status`,
+      isAdmin ? [] : [req.user.id]
+    )
+    const counts = rows.reduce((acc, r) => ({ ...acc, [r.status]: r.count }), {})
+    const total  = Object.values(counts).reduce((a, b) => a + b, 0)
+    res.json({ success: true, data: { total, byStatus: counts } })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }
 })
 

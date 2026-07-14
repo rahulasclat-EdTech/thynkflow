@@ -304,11 +304,45 @@ function WhatsAppTab() {
   )
 }
 
+// ─── Email providers ───────────────────────────────────────────────────────
+const EMAIL_PROVIDERS = {
+  smtp: {
+    label: 'SMTP', badge: 'Gmail · Outlook · Zoho · Custom',
+    badgeColor: '#1d4ed8', badgeBg: 'rgba(29,78,216,0.1)',
+    icon: '📮', iconBg: 'linear-gradient(135deg,#6366f1,#4338ca)',
+    color: '#6366f1', colorBg: 'rgba(99,102,241,0.08)', colorBorder: 'rgba(99,102,241,0.3)',
+    description: 'Connect any mailbox with host, port, username and password.',
+  },
+  ses: {
+    label: 'Amazon SES', badge: '⚡ High Deliverability',
+    badgeColor: '#92400e', badgeBg: 'rgba(217,119,6,0.12)',
+    icon: '🟠', iconBg: 'linear-gradient(135deg,#FF9900,#c97300)',
+    color: '#FF9900', colorBg: 'rgba(255,153,0,0.08)', colorBorder: 'rgba(255,153,0,0.35)',
+    description: 'Send via AWS SES using an Access Key ID + Secret Access Key.',
+    docsUrl: 'https://docs.aws.amazon.com/ses/latest/dg/send-email-smtp.html',
+  },
+}
+
+const SES_REGIONS = [
+  { label: 'US East (N. Virginia) — us-east-1',   value: 'us-east-1' },
+  { label: 'US East (Ohio) — us-east-2',           value: 'us-east-2' },
+  { label: 'US West (Oregon) — us-west-2',         value: 'us-west-2' },
+  { label: 'EU (Ireland) — eu-west-1',             value: 'eu-west-1' },
+  { label: 'EU (Frankfurt) — eu-central-1',        value: 'eu-central-1' },
+  { label: 'EU (London) — eu-west-2',              value: 'eu-west-2' },
+  { label: 'Asia Pacific (Mumbai) — ap-south-1',   value: 'ap-south-1' },
+  { label: 'Asia Pacific (Singapore) — ap-southeast-1', value: 'ap-southeast-1' },
+  { label: 'Asia Pacific (Sydney) — ap-southeast-2', value: 'ap-southeast-2' },
+]
+
 // ─── Email Tab ────────────────────────────────────────────────────────────────
 const SMTP_DEFAULTS = {
+  provider: 'smtp',
   fromName: 'ThynkFlow', fromEmail: '',
   smtpHost: 'smtp.gmail.com', smtpPort: '587',
-  smtpUser: '', smtpPass: '', enabled: true,
+  smtpUser: '', smtpPass: '',
+  sesRegion: 'ap-south-1', sesAccessKeyId: '', sesSecretAccessKey: '',
+  enabled: true,
 }
 
 function EmailTab() {
@@ -317,6 +351,7 @@ function EmailTab() {
   const [testing, setTesting] = useState(false)
   const [testTo, setTestTo]   = useState('')
   const [testResult, setTestResult] = useState(null)
+  const [webhookUrl, setWebhookUrl] = useState('')
 
   useEffect(() => {
     api.get('/integrations/raw').then(r => {
@@ -324,18 +359,30 @@ function EmailTab() {
         setCfg(prev => ({ ...SMTP_DEFAULTS, ...r.data.email }))
       }
     }).catch(() => {})
+    api.get('/integrations/ses-webhook-url').then(r => {
+      if (r?.data?.url) setWebhookUrl(r.data.url)
+    }).catch(() => {})
   }, [])
 
   const set = patch => setCfg(p => ({ ...p, ...patch }))
 
-  const isConfigured = !!(cfg.smtpHost && cfg.smtpUser && cfg.smtpPass)
+  const isSes = cfg.provider === 'ses'
+
+  const isConfigured = isSes
+    ? !!(cfg.sesRegion && cfg.sesAccessKeyId && cfg.sesSecretAccessKey && cfg.fromEmail)
+    : !!(cfg.smtpHost && cfg.smtpUser && cfg.smtpPass)
 
   const save = async () => {
-    if (!cfg.smtpHost || !cfg.smtpUser) { toast.error('SMTP Host and Username are required'); return }
+    if (isSes) {
+      if (!cfg.sesAccessKeyId || !cfg.sesSecretAccessKey) { toast.error('SES Access Key ID and Secret Access Key are required'); return }
+      if (!cfg.fromEmail) { toast.error('From Email is required for SES (must be a verified identity)'); return }
+    } else if (!cfg.smtpHost || !cfg.smtpUser) {
+      toast.error('SMTP Host and Username are required'); return
+    }
     setSaving(true)
     try {
       await api.post('/integrations/email', cfg)
-      toast.success('✅ Email SMTP configuration saved!')
+      toast.success(`✅ ${isSes ? 'Amazon SES' : 'Email SMTP'} configuration saved!`)
     } catch (err) {
       toast.error('❌ Save failed: ' + (err.message || 'Unknown'))
     } finally { setSaving(false) }
@@ -343,7 +390,7 @@ function EmailTab() {
 
   const testSmtp = async () => {
     if (!testTo.trim()) { toast.error('Enter a test email address'); return }
-    if (!isConfigured)  { toast.error('Save SMTP credentials first'); return }
+    if (!isConfigured)  { toast.error(`Save ${isSes ? 'SES' : 'SMTP'} credentials first`); return }
     setTesting(true); setTestResult(null)
     try {
       const r = await api.post('/integrations/test-email', { to: testTo.trim() })
@@ -351,7 +398,7 @@ function EmailTab() {
       toast.success('✅ Test email sent!')
     } catch (err) {
       setTestResult({ ok: false, msg: err.message || 'Test failed' })
-      toast.error('❌ SMTP test failed')
+      toast.error(`❌ ${isSes ? 'SES' : 'SMTP'} test failed`)
     } finally { setTesting(false) }
   }
 
@@ -368,21 +415,19 @@ function EmailTab() {
     <div className="space-y-5">
       {/* Info */}
       <div className="p-4 rounded-xl text-xs leading-relaxed bg-indigo-50 border border-indigo-100">
-        <div className="font-bold text-indigo-700 mb-1">📧 SMTP Configuration</div>
+        <div className="font-bold text-indigo-700 mb-1">📧 Email Configuration</div>
         <div className="text-indigo-600">
-          Configure your outgoing email server. All emails sent via ThynkFlow (templates, bulk campaigns) will use this SMTP account.
+          Configure your outgoing email account. All emails sent via ThynkFlow (templates, bulk campaigns) will use this account.
           For Gmail, use an <a href="https://support.google.com/accounts/answer/185833" target="_blank" rel="noreferrer" className="underline font-semibold">App Password</a> — not your main password.
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-100 p-6 space-y-5">
-        {/* Status + Enable toggle */}
-        <div className="flex items-center justify-between">
+      {/* Provider Selector */}
+      <div className="bg-white rounded-2xl border border-slate-100 p-6">
+        <div className="flex items-center justify-between mb-5">
           <div>
-            <div className="font-bold text-slate-800 text-sm">SMTP Server</div>
-            <div className={`text-xs mt-0.5 ${isConfigured ? 'text-green-600' : 'text-amber-500'}`}>
-              {isConfigured ? '✓ Credentials configured' : '⚠ Not configured — emails will fail'}
-            </div>
+            <div className="font-bold text-slate-800 text-sm">Email Provider</div>
+            <div className="text-xs text-slate-500 mt-0.5">Choose how ThynkFlow sends outgoing email</div>
           </div>
           <div className="flex items-center gap-2">
             <span className={`text-xs font-semibold ${cfg.enabled ? 'text-green-600' : 'text-slate-400'}`}>
@@ -391,22 +436,69 @@ function EmailTab() {
             <Toggle value={cfg.enabled} onChange={v => set({ enabled: v })} />
           </div>
         </div>
-
-        {/* Quick presets */}
-        <div>
-          <Label>Quick Preset</Label>
-          <div className="flex gap-2 flex-wrap">
-            {SMTP_PRESETS.map(p => (
-              <button key={p.label}
-                onClick={() => p.host && set({ smtpHost: p.host, smtpPort: p.port })}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-                  cfg.smtpHost === p.host ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'
-                }`}>
-                {p.label}
+        <div className="grid grid-cols-2 gap-3">
+          {Object.entries(EMAIL_PROVIDERS).map(([id, meta]) => {
+            const selected = cfg.provider === id
+            return (
+              <button key={id} onClick={() => set({ provider: id })}
+                className="text-left rounded-xl p-4 transition-all outline-none"
+                style={{
+                  border: `2px solid ${selected ? meta.color : '#e2e8f0'}`,
+                  background: selected ? meta.colorBg : '#f8fafc',
+                }}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center text-xl"
+                    style={{ background: meta.iconBg }}>
+                    {meta.icon}
+                  </div>
+                  {selected && (
+                    <div className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] text-white"
+                      style={{ background: meta.color }}>✓</div>
+                  )}
+                </div>
+                <div className="font-bold text-slate-800 text-xs mb-1">{meta.label}</div>
+                <div className="text-[9px] font-bold px-2 py-0.5 rounded-full inline-block mb-2"
+                  style={{ color: meta.badgeColor, background: meta.badgeBg }}>
+                  {meta.badge}
+                </div>
+                <div className="text-[10px] text-slate-500 leading-relaxed">{meta.description}</div>
               </button>
-            ))}
-          </div>
+            )
+          })}
         </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-100 p-6 space-y-5">
+        {/* Status */}
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="font-bold text-slate-800 text-sm">{isSes ? 'Amazon SES' : 'SMTP Server'}</div>
+            <div className={`text-xs mt-0.5 ${isConfigured ? 'text-green-600' : 'text-amber-500'}`}>
+              {isConfigured ? '✓ Credentials configured' : '⚠ Not configured — emails will fail'}
+            </div>
+          </div>
+          {isSes && (
+            <a href={EMAIL_PROVIDERS.ses.docsUrl} target="_blank" rel="noreferrer"
+              className="text-xs font-semibold text-amber-600 hover:underline">SES setup docs ↗</a>
+          )}
+        </div>
+
+        {!isSes && (
+          <div>
+            <Label>Quick Preset</Label>
+            <div className="flex gap-2 flex-wrap">
+              {SMTP_PRESETS.map(p => (
+                <button key={p.label}
+                  onClick={() => p.host && set({ smtpHost: p.host, smtpPort: p.port })}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                    cfg.smtpHost === p.host ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'
+                  }`}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -414,37 +506,107 @@ function EmailTab() {
             <input className={inpNormal} value={cfg.fromName} onChange={e => set({ fromName: e.target.value })} placeholder="ThynkFlow Sales" />
           </div>
           <div>
-            <Label>From Email</Label>
+            <Label>From Email {isSes && '*'}</Label>
             <input className={inp} value={cfg.fromEmail} onChange={e => set({ fromEmail: e.target.value })} placeholder="sales@yourdomain.com" />
-            <p className="text-[10px] text-slate-400 mt-1">Leave blank to use SMTP Username as sender</p>
+            <p className="text-[10px] text-slate-400 mt-1">
+              {isSes ? 'Must be a verified identity (email or domain) in SES' : 'Leave blank to use SMTP Username as sender'}
+            </p>
           </div>
-          <div>
-            <Label>SMTP Host *</Label>
-            <input className={inp} value={cfg.smtpHost} onChange={e => set({ smtpHost: e.target.value })} placeholder="smtp.gmail.com" />
-          </div>
-          <div>
-            <Label>SMTP Port *</Label>
-            <input className={inp} value={cfg.smtpPort} onChange={e => set({ smtpPort: e.target.value })} placeholder="587" />
-            <p className="text-[10px] text-slate-400 mt-1">587 = TLS (recommended) · 465 = SSL · 25 = no encryption</p>
-          </div>
-          <div>
-            <Label>SMTP Username *</Label>
-            <input className={inp} value={cfg.smtpUser} onChange={e => set({ smtpUser: e.target.value })} placeholder="your@gmail.com" />
-          </div>
-          <SecretInput
-            label="Password / App Password *"
-            value={cfg.smtpPass}
-            onChange={v => set({ smtpPass: v })}
-            placeholder="xxxx xxxx xxxx xxxx"
-            hint="Gmail: use App Password (16 chars), not your account password"
-          />
+
+          {isSes ? (
+            <>
+              <div>
+                <Label>AWS Region *</Label>
+                <select
+                  className={inpNormal}
+                  value={cfg.sesRegion}
+                  onChange={e => set({ sesRegion: e.target.value })}
+                >
+                  {SES_REGIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">Region where your SES identity is verified</p>
+              </div>
+              <div />
+              <div>
+                <Label>AWS Access Key ID *</Label>
+                <input className={inp} value={cfg.sesAccessKeyId} onChange={e => set({ sesAccessKeyId: e.target.value })} placeholder="AKIAxxxxxxxxxxxxxxxx" />
+              </div>
+              <SecretInput
+                label="AWS Secret Access Key *"
+                value={cfg.sesSecretAccessKey}
+                onChange={v => set({ sesSecretAccessKey: v })}
+                placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                hint="Use an IAM user scoped to ses:SendRawEmail / ses:SendEmail only"
+              />
+              <div className="col-span-2">
+                <Label>Configuration Set <span className="normal-case font-normal text-slate-400">(optional — enables delivery/open/click tracking)</span></Label>
+                <input className={inpNormal} value={cfg.sesConfigurationSet || ''} onChange={e => set({ sesConfigurationSet: e.target.value })} placeholder="thynkflow-tracking" />
+                <p className="text-[10px] text-slate-400 mt-1">Name of the SES Configuration Set with Open/Click tracking + an SNS event destination pointed at the webhook below</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <Label>SMTP Host *</Label>
+                <input className={inp} value={cfg.smtpHost} onChange={e => set({ smtpHost: e.target.value })} placeholder="smtp.gmail.com" />
+              </div>
+              <div>
+                <Label>SMTP Port *</Label>
+                <input className={inp} value={cfg.smtpPort} onChange={e => set({ smtpPort: e.target.value })} placeholder="587" />
+                <p className="text-[10px] text-slate-400 mt-1">587 = TLS (recommended) · 465 = SSL · 25 = no encryption</p>
+              </div>
+              <div>
+                <Label>SMTP Username *</Label>
+                <input className={inp} value={cfg.smtpUser} onChange={e => set({ smtpUser: e.target.value })} placeholder="your@gmail.com" />
+              </div>
+              <SecretInput
+                label="Password / App Password *"
+                value={cfg.smtpPass}
+                onChange={v => set({ smtpPass: v })}
+                placeholder="xxxx xxxx xxxx xxxx"
+                hint="Gmail: use App Password (16 chars), not your account password"
+              />
+            </>
+          )}
         </div>
+
+        {!isSes && (
+          <p className="text-[10px] text-slate-400 -mt-2">
+            Tip: Amazon SES also has its own SMTP interface — if you'd rather use host/port/user/pass, add it as "Custom" above with host <code>email-smtp.&lt;region&gt;.amazonaws.com</code>, port 587, and your SES SMTP credentials.
+          </p>
+        )}
       </div>
+
+      {/* SES delivery/open/click tracking setup */}
+      {isSes && (
+        <div className="bg-white rounded-2xl border border-slate-100 p-6">
+          <div className="font-bold text-slate-800 text-sm mb-1">📊 Delivery &amp; Engagement Tracking</div>
+          <div className="text-xs text-slate-500 mb-4">
+            To see delivered / opened / clicked / bounced status per email, wire an SNS topic to this webhook:
+          </div>
+          <div className="flex gap-2 items-center mb-4">
+            <input readOnly value={webhookUrl || 'Loading…'} className={inp + ' bg-slate-50 text-slate-600'} />
+            <button
+              onClick={() => { navigator.clipboard.writeText(webhookUrl); toast.success('Copied!') }}
+              disabled={!webhookUrl}
+              className="px-4 py-2.5 rounded-xl text-xs font-bold border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap">
+              📋 Copy
+            </button>
+          </div>
+          <ol className="text-xs text-slate-500 space-y-1.5 list-decimal list-inside leading-relaxed">
+            <li>In SES → <strong>Configuration sets</strong>, create one and turn on <strong>Open tracking</strong> + <strong>Click tracking</strong></li>
+            <li>Add an <strong>Event destination</strong> on it → SNS → send Send, Delivery, Bounce, Complaint, Reject, Open, Click events</li>
+            <li>In SNS → that topic → <strong>Create subscription</strong> → protocol <strong>HTTPS</strong> → paste the URL above (this endpoint auto-confirms the subscription)</li>
+            <li>Put that configuration set's name into the <strong>Configuration Set</strong> field above and save</li>
+          </ol>
+          <p className="text-[10px] text-slate-400 mt-3">Without this, SES emails still send fine — you just won't get delivered/opened/clicked/bounced status back, only sent/failed.</p>
+        </div>
+      )}
 
       {/* Test */}
       <div className="bg-white rounded-2xl border border-slate-100 p-6">
         <div className="font-bold text-slate-800 text-sm mb-1">📤 Send a Test Email</div>
-        <div className="text-xs text-slate-500 mb-4">Verify SMTP is working before sending to leads</div>
+        <div className="text-xs text-slate-500 mb-4">Verify {isSes ? 'Amazon SES' : 'SMTP'} is working before sending to leads</div>
         <div className="flex gap-3 items-end mb-4">
           <div className="flex-1">
             <Label>Send test to *</Label>
@@ -452,7 +614,7 @@ function EmailTab() {
           </div>
           <button onClick={testSmtp} disabled={testing || !testTo.trim()}
             className="px-5 py-2.5 rounded-xl text-sm font-bold border border-indigo-400 text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 whitespace-nowrap">
-            {testing ? '⏳ Testing…' : '🔌 Test SMTP'}
+            {testing ? '⏳ Testing…' : `🔌 Test ${isSes ? 'SES' : 'SMTP'}`}
           </button>
         </div>
         {testResult && (
@@ -466,7 +628,7 @@ function EmailTab() {
       <div className="flex justify-end">
         <button onClick={save} disabled={saving}
           className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold disabled:opacity-60">
-          {saving ? '⏳ Saving…' : '💾 Save SMTP Configuration'}
+          {saving ? '⏳ Saving…' : `💾 Save ${isSes ? 'Amazon SES' : 'SMTP'} Configuration`}
         </button>
       </div>
     </div>

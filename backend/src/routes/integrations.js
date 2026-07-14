@@ -4,6 +4,7 @@
 
 const express    = require('express')
 const nodemailer = require('nodemailer')
+const { SESClient, SendRawEmailCommand } = require('@aws-sdk/client-ses')
 const db         = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
 
@@ -51,7 +52,29 @@ async function setConfig(key, value) {
 
 /** Build a nodemailer transporter from DB config (falls back to env vars) */
 async function buildTransporter() {
-  const cfg   = await getConfig('email_smtp')
+  const cfg = await getConfig('email_smtp')
+
+  // ─── Amazon SES (API-based, uses AWS SDK v3) ───────────────────────────
+  if (cfg.provider === 'ses') {
+    const region          = cfg.sesRegion          || process.env.SES_REGION          || 'us-east-1'
+    const accessKeyId     = cfg.sesAccessKeyId      || process.env.SES_ACCESS_KEY_ID     || ''
+    const secretAccessKey = cfg.sesSecretAccessKey  || process.env.SES_SECRET_ACCESS_KEY || ''
+
+    if (!accessKeyId || !secretAccessKey) {
+      throw new Error('Amazon SES Access Key ID and Secret Access Key are required')
+    }
+
+    const ses = new SESClient({
+      region,
+      credentials: { accessKeyId, secretAccessKey },
+    })
+
+    return nodemailer.createTransport({
+      SES: { ses, aws: { SendRawEmailCommand } },
+    })
+  }
+
+  // ─── Plain SMTP (Gmail, Outlook, Zoho, Brevo, custom, or SES's own SMTP endpoint) ──
   const host  = cfg.smtpHost  || process.env.SMTP_HOST  || 'smtp.gmail.com'
   const port  = parseInt(cfg.smtpPort  || process.env.SMTP_PORT  || '587')
   const user  = cfg.smtpUser  || process.env.SMTP_USER  || ''
@@ -75,9 +98,24 @@ async function getFromAddress() {
   return email ? `${name} <${email}>` : name
 }
 
+/**
+ * Extra info emails.js needs to correlate sends with SES delivery/engagement events:
+ * - provider: 'smtp' | 'ses'
+ * - configurationSet: name of the SES Configuration Set to route through (enables
+ *   the SNS event destination + open/click tracking), or '' if not set / not SES
+ */
+async function getSendMeta() {
+  const cfg = await getConfig('email_smtp')
+  return {
+    provider: cfg.provider === 'ses' ? 'ses' : 'smtp',
+    configurationSet: cfg.provider === 'ses' ? (cfg.sesConfigurationSet || '') : '',
+  }
+}
+
 module.exports.buildTransporter = buildTransporter
 module.exports.getFromAddress   = getFromAddress
 module.exports.getConfig        = getConfig
+module.exports.getSendMeta      = getSendMeta
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/integrations
@@ -92,7 +130,8 @@ router.get('/', auth, adminOnly, async (req, res) => {
 
     // Mask secrets
     const emailSafe = { ...emailCfg }
-    if (emailSafe.smtpPass) emailSafe.smtpPass = '••••••••'
+    if (emailSafe.smtpPass)         emailSafe.smtpPass         = '••••••••'
+    if (emailSafe.sesSecretAccessKey) emailSafe.sesSecretAccessKey = '••••••••'
 
     const waSafe = { ...waCfg }
     if (waSafe.tcApiSecret) waSafe.tcApiSecret = '••••••••'
@@ -127,15 +166,60 @@ router.get('/raw', auth, adminOnly, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.post('/email', auth, adminOnly, async (req, res) => {
   try {
-    const { fromName, fromEmail, smtpHost, smtpPort, smtpUser, smtpPass, enabled } = req.body
-    if (!smtpHost || !smtpUser) {
-      return res.status(400).json({ success: false, message: 'smtpHost and smtpUser are required' })
+    const {
+      provider, fromName, fromEmail, enabled,
+      // SMTP
+      smtpHost, smtpPort, smtpUser, smtpPass,
+      // Amazon SES
+      sesRegion, sesAccessKeyId, sesSecretAccessKey, sesConfigurationSet,
+    } = req.body
+
+    const prov = provider === 'ses' ? 'ses' : 'smtp'
+
+    if (prov === 'ses') {
+      if (!sesAccessKeyId || !sesSecretAccessKey || !sesRegion) {
+        return res.status(400).json({ success: false, message: 'SES region, Access Key ID and Secret Access Key are required' })
+      }
+      if (!fromEmail) {
+        return res.status(400).json({ success: false, message: 'From Email is required for Amazon SES (must be a verified identity)' })
+      }
+    } else {
+      if (!smtpHost || !smtpUser) {
+        return res.status(400).json({ success: false, message: 'smtpHost and smtpUser are required' })
+      }
     }
-    await setConfig('email_smtp', { fromName, fromEmail, smtpHost, smtpPort, smtpUser, smtpPass, enabled: !!enabled })
-    res.json({ success: true, message: 'Email SMTP configuration saved' })
+
+    // Preserve the secret for the provider not currently being edited, so switching
+    // providers back and forth doesn't wipe out previously saved credentials.
+    const existing = await getConfig('email_smtp')
+
+    await setConfig('email_smtp', {
+      provider: prov,
+      fromName, fromEmail,
+      enabled: !!enabled,
+      smtpHost:  smtpHost  ?? existing.smtpHost,
+      smtpPort:  smtpPort  ?? existing.smtpPort,
+      smtpUser:  smtpUser  ?? existing.smtpUser,
+      smtpPass:  smtpPass  || existing.smtpPass,
+      sesRegion: sesRegion ?? existing.sesRegion,
+      sesAccessKeyId:     sesAccessKeyId     ?? existing.sesAccessKeyId,
+      sesSecretAccessKey: sesSecretAccessKey || existing.sesSecretAccessKey,
+      sesConfigurationSet: sesConfigurationSet ?? existing.sesConfigurationSet,
+    })
+    res.json({ success: true, message: `Email ${prov === 'ses' ? 'Amazon SES' : 'SMTP'} configuration saved` })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
   }
+})
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/integrations/ses-webhook-url
+// Returns the absolute webhook URL to paste into the SNS topic
+// subscription for SES delivery/bounce/open/click events
+// ─────────────────────────────────────────────────────────────
+router.get('/ses-webhook-url', auth, adminOnly, async (req, res) => {
+  const base = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`
+  res.json({ success: true, data: { url: `${base.replace(/\/$/, '')}/api/webhooks/ses` } })
 })
 
 // ─────────────────────────────────────────────────────────────

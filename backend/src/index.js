@@ -18,6 +18,7 @@ const notifRoutes       = require('./routes/notifications');
 const performanceRoutes = require('./routes/performance');
 const campaignRoutes       = require('./routes/campaigns');
 const integrationRoutes    = require('./routes/integrations');
+const webhookRoutes        = require('./routes/webhooks');
 
 const app = express();
 app.use(cors({
@@ -44,6 +45,7 @@ app.use('/api/notifications', notifRoutes);
 app.use('/api/performance', performanceRoutes);
 app.use('/api/campaigns',     campaignRoutes);
 app.use('/api/integrations',  integrationRoutes);
+app.use('/api/webhooks',      webhookRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', app: 'ThynkFlow' }));
 app.use((err, req, res, next) => {
