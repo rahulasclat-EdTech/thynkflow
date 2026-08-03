@@ -7,6 +7,51 @@ const { auth } = require('../middleware/auth');
 
 const router = express.Router();
 
+// ══════════════════════════════════════════════════════════════
+//  LOGIN LOGS — self-migrating table (same pattern as other routes)
+//  NOTE: routes/users.js already queries this table (GET /:id/logs,
+//  and last_login on the users list) expecting a `logged_in_at`
+//  column — that table was referenced but never actually created
+//  anywhere in the codebase, so we create it here with that exact
+//  column name to stay compatible with the existing queries.
+//  Powers GET /api/reports/login-activity (user-wise login report)
+// ══════════════════════════════════════════════════════════════
+async function ensureLoginLogsTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS login_logs (
+      id            SERIAL PRIMARY KEY,
+      user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+      email         VARCHAR(255),
+      status        VARCHAR(20) NOT NULL DEFAULT 'success', -- success | failed
+      reason        VARCHAR(255),
+      ip_address    VARCHAR(64),
+      user_agent    TEXT,
+      logged_in_at  TIMESTAMP DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_login_logs_user_id ON login_logs(user_id);
+    CREATE INDEX IF NOT EXISTS idx_login_logs_logged_in_at ON login_logs(logged_in_at);
+  `);
+}
+ensureLoginLogsTable().catch(console.error);
+
+function getClientIp(req) {
+  const fwd = req.headers['x-forwarded-for'];
+  if (fwd) return fwd.split(',')[0].trim();
+  return req.socket?.remoteAddress || req.ip || null;
+}
+
+async function logLogin({ user_id, email, status, reason, req }) {
+  try {
+    await db.query(
+      `INSERT INTO login_logs (user_id, email, status, reason, ip_address, user_agent)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [user_id || null, email || null, status, reason || null, getClientIp(req), req.headers['user-agent'] || null]
+    );
+  } catch (err) {
+    console.error('Failed to write login log:', err.message);
+  }
+}
+
 // POST /api/auth/login
 router.post('/login', [
   body('email').isEmail().normalizeEmail(),
@@ -21,17 +66,28 @@ router.post('/login', [
       'SELECT u.*, r.name as role_name FROM users u JOIN roles r ON u.role_id = r.id WHERE u.email = $1',
       [email]
     );
-    if (!rows.length) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    if (!rows.length) {
+      await logLogin({ email, status: 'failed', reason: 'no_such_user', req });
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
 
     const user = rows[0];
-    if (!user.is_active) return res.status(401).json({ success: false, message: 'Account deactivated' });
+    if (!user.is_active) {
+      await logLogin({ user_id: user.id, email, status: 'failed', reason: 'deactivated', req });
+      return res.status(401).json({ success: false, message: 'Account deactivated' });
+    }
 
     const valid = await bcrypt.compare(password, user.password);
-    if (!valid) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    if (!valid) {
+      await logLogin({ user_id: user.id, email, status: 'failed', reason: 'bad_password', req });
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
 
     const token = jwt.sign({ id: user.id, role: user.role_name }, process.env.JWT_SECRET, {
       expiresIn: process.env.JWT_EXPIRES_IN || '7d'
     });
+
+    await logLogin({ user_id: user.id, email, status: 'success', req });
 
     const { password: _, ...userData } = user;
     res.json({ success: true, token, user: userData });

@@ -5,7 +5,8 @@ const XLSX    = require('xlsx');
 const path    = require('path');
 const db      = require('../config/db');
 const { auth, adminOnly } = require('../middleware/auth');
-const { createNotif } = require('./notifications');
+const { createNotif } = require('./notifications')
+const { notifyLeadAssignedEmail } = require('./reminders');
 
 const router  = express.Router();
 const storage = multer.memoryStorage();
@@ -25,33 +26,49 @@ router.get('/', auth, async (req, res) => {
     let params = []
     let i      = 1
 
+    // Helper: parse a query param that may be a single value or a
+    // comma-separated list (multi-select dropdowns send it this way).
+    const toList = (val) => {
+      if (val === undefined || val === null || val === '') return null
+      const arr = Array.isArray(val) ? val : String(val).split(',')
+      const clean = arr.map(v => String(v).trim()).filter(Boolean)
+      return clean.length ? clean : null
+    }
+
     // Agent scope — agents only see their own leads
     if (isAgent) {
       where.push(`l.assigned_to = $${i++}`)
       params.push(req.user.id)
-    } else if (req.query.assigned_to) {
-      where.push(`l.assigned_to = $${i++}`)
-      params.push(req.query.assigned_to)
+    } else {
+      const assignedList = toList(req.query.assigned_to)
+      if (assignedList) {
+        where.push(`l.assigned_to = ANY($${i++}::uuid[])`)
+        params.push(assignedList)
+      }
     }
 
-    if (req.query.status) {
-      where.push(`l.status = $${i++}`)
-      params.push(req.query.status)
+    const statusList = toList(req.query.status)
+    if (statusList) {
+      where.push(`l.status = ANY($${i++}::text[])`)
+      params.push(statusList)
     }
 
-    if (req.query.product_id) {
-      where.push(`l.product_id = $${i++}`)
-      params.push(req.query.product_id)
+    const productList = toList(req.query.product_id)
+    if (productList) {
+      where.push(`l.product_id = ANY($${i++}::int[])`)
+      params.push(productList.map(p => parseInt(p)))
     }
 
-    if (req.query.school_name) {
-      where.push(`l.school_name ILIKE $${i++}`)
-      params.push(`%${req.query.school_name}%`)
+    const schoolList = toList(req.query.school_name)
+    if (schoolList) {
+      where.push(`l.school_name = ANY($${i++}::text[])`)
+      params.push(schoolList)
     }
 
-    if (req.query.lead_type) {
-      where.push(`l.lead_type = $${i++}`)
-      params.push(req.query.lead_type)
+    const leadTypeList = toList(req.query.lead_type)
+    if (leadTypeList) {
+      where.push(`l.lead_type = ANY($${i++}::text[])`)
+      params.push(leadTypeList)
     }
 
     if (req.query.unassigned === 'true') {
@@ -172,6 +189,7 @@ router.post('/', auth, async (req, res) => {
       const leadName = (contact_name || name || school_name || 'New Lead').trim()
       createNotif(newLead.assigned_to, 'lead_assigned', '👤 New Lead Assigned',
         `Lead "${leadName}" has been assigned to you`, newLead.id)
+      notifyLeadAssignedEmail([newLead.id], newLead.assigned_to) // fire-and-forget email reminder
     }
     res.status(201).json({ success: true, data: newLead })
   } catch (err) {

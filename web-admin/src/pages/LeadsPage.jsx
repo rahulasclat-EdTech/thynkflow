@@ -1,5 +1,6 @@
 // web-admin/src/pages/LeadsPage.jsx — VISUAL REDESIGN
 import React, { useEffect, useState, useCallback, useRef } from 'react'
+import MultiSelect from '../components/common/MultiSelect'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
@@ -102,10 +103,11 @@ export default function LeadsPage() {
 
   // filters
   const [search, setSearch]               = useState('')
-  const [filterStatus, setFilterStatus]   = useState('')
-  const [filterAgent, setFilterAgent]     = useState('')
-  const [filterProduct, setFilterProduct] = useState('')
-  const [filterSchool, setFilterSchool]   = useState('')
+  // NOTE: these are now arrays (multi-select) instead of single strings.
+  const [filterStatus, setFilterStatus]   = useState([])
+  const [filterAgent, setFilterAgent]     = useState([])
+  const [filterProduct, setFilterProduct] = useState([])
+  const [filterSchool, setFilterSchool]   = useState([])
   const [schools, setSchools]             = useState([])
   const [page, setPage]                   = useState(1)
   const [PER_PAGE, setPER_PAGE]           = useState(50)
@@ -236,10 +238,10 @@ export default function LeadsPage() {
       const params = new URLSearchParams({
         page, per_page: PER_PAGE,
         ...(search        && { search }),
-        ...(filterStatus  && { status: filterStatus }),
-        ...(filterAgent   && { assigned_to: filterAgent }),
-        ...(filterProduct && { product_id: filterProduct }),
-        ...(filterSchool  && { school_name: filterSchool }),
+        ...(filterStatus.length  && { status: filterStatus.join(',') }),
+        ...(filterAgent.length   && { assigned_to: filterAgent.join(',') }),
+        ...(filterProduct.length && { product_id: filterProduct.join(',') }),
+        ...(filterSchool.length  && { school_name: filterSchool.join(',') }),
         ...(filterUnassigned && { unassigned: 'true' }),
       })
       const [leadsRes, prodRes, agentRes, settRes] = await Promise.all([
@@ -498,34 +500,39 @@ export default function LeadsPage() {
         <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }}
           placeholder="🔍  Search name, phone, email, school…"
           className="border-2 rounded-xl px-3 py-2 text-sm flex-1 min-w-48 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-300 bg-white" />
-        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1) }}
-          className="border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
-          <option value="">All Statuses</option>
-          {Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
-        </select>
-        <select value={filterProduct} onChange={e => { setFilterProduct(e.target.value); setPage(1) }}
-          className="border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
-          <option value="">All Products</option>
-          {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        <MultiSelect
+          placeholder="All Statuses"
+          value={filterStatus}
+          onChange={v => { setFilterStatus(v); setPage(1) }}
+          options={Object.keys(STATUS_COLORS).map(s => ({ value: s, label: s.replace(/_/g,' ') }))}
+        />
+        <MultiSelect
+          placeholder="All Products"
+          value={filterProduct}
+          onChange={v => { setFilterProduct(v); setPage(1) }}
+          options={products.map(p => ({ value: p.id, label: p.name }))}
+        />
         {isAdmin && (
-          <select value={filterAgent} onChange={e => { setFilterAgent(e.target.value); setPage(1) }}
-            className="border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
-            <option value="">All Agents</option>
-            {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
+          <MultiSelect
+            placeholder="All Agents"
+            value={filterAgent}
+            onChange={v => { setFilterAgent(v); setPage(1) }}
+            options={agents.map(a => ({ value: a.id, label: a.name }))}
+          />
         )}
-        <select value={filterSchool} onChange={e => { setFilterSchool(e.target.value); setPage(1) }}
-          className="border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
-          <option value="">All Schools</option>
-          {schools.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <MultiSelect
+          placeholder="All Schools"
+          value={filterSchool}
+          onChange={v => { setFilterSchool(v); setPage(1) }}
+          options={schools.map(s => ({ value: s, label: s }))}
+          widthClass="min-w-[12rem]"
+        />
         <select value={PER_PAGE} onChange={e => { setPER_PAGE(Number(e.target.value)); setPage(1) }}
           className="border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
           {[25,50,100,200,500].map(n => <option key={n} value={n}>{n} / page</option>)}
         </select>
-        {(search||filterStatus||filterAgent||filterProduct||filterSchool||filterUnassigned||filterNoProduct||activeTab!=='all') && (
-          <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterAgent(''); setFilterProduct(''); setFilterSchool(''); setFilterUnassigned(false); setFilterNoProduct(false); setActiveTab('all'); setPage(1) }}
+        {(search||filterStatus.length||filterAgent.length||filterProduct.length||filterSchool.length||filterUnassigned||filterNoProduct||activeTab!=='all') && (
+          <button onClick={() => { setSearch(''); setFilterStatus([]); setFilterAgent([]); setFilterProduct([]); setFilterSchool([]); setFilterUnassigned(false); setFilterNoProduct(false); setActiveTab('all'); setPage(1) }}
             className="border-2 rounded-xl px-3 py-2 text-xs font-bold text-red-500 border-red-200 hover:bg-red-50">
             ✕ Clear All
           </button>

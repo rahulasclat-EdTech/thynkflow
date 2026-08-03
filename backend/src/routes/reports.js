@@ -546,4 +546,162 @@ router.get('/conversion', auth, async (req, res) => {
   }
 })
 
+// ══════════════════════════════════════════════════════════════
+//  LEAD AGING REPORT
+//  "Age" = days since the lead was created that it has sat in a
+//  non-final status (new/hot/warm/cold/call_back). Also reports
+//  days since last activity (call/whatsapp/email log or status update).
+//  GET /api/reports/lead-aging?agent_id=&product_id=&status=&bucket=
+// ══════════════════════════════════════════════════════════════
+const AGING_BUCKETS = [
+  { key: '0_3',   label: '0-3 days',   min: 0,  max: 3 },
+  { key: '4_7',   label: '4-7 days',   min: 4,  max: 7 },
+  { key: '8_14',  label: '8-14 days',  min: 8,  max: 14 },
+  { key: '15_30', label: '15-30 days', min: 15, max: 30 },
+  { key: '30_plus', label: '30+ days', min: 31, max: null },
+]
+
+router.get('/lead-aging', auth, async (req, res) => {
+  try {
+    const admin = isAdmin(req.user)
+    const { agent_id, product_id, status, bucket } = req.query
+
+    const where = [`l.status NOT IN ('converted','not_interested')`]
+    const params = []
+    let i = 1
+
+    if (!admin) {
+      where.push(`l.assigned_to = $${i++}`)
+      params.push(req.user.id)
+    } else if (agent_id) {
+      where.push(`l.assigned_to = $${i++}`)
+      params.push(agent_id)
+    }
+    if (product_id) { where.push(`l.product_id = $${i++}`); params.push(parseInt(product_id)) }
+    if (status)     { where.push(`l.status = $${i++}`);     params.push(status) }
+
+    const whereStr = where.join(' AND ')
+
+    // Per-lead aging detail, with days since creation & days since last touch
+    const { rows } = await db.query(`
+      SELECT
+        l.id, l.school_name, l.contact_name, l.phone, l.email, l.status,
+        l.lead_type, l.created_at, l.updated_at,
+        u.name AS agent_name, p.name AS product_name,
+        (EXTRACT(EPOCH FROM (NOW() - l.created_at)) / 86400)::int AS age_days,
+        COALESCE(
+          (EXTRACT(EPOCH FROM (NOW() - GREATEST(
+            l.updated_at,
+            (SELECT MAX(cl.called_at) FROM call_logs cl WHERE cl.lead_id = l.id)
+          ))) / 86400)::int,
+          (EXTRACT(EPOCH FROM (NOW() - l.created_at)) / 86400)::int
+        ) AS days_since_last_activity
+      FROM leads l
+      LEFT JOIN users    u ON l.assigned_to = u.id
+      LEFT JOIN products p ON l.product_id  = p.id
+      WHERE ${whereStr}
+      ORDER BY age_days DESC
+    `, params)
+
+    // Apply bucket filter in JS (keeps SQL simple/portable)
+    let filtered = rows
+    if (bucket) {
+      const b = AGING_BUCKETS.find(x => x.key === bucket)
+      if (b) filtered = rows.filter(r => r.age_days >= b.min && (b.max === null || r.age_days <= b.max))
+    }
+
+    // Bucket summary counts (always computed off the full unfiltered set for this scope)
+    const summary = AGING_BUCKETS.map(b => ({
+      key: b.key,
+      label: b.label,
+      count: rows.filter(r => r.age_days >= b.min && (b.max === null || r.age_days <= b.max)).length,
+    }))
+
+    // Agent-wise average age (admin view only, useful for accountability)
+    const byAgent = {}
+    rows.forEach(r => {
+      const key = r.agent_name || 'Unassigned'
+      if (!byAgent[key]) byAgent[key] = { agent_name: key, count: 0, total_age: 0 }
+      byAgent[key].count++
+      byAgent[key].total_age += r.age_days
+    })
+    const agentSummary = Object.values(byAgent)
+      .map(a => ({ agent_name: a.agent_name, count: a.count, avg_age_days: Math.round(a.total_age / a.count) }))
+      .sort((a, b) => b.avg_age_days - a.avg_age_days)
+
+    res.json({
+      success: true,
+      data: filtered,
+      total: filtered.length,
+      summary,
+      agent_summary: agentSummary,
+      buckets: AGING_BUCKETS.map(({ key, label }) => ({ key, label })),
+    })
+  } catch (err) {
+    console.error('lead-aging error:', err.message)
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════
+//  LOGIN ACTIVITY REPORT (user-wise)
+//  Reads from login_logs (written by routes/auth.js on every
+//  login attempt). Admin sees everyone; agents see only themselves.
+//  GET /api/reports/login-activity?user_id=&from=&to=&status=
+// ══════════════════════════════════════════════════════════════
+router.get('/login-activity', auth, async (req, res) => {
+  try {
+    const admin = isAdmin(req.user)
+    const { user_id, from, to, status } = req.query
+
+    const where = []
+    const params = []
+    let i = 1
+
+    if (!admin) {
+      where.push(`ll.user_id = $${i++}`)
+      params.push(req.user.id)
+    } else if (user_id) {
+      where.push(`ll.user_id = $${i++}`)
+      params.push(user_id)
+    }
+    if (from)   { where.push(`ll.logged_in_at >= $${i++}`); params.push(from) }
+    if (to)     { where.push(`ll.logged_in_at <  $${i++}::date + INTERVAL '1 day'`); params.push(to) }
+    if (status) { where.push(`ll.status = $${i++}`); params.push(status) }
+
+    const whereStr = where.length ? 'WHERE ' + where.join(' AND ') : ''
+
+    const { rows } = await db.query(`
+      SELECT ll.*, u.name AS user_name, u.email AS user_email, r.name AS role_name
+      FROM login_logs ll
+      LEFT JOIN users u ON ll.user_id = u.id
+      LEFT JOIN roles r ON u.role_id = r.id
+      ${whereStr}
+      ORDER BY ll.logged_in_at DESC
+      LIMIT 1000
+    `, params)
+
+    // Per-user rollup: total logins, successful, failed, last login
+    const { rows: rollup } = await db.query(`
+      SELECT
+        u.id AS user_id, u.name AS user_name, u.email AS user_email, r.name AS role_name,
+        COUNT(ll.*) FILTER (WHERE ll.status='success')                       AS total_logins,
+        COUNT(ll.*) FILTER (WHERE ll.status='failed')                       AS failed_logins,
+        MAX(ll.logged_in_at) FILTER (WHERE ll.status='success')             AS last_login_at,
+        (SELECT ip_address FROM login_logs WHERE user_id=u.id AND status='success' ORDER BY logged_in_at DESC LIMIT 1) AS last_ip
+      FROM users u
+      LEFT JOIN roles r ON u.role_id = r.id
+      LEFT JOIN login_logs ll ON ll.user_id = u.id
+      ${!admin ? 'WHERE u.id = $1' : ''}
+      GROUP BY u.id, u.name, u.email, r.name
+      ORDER BY last_login_at DESC NULLS LAST
+    `, !admin ? [req.user.id] : [])
+
+    res.json({ success: true, data: rows, total: rows.length, rollup })
+  } catch (err) {
+    console.error('login-activity error:', err.message)
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
 module.exports = router

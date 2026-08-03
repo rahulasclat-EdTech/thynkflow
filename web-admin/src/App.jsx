@@ -18,6 +18,9 @@ import ChatPage from './pages/ChatPage'
 import PerformancePage from './pages/PerformancePage'
 import CampaignsPage from './pages/CampaignsPage'
 import IntegrationsPage from './pages/IntegrationsPage'
+import LeadAgingReportPage from './pages/LeadAgingReportPage'
+import LoginReportPage from './pages/LoginReportPage'
+import InboundEmailPage from './pages/InboundEmailPage'
 
 function PrivateRoute({ children }) {
   const { user } = useAuth()
@@ -53,6 +56,9 @@ export default function App() {
           <Route path="performance" element={<PerformancePage />} />
           <Route path="campaigns"     element={<AdminRoute><CampaignsPage /></AdminRoute>} />
           <Route path="integrations"  element={<AdminRoute><IntegrationsPage /></AdminRoute>} />
+          <Route path="lead-aging"    element={<LeadAgingReportPage />} />
+          <Route path="login-report"  element={<AdminRoute><LoginReportPage /></AdminRoute>} />
+          <Route path="inbound-email" element={<AdminRoute><InboundEmailPage /></AdminRoute>} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

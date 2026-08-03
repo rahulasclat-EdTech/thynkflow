@@ -19,6 +19,8 @@ const performanceRoutes = require('./routes/performance');
 const campaignRoutes       = require('./routes/campaigns');
 const integrationRoutes    = require('./routes/integrations');
 const webhookRoutes        = require('./routes/webhooks');
+const inboundEmailRoutes   = require('./routes/inbound_email');
+const reminderRoutes       = require('./routes/reminders');
 
 const app = express();
 app.use(cors({
@@ -46,6 +48,8 @@ app.use('/api/performance', performanceRoutes);
 app.use('/api/campaigns',     campaignRoutes);
 app.use('/api/integrations',  integrationRoutes);
 app.use('/api/webhooks',      webhookRoutes);
+app.use('/api/inbound-email', inboundEmailRoutes);
+app.use('/api/reminders',     reminderRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', app: 'ThynkFlow' }));
 app.use((err, req, res, next) => {
@@ -54,4 +58,13 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`ThynkFlow API running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`ThynkFlow API running on port ${PORT}`);
+  // In-process schedulers — safe here because this backend runs as a
+  // long-lived Node process (app.listen), not a serverless function.
+  // If this ever moves to a serverless host, replace these with an
+  // external cron hitting POST /api/inbound-email/poll-now and
+  // POST /api/reminders/run-daily-digest instead.
+  inboundEmailRoutes.startInboundEmailPoller();
+  reminderRoutes.startDigestScheduler();
+});

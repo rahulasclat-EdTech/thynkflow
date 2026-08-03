@@ -28,6 +28,8 @@
 const express = require('express');
 const db = require('../config/db');
 const { auth, adminOnly } = require('../middleware/auth');
+const { createNotif } = require('./notifications');
+const { notifyLeadAssignedEmail } = require('./reminders');
 
 const router = express.Router(); // attach to existing leads router
 
@@ -213,6 +215,21 @@ router.post('/assign', auth, async (req, res) => {
       `UPDATE leads SET assigned_to = $1, updated_at = NOW() WHERE id = ANY($2::uuid[])`,
       [assigned_to || null, lead_ids]
     )
+
+    if (assigned_to) {
+      try {
+        const { rows: assignedLeads } = await db.query(
+          `SELECT id, COALESCE(contact_name, school_name, 'Lead') AS lead_name FROM leads WHERE id = ANY($1::uuid[])`,
+          [lead_ids]
+        )
+        for (const l of assignedLeads) {
+          createNotif(assigned_to, 'lead_assigned', '👤 Lead Assigned to You',
+            `Lead "${l.lead_name}" has been assigned to you`, l.id)
+        }
+      } catch {}
+      notifyLeadAssignedEmail(lead_ids, assigned_to) // fire-and-forget email reminder
+    }
+
     res.json({ success: true, updated: lead_ids.length })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
