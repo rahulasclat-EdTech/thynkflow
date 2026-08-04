@@ -33,9 +33,29 @@ const { notifyLeadAssignedEmail } = require('./reminders');
 
 const router = express.Router(); // attach to existing leads router
 
-// ------------------------------------------------------------------
-// PRODUCT ON LEAD
-// ------------------------------------------------------------------
+// POST /api/leads/cleanup-duplicate-calls  — ADMIN ONLY, one-time fix
+// Collapses existing duplicate 'call' communication_logs (from before the
+// upsert fix above) down to one row per lead per calendar day, keeping
+// the most recent entry (the one with the real discussion note, since
+// the auto-logged "Call from app" entries were always created first).
+// Safe to run more than once — a no-op once data is already deduped.
+router.post('/cleanup-duplicate-calls', auth, adminOnly, async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      DELETE FROM communication_logs
+      WHERE type = 'call' AND id NOT IN (
+        SELECT DISTINCT ON (lead_id, (created_at AT TIME ZONE 'Asia/Kolkata')::date) id
+        FROM communication_logs
+        WHERE type = 'call'
+        ORDER BY lead_id, (created_at AT TIME ZONE 'Asia/Kolkata')::date, created_at DESC
+      )
+      RETURNING id
+    `);
+    res.json({ success: true, deleted: rows.length, message: `Removed ${rows.length} duplicate call log(s)` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
 
 // PATCH /api/leads/:id/product  — assign or update product on a lead
 router.patch('/:id/product', auth, async (req, res) => {
@@ -79,12 +99,41 @@ router.get('/:id/communications', auth, async (req, res) => {
 });
 
 // POST /api/leads/:id/communications  — log a new comm event
+// NOTE: for type='call' this UPSERTS — one entry per lead per calendar
+// day. Previously every dial (auto-logged as "Call from app") AND every
+// post-call save each created a brand-new row, which double/triple-
+// counted the same phone call in "calls made" reports. Now a second
+// call log the same day updates the existing row (latest note/status
+// wins) instead of stacking a duplicate. whatsapp/email logs are
+// unaffected — those can legitimately happen multiple times a day.
 router.post('/:id/communications', auth, async (req, res) => {
   try {
     const { type, direction, note, duration_sec } = req.body;
     if (!['call', 'whatsapp', 'email'].includes(type)) {
       return res.status(400).json({ success: false, message: 'type must be call, whatsapp, or email' });
     }
+
+    if (type === 'call') {
+      const { rows: existing } = await db.query(
+        `SELECT id FROM communication_logs
+          WHERE lead_id = $1 AND type = 'call'
+            AND (created_at AT TIME ZONE 'Asia/Kolkata')::date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+          ORDER BY created_at DESC LIMIT 1`,
+        [req.params.id]
+      );
+      if (existing.length) {
+        const { rows } = await db.query(
+          `UPDATE communication_logs
+              SET agent_id = $1, direction = $2, note = $3,
+                  duration_sec = COALESCE($4, duration_sec), created_at = NOW()
+            WHERE id = $5
+            RETURNING *`,
+          [req.user.id, direction || 'outbound', note || '', duration_sec || null, existing[0].id]
+        );
+        return res.status(200).json({ success: true, data: rows[0], updated: true });
+      }
+    }
+
     const { rows } = await db.query(
       `INSERT INTO communication_logs (lead_id, agent_id, type, direction, note, duration_sec)
        VALUES ($1, $2, $3, $4, $5, $6)

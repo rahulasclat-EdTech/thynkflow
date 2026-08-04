@@ -7,6 +7,7 @@ const db      = require('../config/db');
 const { auth, adminOnly } = require('../middleware/auth');
 const { createNotif } = require('./notifications')
 const { notifyLeadAssignedEmail } = require('./reminders');
+const { logStatusChange } = require('../utils/statusHistory');
 
 const router  = express.Router();
 const storage = multer.memoryStorage();
@@ -208,6 +209,9 @@ router.put('/:id', auth, async (req, res) => {
       lead_type, creation_comment
     } = req.body
 
+    const { rows: prevRows } = await db.query(`SELECT status FROM leads WHERE id = $1`, [req.params.id])
+    const prevStatus = prevRows[0]?.status || null
+
     const { rows } = await db.query(
       `UPDATE leads SET
         contact_name     = $1,
@@ -244,6 +248,7 @@ router.put('/:id', auth, async (req, res) => {
       ]
     )
     if (!rows.length) return res.status(404).json({ success: false, message: 'Lead not found' })
+    logStatusChange(req.params.id, prevStatus, rows[0].status, req.user.id) // fire-and-forget
     res.json({ success: true, data: rows[0] })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
@@ -256,11 +261,14 @@ router.put('/:id', auth, async (req, res) => {
 router.patch('/:id/status', auth, async (req, res) => {
   try {
     const { status } = req.body
+    const { rows: prevRows } = await db.query(`SELECT status FROM leads WHERE id = $1`, [req.params.id])
+    const prevStatus = prevRows[0]?.status || null
     const { rows } = await db.query(
       `UPDATE leads SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
       [status, req.params.id]
     )
     if (!rows.length) return res.status(404).json({ success: false, message: 'Lead not found' })
+    logStatusChange(req.params.id, prevStatus, status, req.user.id) // fire-and-forget
     res.json({ success: true, data: rows[0] })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })

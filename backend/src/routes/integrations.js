@@ -112,11 +112,6 @@ async function getSendMeta() {
   }
 }
 
-module.exports.buildTransporter = buildTransporter
-module.exports.getFromAddress   = getFromAddress
-module.exports.getConfig        = getConfig
-module.exports.getSendMeta      = getSendMeta
-
 // ─────────────────────────────────────────────────────────────
 // GET /api/integrations
 // Returns both email and whatsapp configs (passwords masked)
@@ -334,3 +329,13 @@ router.post('/test-whatsapp', auth, adminOnly, async (req, res) => {
 })
 
 module.exports = router
+// IMPORTANT: these must be attached AFTER `module.exports = router` above —
+// assigning module.exports = router replaces the exports object entirely,
+// so anything attached before that line gets silently discarded. (This was
+// previously wiping out buildTransporter/getFromAddress/getConfig/getSendMeta
+// for every other file that imports them, incl. emails.js.)
+module.exports.buildTransporter = buildTransporter
+module.exports.getFromAddress   = getFromAddress
+module.exports.getConfig        = getConfig
+module.exports.setConfig        = setConfig
+module.exports.getSendMeta      = getSendMeta

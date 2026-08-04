@@ -704,4 +704,157 @@ router.get('/login-activity', auth, async (req, res) => {
   }
 })
 
+// ══════════════════════════════════════════════════════════════
+//  DAILY CALL LOGS REPORT — product-wise & agent-wise
+//  Defaults to "today" (IST) if no date range given.
+//  GET /api/reports/call-logs-daily?from=&to=&agent_id=&product_id=
+// ══════════════════════════════════════════════════════════════
+router.get('/call-logs-daily', auth, async (req, res) => {
+  try {
+    const admin = isAdmin(req.user)
+    const { from, to, agent_id, product_id } = req.query
+
+    const where = []
+    const params = []
+    let i = 1
+
+    // Default to today (IST) when no explicit range is given
+    if (!from && !to) {
+      where.push(`(cl.called_at AT TIME ZONE 'Asia/Kolkata')::date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date`)
+    } else {
+      if (from) { where.push(`cl.called_at >= $${i++}`); params.push(from) }
+      if (to)   { where.push(`cl.called_at <  $${i++}::date + INTERVAL '1 day'`); params.push(to) }
+    }
+
+    if (!admin) {
+      where.push(`cl.user_id = $${i++}`)
+      params.push(req.user.id)
+    } else if (agent_id) {
+      where.push(`cl.user_id = $${i++}`)
+      params.push(agent_id)
+    }
+    if (product_id) { where.push(`l.product_id = $${i++}`); params.push(parseInt(product_id)) }
+
+    const whereStr = where.length ? 'WHERE ' + where.join(' AND ') : ''
+
+    const { rows: calls } = await db.query(`
+      SELECT
+        cl.id, cl.lead_id, cl.discussion, cl.status AS call_status,
+        cl.next_followup_date, cl.called_at,
+        u.id AS agent_id, u.name AS agent_name,
+        p.id AS product_id, p.name AS product_name,
+        COALESCE(l.contact_name, l.school_name, 'Lead') AS lead_name
+      FROM call_logs cl
+      JOIN leads l      ON cl.lead_id = l.id
+      LEFT JOIN users u ON cl.user_id = u.id
+      LEFT JOIN products p ON l.product_id = p.id
+      ${whereStr}
+      ORDER BY cl.called_at DESC
+      LIMIT 2000
+    `, params)
+
+    const byAgent = {}
+    const byProduct = {}
+    calls.forEach(c => {
+      const aKey = c.agent_name || 'Unassigned'
+      byAgent[aKey] = byAgent[aKey] || { agent_id: c.agent_id, agent_name: aKey, call_count: 0 }
+      byAgent[aKey].call_count++
+
+      const pKey = c.product_name || 'No Product'
+      byProduct[pKey] = byProduct[pKey] || { product_id: c.product_id, product_name: pKey, call_count: 0 }
+      byProduct[pKey].call_count++
+    })
+
+    res.json({
+      success: true,
+      total: calls.length,
+      calls,
+      by_agent: Object.values(byAgent).sort((a, b) => b.call_count - a.call_count),
+      by_product: Object.values(byProduct).sort((a, b) => b.call_count - a.call_count),
+    })
+  } catch (err) {
+    console.error('call-logs-daily error:', err.message)
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════
+//  STATUS CHANGE REPORT — count product-wise & agent-wise
+//  Defaults to "today" (IST) if no date range given.
+//  GET /api/reports/status-change?from=&to=&agent_id=&product_id=&to_status=
+// ══════════════════════════════════════════════════════════════
+router.get('/status-change', auth, async (req, res) => {
+  try {
+    const admin = isAdmin(req.user)
+    const { from, to, agent_id, product_id, to_status } = req.query
+
+    const where = []
+    const params = []
+    let i = 1
+
+    if (!from && !to) {
+      where.push(`(h.changed_at AT TIME ZONE 'Asia/Kolkata')::date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date`)
+    } else {
+      if (from) { where.push(`h.changed_at >= $${i++}`); params.push(from) }
+      if (to)   { where.push(`h.changed_at <  $${i++}::date + INTERVAL '1 day'`); params.push(to) }
+    }
+
+    if (!admin) {
+      where.push(`h.changed_by = $${i++}`)
+      params.push(req.user.id)
+    } else if (agent_id) {
+      where.push(`h.changed_by = $${i++}`)
+      params.push(agent_id)
+    }
+    if (product_id) { where.push(`h.product_id = $${i++}`); params.push(parseInt(product_id)) }
+    if (to_status)  { where.push(`h.to_status = $${i++}`);  params.push(to_status) }
+
+    const whereStr = where.length ? 'WHERE ' + where.join(' AND ') : ''
+
+    const { rows: changes } = await db.query(`
+      SELECT
+        h.id, h.lead_id, h.from_status, h.to_status, h.changed_at,
+        u.id AS agent_id, u.name AS agent_name,
+        p.id AS product_id, p.name AS product_name,
+        COALESCE(l.contact_name, l.school_name, 'Lead') AS lead_name
+      FROM lead_status_history h
+      LEFT JOIN users u    ON h.changed_by = u.id
+      LEFT JOIN products p ON h.product_id = p.id
+      LEFT JOIN leads l    ON h.lead_id = l.id
+      ${whereStr}
+      ORDER BY h.changed_at DESC
+      LIMIT 2000
+    `, params)
+
+    const byAgent = {}
+    const byProduct = {}
+    const byStatus = {}
+    changes.forEach(c => {
+      const aKey = c.agent_name || 'Unknown'
+      byAgent[aKey] = byAgent[aKey] || { agent_id: c.agent_id, agent_name: aKey, count: 0 }
+      byAgent[aKey].count++
+
+      const pKey = c.product_name || 'No Product'
+      byProduct[pKey] = byProduct[pKey] || { product_id: c.product_id, product_name: pKey, count: 0 }
+      byProduct[pKey].count++
+
+      const sKey = c.to_status
+      byStatus[sKey] = byStatus[sKey] || { to_status: sKey, count: 0 }
+      byStatus[sKey].count++
+    })
+
+    res.json({
+      success: true,
+      total: changes.length,
+      changes,
+      by_agent: Object.values(byAgent).sort((a, b) => b.count - a.count),
+      by_product: Object.values(byProduct).sort((a, b) => b.count - a.count),
+      by_status: Object.values(byStatus).sort((a, b) => b.count - a.count),
+    })
+  } catch (err) {
+    console.error('status-change error:', err.message)
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
 module.exports = router

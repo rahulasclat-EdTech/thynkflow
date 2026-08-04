@@ -6,6 +6,7 @@
 const express = require('express')
 const db      = require('../config/db')
 const { auth } = require('../middleware/auth')
+const { logStatusChange } = require('../utils/statusHistory')
 const router  = express.Router()
 
 // IST date for today — cast NOW() to IST then to date
@@ -189,7 +190,10 @@ router.patch('/:leadId', auth, async (req, res) => {
       await insertCallLog(req.params.leadId, req.user.id, notes || '', follow_up_date || null)
     }
     if (status) {
+      const { rows: prevRows } = await db.query(`SELECT status FROM leads WHERE id = $1`, [req.params.leadId])
+      const prevStatus = prevRows[0]?.status || null
       await db.query(`UPDATE leads SET status = $1, updated_at = NOW() WHERE id = $2`, [status, req.params.leadId])
+      logStatusChange(req.params.leadId, prevStatus, status, req.user.id) // fire-and-forget
     }
     res.json({ success: true })
   } catch (err) {

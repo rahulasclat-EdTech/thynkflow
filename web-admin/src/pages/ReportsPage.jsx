@@ -388,6 +388,7 @@ export default function ReportsPage() {
           )}
         </div>
       )}
+      {tab === 'daily' && (
         <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-xl p-3">
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium text-slate-600">Date:</label>
