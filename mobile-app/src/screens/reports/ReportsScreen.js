@@ -43,7 +43,11 @@ const TABS = [
   { key: 'agent',      label: 'Agents',     icon: 'people-outline' },
   { key: 'conversion', label: 'Conversion', icon: 'trending-up-outline' },
   { key: 'pipeline',   label: 'Pipeline',   icon: 'funnel-outline' },
+  { key: 'daily',      label: 'Daily Calls',    icon: 'call-outline' },
+  { key: 'statuschange', label: 'Status Changes', icon: 'sync-outline' },
 ]
+
+function todayStr() { return new Date().toISOString().slice(0, 10) }
 
 export default function ReportsScreen() {
   const { user } = useAuth()
@@ -86,6 +90,47 @@ export default function ReportsScreen() {
 
   useEffect(() => { fetchReports() }, [fetchReports])
   const onRefresh = () => { setRefreshing(true); fetchReports() }
+
+  // ── Daily Calls (product-wise & agent-wise) — lazy-loaded ──
+  const [dailyData, setDailyData]       = useState(null)
+  const [dailyLoading, setDailyLoading] = useState(false)
+  const [dailyDate, setDailyDate]       = useState(todayStr())
+  const fetchDaily = useCallback(async (date) => {
+    setDailyLoading(true)
+    try {
+      const r = await api.get(`/reports/call-logs-daily?from=${date}&to=${date}`)
+      const body = r.data || r
+      setDailyData({
+        calls:      body.calls || [],
+        by_agent:   body.by_agent || [],
+        by_product: body.by_product || [],
+        total:      body.total || 0,
+      })
+    } catch (e) { console.log('Daily calls report error:', e.message) }
+    finally { setDailyLoading(false) }
+  }, [])
+  useEffect(() => { if (tab === 'daily' && !dailyData) fetchDaily(dailyDate) }, [tab])
+
+  // ── Status Change Report (product-wise & agent-wise) — lazy-loaded ──
+  const [scData, setScData]       = useState(null)
+  const [scLoading, setScLoading] = useState(false)
+  const [scFrom, setScFrom]       = useState(todayStr())
+  const fetchStatusChange = useCallback(async (date) => {
+    setScLoading(true)
+    try {
+      const r = await api.get(`/reports/status-change?from=${date}&to=${date}`)
+      const body = r.data || r
+      setScData({
+        changes:    body.changes || [],
+        by_agent:   body.by_agent || [],
+        by_product: body.by_product || [],
+        by_status:  body.by_status || [],
+        total:      body.total || 0,
+      })
+    } catch (e) { console.log('Status change report error:', e.message) }
+    finally { setScLoading(false) }
+  }, [])
+  useEffect(() => { if (tab === 'statuschange' && !scData) fetchStatusChange(scFrom) }, [tab])
 
   if (loading) return (
     <View style={s.center}>
@@ -273,6 +318,105 @@ export default function ReportsScreen() {
                 </View>
               )
             })}
+          </View>
+        )}
+        {tab === 'daily' && (
+          <View style={{ gap: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={s.sectionTitle}>Daily Calls — {dailyDate}</Text>
+              <TouchableOpacity onPress={() => fetchDaily(dailyDate)}>
+                <Ionicons name="refresh" size={18} color="#4F46E5" />
+              </TouchableOpacity>
+            </View>
+            {dailyLoading ? <ActivityIndicator color={COLORS.primary} style={{ marginTop: 20 }} /> : !dailyData || dailyData.total === 0 ? (
+              <Text style={s.empty}>No calls logged for this date</Text>
+            ) : (
+              <>
+                <View style={s.kpiGrid}>
+                  <KPI label="Total Calls" value={dailyData.total} color="#4F46E5" />
+                </View>
+                <Text style={s.cardTitle}>By Agent</Text>
+                <View style={s.card}>
+                  {dailyData.by_agent.map((a, i) => (
+                    <View key={i} style={s.statusRow}>
+                      <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: '#374151' }}>{a.agent_name}</Text>
+                      <Text style={s.countText}>{a.call_count}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={s.cardTitle}>By Product</Text>
+                <View style={s.card}>
+                  {dailyData.by_product.map((p, i) => (
+                    <View key={i} style={s.statusRow}>
+                      <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: '#374151' }}>{p.product_name}</Text>
+                      <Text style={s.countText}>{p.call_count}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={s.cardTitle}>Call Log</Text>
+                {dailyData.calls.slice(0, 30).map((c, i) => (
+                  <View key={i} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 6 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827' }}>{c.lead_name}</Text>
+                    <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>
+                      {c.agent_name} · {c.product_name || 'No product'}
+                    </Text>
+                    {c.discussion ? <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2, fontStyle: 'italic' }} numberOfLines={1}>{c.discussion}</Text> : null}
+                  </View>
+                ))}
+              </>
+            )}
+          </View>
+        )}
+
+        {tab === 'statuschange' && (
+          <View style={{ gap: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={s.sectionTitle}>Status Changes — {scFrom}</Text>
+              <TouchableOpacity onPress={() => fetchStatusChange(scFrom)}>
+                <Ionicons name="refresh" size={18} color="#4F46E5" />
+              </TouchableOpacity>
+            </View>
+            {scLoading ? <ActivityIndicator color={COLORS.primary} style={{ marginTop: 20 }} /> : !scData || scData.total === 0 ? (
+              <Text style={s.empty}>No status changes for this date</Text>
+            ) : (
+              <>
+                <View style={s.kpiGrid}>
+                  <KPI label="Total Changes" value={scData.total} color="#4F46E5" />
+                </View>
+                <Text style={s.cardTitle}>By Agent</Text>
+                <View style={s.card}>
+                  {scData.by_agent.map((a, i) => (
+                    <View key={i} style={s.statusRow}>
+                      <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: '#374151' }}>{a.agent_name}</Text>
+                      <Text style={s.countText}>{a.count}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={s.cardTitle}>By Product</Text>
+                <View style={s.card}>
+                  {scData.by_product.map((p, i) => (
+                    <View key={i} style={s.statusRow}>
+                      <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: '#374151' }}>{p.product_name}</Text>
+                      <Text style={s.countText}>{p.count}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={s.cardTitle}>Recent Transitions</Text>
+                {scData.changes.slice(0, 30).map((c, i) => (
+                  <View key={i} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 6 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827' }}>{c.lead_name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                      <Text style={{ fontSize: 11, color: '#9CA3AF', fontStyle: c.from_status ? 'normal' : 'italic' }}>
+                        {c.from_status ? c.from_status.replace(/_/g,' ') : 'new lead'}
+                      </Text>
+                      <Ionicons name="arrow-forward" size={11} color="#9CA3AF" />
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#4F46E5' }}>{c.to_status.replace(/_/g,' ')}</Text>
+                    </View>
+                    <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>{c.agent_name} · {c.product_name || 'No product'}</Text>
+                  </View>
+                ))}
+              </>
+            )}
           </View>
         )}
       </ScrollView>

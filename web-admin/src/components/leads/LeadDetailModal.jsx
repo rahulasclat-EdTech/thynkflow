@@ -1,15 +1,29 @@
 import React, { useEffect, useState } from 'react'
 import api from '../../utils/api'
 import { format } from 'date-fns'
+import useLeadStatuses from '../../hooks/useLeadStatuses'
 
-const STATUS_LABELS = {
-  new: 'New', hot: 'Hot', warm: 'Warm', cold: 'Cold',
-  converted: 'Converted', not_interested: 'Not Interested', call_back: 'Call Back'
+const _FALLBACK_COLORS = ['#1e40af','#991b1b','#92400e','#475569','#14532d','#64748b','#5b21b6','#9d174d','#065f46','#9a3412']
+function fallbackColor(key) {
+  let h = 0; for (let i=0;i<(key||'').length;i++) h = (h*31 + key.charCodeAt(i)) >>> 0
+  return _FALLBACK_COLORS[h % _FALLBACK_COLORS.length]
+}
+function StatusPill({ status, statuses }) {
+  const meta = statuses.find(s => s.key === status)
+  const color = meta?.color || fallbackColor(status)
+  const label = meta?.label || (status || '').replace(/_/g,' ')
+  return (
+    <span className="text-xs font-bold px-2 py-0.5 rounded-full capitalize"
+      style={{ background: color + '22', color }}>
+      {label}
+    </span>
+  )
 }
 
 export default function LeadDetailModal({ leadId, onClose }) {
   const [lead, setLead] = useState(null)
   const [loading, setLoading] = useState(true)
+  const { statuses } = useLeadStatuses()
 
   useEffect(() => {
     if (!leadId) return
@@ -43,7 +57,7 @@ export default function LeadDetailModal({ leadId, onClose }) {
               <InfoRow label="Assigned To" value={lead?.agent_name || 'Unassigned'} />
               <InfoRow label="Assigned By" value={lead?.assigned_by_name || '—'} />
               <InfoRow label="Current Status" value={
-                <span className={`badge-${lead?.status}`}>{STATUS_LABELS[lead?.status] || lead?.status}</span>
+                <StatusPill status={lead?.status} statuses={statuses} />
               } />
               <InfoRow label="Assigned On" value={lead?.assigned_at ? format(new Date(lead.assigned_at), 'dd MMM yyyy') : '—'} />
             </div>
@@ -59,7 +73,7 @@ export default function LeadDetailModal({ leadId, onClose }) {
                     <div key={log.id} className="border border-slate-200 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <span className={`badge-${log.status}`}>{STATUS_LABELS[log.status] || log.status}</span>
+                          <StatusPill status={log.status} statuses={statuses} />
                           <span className="text-xs text-slate-400">by {log.agent_name}</span>
                         </div>
                         <span className="text-xs text-slate-400">{format(new Date(log.called_at), 'dd MMM yyyy, hh:mm a')}</span>

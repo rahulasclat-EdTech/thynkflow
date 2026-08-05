@@ -4,8 +4,13 @@ import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
+import useLeadStatuses from '../hooks/useLeadStatuses'
 
-const STATUS_META = {
+// Original hand-picked styling for the 7 default statuses — kept as-is
+// so nothing changes visually for accounts that haven't added custom
+// statuses. Any status beyond these (added via the admin Status Master)
+// gets its color/label pulled live from there instead.
+const DEFAULT_STATUS_META = {
   new:            { bg:'#EFF6FF', text:'#1D4ED8', dot:'#3B82F6', glow:'59,130,246',   label:'New'            },
   hot:            { bg:'#FFF1F2', text:'#BE123C', dot:'#F43F5E', glow:'244,63,94',    label:'Hot'            },
   warm:           { bg:'#FFFBEB', text:'#B45309', dot:'#F59E0B', glow:'245,158,11',   label:'Warm'           },
@@ -14,7 +19,39 @@ const STATUS_META = {
   not_interested: { bg:'#F9FAFB', text:'#6B7280', dot:'#D1D5DB', glow:'209,213,219',  label:'Not Interested' },
   call_back:      { bg:'#F5F3FF', text:'#6D28D9', dot:'#8B5CF6', glow:'139,92,246',   label:'Call Back'      },
 }
-const ALL_STATUSES = Object.keys(STATUS_META)
+
+// Populated at runtime from GET /api/settings/lead_status (the admin
+// Status Master) via useLeadStatuses(). Module-scoped so every helper
+// component below (SBadge, UpdateModal, LeadCard, Section) can read the
+// live list without threading a prop through all of them.
+let _liveStatuses = []
+function _hexToRgb(hex) {
+  const h = (hex || '').replace('#','')
+  const full = h.length === 3 ? h.split('').map(c => c+c).join('') : h
+  const n = parseInt(full || '64748b', 16)
+  return `${(n>>16)&255},${(n>>8)&255},${n&255}`
+}
+const _FALLBACK_COLORS = ['#3B82F6','#F43F5E','#F59E0B','#94A3B8','#22C55E','#8B5CF6','#D1D5DB','#EC4899','#0EA5E9','#D97706']
+function _fallbackColor(key) {
+  let h = 0; for (let i=0;i<(key||'').length;i++) h = (h*31 + key.charCodeAt(i)) >>> 0
+  return _FALLBACK_COLORS[h % _FALLBACK_COLORS.length]
+}
+function getAllStatusKeys() {
+  return _liveStatuses.length ? _liveStatuses.map(s => s.key) : Object.keys(DEFAULT_STATUS_META)
+}
+function metaOf(key) {
+  const master = _liveStatuses.find(s => s.key === key)
+  if (master) {
+    const color = master.color || DEFAULT_STATUS_META[key]?.dot || _fallbackColor(key)
+    return {
+      bg: color + '14', text: color, dot: color, glow: _hexToRgb(color),
+      label: master.label || DEFAULT_STATUS_META[key]?.label || (key || '').replace(/_/g,' '),
+    }
+  }
+  if (DEFAULT_STATUS_META[key]) return DEFAULT_STATUS_META[key]
+  const color = _fallbackColor(key)
+  return { bg: color+'14', text: color, dot: color, glow: _hexToRgb(color), label: (key || '').replace(/_/g,' ') }
+}
 
 const STYLES = `
   .fup * { box-sizing: border-box; }
@@ -47,7 +84,7 @@ const fmt   = d => { try { return format(new Date(d), 'dd MMM yyyy') } catch { r
 const daysO = d => d ? Math.floor((new Date() - new Date(d)) / 86400000) : 0
 
 function SBadge({ status }) {
-  const c = STATUS_META[status] || STATUS_META.cold
+  const c = metaOf(status)
   return (
     <span style={{
       background: c.bg, color: c.text,
@@ -134,7 +171,7 @@ function UpdateModal({ followup, onClose, onSave }) {
   const [discussion, setDiscussion] = useState('')
   const [nextDate, setNextDate]     = useState('')
   const [saving, setSaving]         = useState(false)
-  const sc = STATUS_META[newStatus] || STATUS_META.cold
+  const sc = metaOf(newStatus)
 
   const handleSave = async () => {
     if (!discussion.trim()) return toast.error('Add call notes first')
@@ -205,8 +242,8 @@ function UpdateModal({ followup, onClose, onSave }) {
               📊 Update Status
             </label>
             <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-              {ALL_STATUSES.map(s=>{
-                const c=STATUS_META[s]; const active=newStatus===s
+              {getAllStatusKeys().map(s=>{
+                const c=metaOf(s); const active=newStatus===s
                 return (
                   <button key={s} onClick={()=>setNewStatus(s)} className="fup-btn" style={{
                     padding:'6px 14px',borderRadius:20,
@@ -254,7 +291,7 @@ function LeadCard({ item, onUpdate, isAdmin, index }) {
   const overdue = item.followup_type === 'overdue'
   const today   = item.followup_type === 'today'
   const days    = overdue ? daysO(item.follow_up_date) : 0
-  const c       = STATUS_META[item.lead_status] || STATUS_META.cold
+  const c       = metaOf(item.lead_status)
   const name    = item.lead_name || item.contact_name || '?'
   const initials = name.substring(0,2).toUpperCase()
   const accentRGB = overdue ? '239,68,68' : today ? '245,158,11' : c.glow
@@ -407,9 +444,10 @@ function LeadCard({ item, onUpdate, isAdmin, index }) {
 function Section({ title, subtitle, icon, glowRGB, accentHex, items, onUpdate, isAdmin, defaultOpen=true }) {
   const [open, setOpen] = useState(defaultOpen)
 
-  const statusDist = ALL_STATUSES.map(s => ({
-    s, count: items.filter(i => i.lead_status === s).length,
-  })).filter(x => x.count > 0)
+  const statusDist = [...new Set(items.map(i => i.lead_status).filter(Boolean))]
+    .map(s => ({ s, count: items.filter(i => i.lead_status === s).length }))
+    .filter(x => x.count > 0)
+    .sort((a, b) => b.count - a.count)
 
   return (
     <div className="fup" style={{
@@ -449,7 +487,7 @@ function Section({ title, subtitle, icon, glowRGB, accentHex, items, onUpdate, i
           {statusDist.length>0 && (
             <div style={{display:'flex',alignItems:'flex-end',gap:3,height:24}}>
               {statusDist.map(({s,count})=>{
-                const c=STATUS_META[s]
+                const c=metaOf(s)
                 const h=Math.max(5,Math.round((count/Math.max(...statusDist.map(x=>x.count)))*24))
                 return <div key={s} title={`${c.label}: ${count}`} style={{width:6,height:h,borderRadius:3,background:c.dot,opacity:0.85}}/>
               })}
@@ -490,6 +528,8 @@ function Section({ title, subtitle, icon, glowRGB, accentHex, items, onUpdate, i
 export default function FollowUpsPage() {
   const { user }  = useAuth()
   const isAdmin   = user?.role_id===1 || user?.role_name==='admin'
+  const { statuses } = useLeadStatuses()
+  useEffect(() => { if (statuses.length) _liveStatuses = statuses }, [statuses])
 
   const [data, setData]     = useState({ today:[], previous:[], next_3_days:[] })
   const [counts, setCounts] = useState({ today:0, previous:0, next_3_days:0 })
@@ -689,7 +729,7 @@ export default function FollowUpsPage() {
         )}
         <select style={selStyle} value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="fup-input">
           <option value="">🏷️ All Statuses</option>
-          {ALL_STATUSES.map(s=><option key={s} value={s}>{STATUS_META[s]?.label}</option>)}
+          {getAllStatusKeys().map(s=><option key={s} value={s}>{metaOf(s).label}</option>)}
         </select>
 
         {(filterAgent||filterProduct||filterStatus)&&(

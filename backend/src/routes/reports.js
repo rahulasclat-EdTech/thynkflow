@@ -133,16 +133,19 @@ router.get('/daily-calls', auth, async (req, res) => {
         cl.id,
         cl.note        AS discussion,
         cl.created_at  AS called_at,
-        COALESCE(l.contact_name, l.school_name) AS school_name,
         l.contact_name,
+        l.school_name,
         l.phone,
         l.status,
         u.name         AS agent_name,
         l.id           AS lead_id,
+        p.id           AS product_id,
+        p.name         AS product_name,
         fu.next_followup_date
       FROM communication_logs cl
       JOIN leads l        ON l.id  = cl.lead_id
       LEFT JOIN users u   ON u.id  = cl.agent_id
+      LEFT JOIN products p ON p.id = l.product_id
       LEFT JOIN (
         SELECT DISTINCT ON (lead_id) lead_id, next_followup_date
         FROM call_logs

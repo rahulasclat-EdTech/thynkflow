@@ -10,6 +10,7 @@ import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import { format } from 'date-fns'
 import * as XLSX from 'xlsx'
+import useLeadStatuses from '../hooks/useLeadStatuses'
 
 const TABS = [
   { key: 'overview',   label: '📊 Overview' },
@@ -35,8 +36,25 @@ const STATUS_COLORS = {
 }
 const ALL_STATUSES = ['new','hot','warm','cold','call_back','not_interested','converted']
 
+// Fallback palette for statuses not in the fixed map above (e.g. custom
+// statuses added via the Status Master like "Interested" or "Proposal Shared")
+const _FALLBACK_PALETTE = [
+  { bg: '#fce7f3', text: '#9d174d' }, { bg: '#ecfdf5', text: '#065f46' },
+  { bg: '#fff7ed', text: '#9a3412' }, { bg: '#f0f9ff', text: '#0369a1' },
+  { bg: '#faf5ff', text: '#6b21a8' }, { bg: '#fefce8', text: '#854d0e' },
+]
+const _fallbackColorCache = {}
+function colorForStatus(status) {
+  if (STATUS_COLORS[status]) return STATUS_COLORS[status]
+  if (_fallbackColorCache[status]) return _fallbackColorCache[status]
+  const idx = Object.keys(_fallbackColorCache).length % _FALLBACK_PALETTE.length
+  const c = _FALLBACK_PALETTE[idx]
+  _fallbackColorCache[status] = c
+  return c
+}
+
 function StatusBadge({ status }) {
-  const c = STATUS_COLORS[status] || { bg: '#f1f5f9', text: '#64748b' }
+  const c = colorForStatus(status)
   return (
     <span className="text-xs font-bold px-2 py-0.5 rounded-full capitalize"
       style={{ background: c.bg, color: c.text }}>
@@ -75,18 +93,19 @@ function DrillModal({ title, leads, onClose }) {
         <div className="flex-1 overflow-y-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 sticky top-0">
-              <tr>{['Name / School','Phone','Agent','Status','Notes','Date'].map(h => (
+              <tr>{['Name / School','Phone','Agent','Product','Status','Notes','Date'].map(h => (
                 <th key={h} className="text-left px-4 py-3 text-xs text-slate-500 font-semibold uppercase">{h}</th>
               ))}</tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {leads.length === 0
-                ? <tr><td colSpan={6} className="text-center py-10 text-slate-400">No records</td></tr>
+                ? <tr><td colSpan={7} className="text-center py-10 text-slate-400">No records</td></tr>
                 : leads.map((row, i) => (
                   <tr key={row.id || i} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-medium">{row.school_name || row.contact_name || row.name || '—'}</td>
                     <td className="px-4 py-3 text-blue-600">{row.phone || '—'}</td>
                     <td className="px-4 py-3 text-slate-500">{row.agent_name || '—'}</td>
+                    <td className="px-4 py-3 text-slate-500">{row.product_name || '—'}</td>
                     <td className="px-4 py-3"><StatusBadge status={row.status || row.lead_status} /></td>
                     <td className="px-4 py-3 text-xs text-slate-400 max-w-[160px] truncate">{row.discussion || row.notes || row.admin_remark || '—'}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">
@@ -129,6 +148,7 @@ function AgentSelect({ agents, value, onChange, label = 'Agent', allLabel = 'All
 
 export default function ReportsPage() {
   const { user } = useAuth()
+  const { statuses: masterStatuses } = useLeadStatuses()
 
   // FIX 1: Use role_id for isAdmin check — role_name column doesn't exist on users table
   const isAdmin = user?.role_id === 1 || user?.role_name === 'admin'
@@ -144,6 +164,7 @@ export default function ReportsPage() {
   const [products, setProducts]             = useState([])
 
   const [dateFilter, setDateFilter]         = useState(today)
+  const [dailyStatusFilter, setDailyStatusFilter] = useState('')
   const [filterAgentDaily, setFilterAgentDaily]     = useState('')
   const [filterAgentWeekly, setFilterAgentWeekly]         = useState('')
   const [filterAgentMonthly, setFilterAgentMonthly]       = useState('')
@@ -281,6 +302,7 @@ export default function ReportsPage() {
       filterProductWeekly, filterProductMonthly, filterProductAgentWise, filterProductConversion,
       fuDateFrom, fuDateTo, fuAgent, fuProduct, fuStatus, isAdmin, user?.id])
 
+  useEffect(() => { setDailyStatusFilter('') }, [dateFilter, filterAgentDaily])
   useEffect(() => { fetchData() }, [fetchData])
   useEffect(() => {
     const t = setInterval(fetchData, 60000)
@@ -332,7 +354,7 @@ export default function ReportsPage() {
         <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Status:</label>
         <select className="input w-40 text-sm" value={fuStatus} onChange={e => setFuStatus(e.target.value)}>
           <option value="">All Statuses</option>
-          {ALL_STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
+          {(masterStatuses.length ? masterStatuses.map(s=>s.key) : ALL_STATUSES).map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
         </select>
       </div>
       <button onClick={() => { setFuDateFrom(monthAgo); setFuDateTo(monthAhead); setFuAgent(''); setFuProduct(''); setFuStatus('') }}
@@ -837,21 +859,87 @@ export default function ReportsPage() {
                 )
               })()}
 
+              {Array.isArray(data) && data.length > 0 && (()=>{
+                const productMap={}
+                data.forEach(r=>{const k=r.product_name||'No Product'; productMap[k]=(productMap[k]||0)+1})
+                return (
+                  <div className="card p-4">
+                    <h3 className="font-bold text-slate-700 mb-3">Product Breakdown — {dateFilter}</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(productMap).sort((a,b)=>b[1]-a[1]).map(([name,count])=>(
+                        <div key={name} className="flex items-center gap-2 bg-purple-50 border border-purple-100 rounded-xl px-4 py-2 cursor-pointer hover:shadow-sm"
+                          onClick={()=>openDataDrill(`${name} Calls`,data.filter(r=>(r.product_name||'No Product')===name))}>
+                          <div className="w-7 h-7 rounded-full bg-purple-600 flex items-center justify-center text-white text-xs font-bold">{name[0]}</div>
+                          <span className="text-sm font-semibold text-slate-700">{name}</span>
+                          <span className="text-lg font-black text-purple-600">{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {Array.isArray(data) && data.length > 0 && (()=>{
+                const statusMap={}
+                data.forEach(r=>{const k=r.status||'unknown'; statusMap[k]=(statusMap[k]||0)+1})
+                return (
+                  <div className="card p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-bold text-slate-700">Status Breakdown — {dateFilter}</h3>
+                      {dailyStatusFilter && (
+                        <button onClick={()=>setDailyStatusFilter('')} className="text-xs font-bold text-red-500 hover:underline">
+                          ✕ Clear filter
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(statusMap).sort((a,b)=>b[1]-a[1]).map(([status,count])=>{
+                        const c = colorForStatus(status)
+                        const active = dailyStatusFilter === status
+                        return (
+                          <div key={status}
+                            onClick={()=>setDailyStatusFilter(active ? '' : status)}
+                            className="flex items-center gap-2 rounded-xl px-4 py-2 cursor-pointer border-2 transition-all"
+                            style={{
+                              background: active ? c.text : c.bg,
+                              borderColor: c.text,
+                              boxShadow: active ? `0 4px 12px ${c.text}33` : 'none',
+                            }}>
+                            <span className="text-sm font-semibold capitalize" style={{ color: active ? '#fff' : c.text }}>
+                              {status.replace(/_/g,' ')}
+                            </span>
+                            <span className="text-lg font-black" style={{ color: active ? '#fff' : c.text }}>{count}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })()}
+
               <div className="card overflow-hidden">
-                {!Array.isArray(data) || !data.length
-                  ? <div className="p-12 text-center text-slate-400"><p className="text-4xl mb-3">📭</p><p>No calls for this date</p></div>
+                {(()=>{
+                  const filteredRows = Array.isArray(data)
+                    ? (dailyStatusFilter ? data.filter(r => (r.status||'unknown') === dailyStatusFilter) : data)
+                    : []
+                  return !filteredRows.length
+                  ? <div className="p-12 text-center text-slate-400"><p className="text-4xl mb-3">📭</p><p>{dailyStatusFilter ? `No "${dailyStatusFilter.replace(/_/g,' ')}" calls for this date` : 'No calls for this date'}</p></div>
                   : <table className="w-full text-sm">
                       <thead className="bg-slate-50 border-b border-slate-200"><tr>
-                        {['School / Name','Phone','Agent','Status','Discussion','Follow-up','Called At'].map(h=>(
+                        {['School / Name','Phone','Agent','Product','Status','Discussion','Follow-up','Called At'].map(h=>(
                           <th key={h} className="text-left px-4 py-3 text-xs text-slate-500 font-semibold uppercase">{h}</th>
                         ))}
                       </tr></thead>
                       <tbody className="divide-y divide-slate-100">
-                        {data.map((row,i)=>(
+                        {filteredRows.map((row,i)=>(
                           <tr key={row.id||i} className="hover:bg-slate-50">
-                            <td className="px-4 py-3 font-medium">{row.school_name||row.contact_name||'—'}</td>
+                            <td className="px-4 py-3 font-medium">
+                              <div>{row.contact_name || '—'}</div>
+                              {row.school_name && <div className="text-xs text-slate-400 font-normal">{row.school_name}</div>}
+                            </td>
                             <td className="px-4 py-3 text-blue-600">{row.phone}</td>
                             <td className="px-4 py-3 text-slate-500">{row.agent_name||'—'}</td>
+                            <td className="px-4 py-3 text-slate-500">{row.product_name||'—'}</td>
                             <td className="px-4 py-3"><StatusBadge status={row.status}/></td>
                             <td className="px-4 py-3 text-xs text-slate-400 max-w-[160px] truncate">{row.discussion||'—'}</td>
                             {/* FIX 4: use next_followup_date — followup_created column does not exist in call_logs */}
@@ -869,7 +957,7 @@ export default function ReportsPage() {
                         ))}
                       </tbody>
                     </table>
-                }
+                })()}
               </div>
             </div>
           )}

@@ -1,5 +1,20 @@
 // mobile-app/src/screens/followup/FollowUpScreen.js
-// Full replacement with: post-call auto-return, calendar, agent assignment
+// Full replacement: fixes two bugs —
+//  1. Screen was calling GET /followups?status=... but the backend only
+//     understands ?section=today|previous|next_3_days|all. Because of
+//     that mismatch, the default response (an object grouped by bucket)
+//     was never recognized as an array, so the list always rendered
+//     empty regardless of what data existed.
+//  2. "Save" on the update modal was calling PATCH /followups/:id with
+//     {status:'done'} — but that id is actually the lead's id, and that
+//     route updates the LEAD's status column, not a "followup done" flag
+//     (no such flag exists). This silently overwrote the lead's real
+//     status back to the literal string "done" right after it had just
+//     been set correctly two lines above. Removed.
+//
+// Also adds the requested Today / Next 3 Days / Missed (overdue) summary
+// with counts and drill-down, matching what the backend already groups
+// follow-ups into.
 import React, { useEffect, useState, useCallback, useRef } from 'react'
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
@@ -40,7 +55,6 @@ function applyMobStatusColors(items) {
       STATUS_COLORS[k] = { bg: s.color + '28', text: s.color }
   })
 }
-// ALL_STATUSES kept for backward compat — will grow as settings are applied
 let ALL_STATUSES = Object.keys(STATUS_COLORS)
 
 function formatDate(d) {
@@ -54,14 +68,21 @@ function isOverdue(date) {
   return new Date(date) < new Date()
 }
 
+const SECTIONS = [
+  { key: 'today',       label: 'Today',        icon: 'today-outline',    color: '#2563EB' },
+  { key: 'next_3_days', label: 'Next 3 Days',  icon: 'calendar-outline', color: '#D97706' },
+  { key: 'previous',    label: 'Missed',       icon: 'alert-circle-outline', color: '#DC2626' },
+]
+
 export default function FollowUpScreen({ navigation }) {
   const { user } = useAuth()
+  const [section, setSection]       = useState('all') // 'all' shows the 3 summary cards; otherwise a drilled-down list
   const [followups, setFollowups]   = useState([])
+  const [counts, setCounts]         = useState({ today: 0, previous: 0, next_3_days: 0, total: 0 })
   const [agents, setAgents]         = useState([])
   const [loading, setLoading]       = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [filter, setFilter]         = useState('pending') // pending | done | all
-  const [statusFilter, setStatusFilter] = useState('') // lead status filter
+  const [statusFilter, setStatusFilter] = useState('') // lead status filter, only used inside a drilled-down list
   const [selectedFU, setSelectedFU] = useState(null)
   const [showUpdate, setShowUpdate] = useState(false)
 
@@ -70,7 +91,6 @@ export default function FollowUpScreen({ navigation }) {
   const calledLeadRef = useRef(null)
   const [callLead, setCallLead]     = useState(null)
   const [showPostCall, setShowPostCall] = useState(false)
-  const [total, setTotal] = useState(0)
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', next => {
@@ -87,7 +107,7 @@ export default function FollowUpScreen({ navigation }) {
   const fetchFollowups = useCallback(async () => {
     try {
       const statusParam = statusFilter ? `&lead_status=${statusFilter}` : ''
-      const params = filter !== 'all' ? `?status=${filter}&per_page=100${statusParam}` : `?per_page=100${statusParam}`
+      const params = `?section=${section}${statusParam}`
       const [fuRes, uRes, settRes] = await Promise.all([
         api.get(`/followups${params}`),
         api.get('/chat/users'),
@@ -96,18 +116,26 @@ export default function FollowUpScreen({ navigation }) {
       const sD = settRes.data?.data || settRes.data || {}
       const sts = sD.lead_status || sD.statuses || []
       if (sts.length) { applyMobStatusColors(sts); ALL_STATUSES = sts.map(s2 => typeof s2==='string'?s2:s2.key) }
-      const raw = fuRes.data?.data || fuRes.data || []
-      const rows = Array.isArray(raw) ? raw : []
-      setFollowups(rows)
-      // capture total from meta or use count
-      setTotal(fuRes.data?.total || fuRes.data?.count || rows.length)
+
+      if (section === 'all') {
+        // Backend groups into { today, previous, next_3_days } + counts when
+        // no specific section is requested — this powers the summary cards.
+        setCounts(fuRes.data?.counts || { today: 0, previous: 0, next_3_days: 0, total: 0 })
+        setFollowups([])
+      } else {
+        const raw = fuRes.data?.data || []
+        const rows = Array.isArray(raw) ? raw : []
+        setFollowups(rows)
+        setCounts(c => ({ ...c, [section]: rows.length }))
+      }
+
       const allUsers = Array.isArray(uRes.data?.data) ? uRes.data.data : (Array.isArray(uRes.data) ? uRes.data : [])
       setAgents(allUsers)
     } catch (e) { console.log(e.message) }
     finally { setLoading(false); setRefreshing(false) }
-  }, [filter])
+  }, [section, statusFilter])
 
-  useEffect(() => { setLoading(true); fetchFollowups() }, [fetchFollowups, statusFilter])
+  useEffect(() => { setLoading(true); fetchFollowups() }, [fetchFollowups])
 
   const handleCall = (fu) => {
     const phone = (fu.phone || fu.lead_phone || '').replace(/\s+/g,'')
@@ -142,7 +170,9 @@ export default function FollowUpScreen({ navigation }) {
         <View style={s.cardTop}>
           <View style={{ flex: 1 }}>
             <Text style={s.leadName}>{item.lead_name || item.contact_name || 'Lead'}</Text>
+            {item.school_name ? <Text style={s.leadSchool}>{item.school_name}</Text> : null}
             <Text style={s.leadPhone}>{item.phone || item.lead_phone}</Text>
+            {item.product_name ? <Text style={s.leadProduct}>📦 {item.product_name}</Text> : null}
             <View style={s.dateRow}>
               <Ionicons name="alarm-outline" size={13} color={overdue?'#DC2626':'#D97706'} />
               <Text style={[s.dateText, overdue && {color:'#DC2626',fontWeight:'700'}]}>
@@ -171,38 +201,65 @@ export default function FollowUpScreen({ navigation }) {
     )
   }
 
+  const activeSectionMeta = SECTIONS.find(x => x.key === section)
+
   return (
     <View style={s.container}>
       <View style={s.header}>
-        <Text style={s.title}>Follow-ups</Text>
-        <Text style={s.count}>{total > followups.length ? `${followups.length}/${total}` : followups.length} {filter === 'pending' ? 'pending' : filter === 'done' ? 'done' : 'total'}</Text>
+        {section !== 'all'
+          ? <TouchableOpacity onPress={() => setSection('all')} style={{flexDirection:'row',alignItems:'center',gap:6}}>
+              <Ionicons name="chevron-back" size={22} color="#111827" />
+              <Text style={s.title}>{activeSectionMeta?.label || 'Follow-ups'}</Text>
+            </TouchableOpacity>
+          : <Text style={s.title}>Follow-ups</Text>}
+        {section !== 'all' && <Text style={s.count}>{followups.length}</Text>}
       </View>
 
-      {/* Filter tabs - Pending/Done/All */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filterBar}>
-        {[['pending','⏳ Pending'],['done','✅ Done'],['all','All']].map(([val,label])=>(
-          <TouchableOpacity key={val} onPress={()=>setFilter(val)}
-            style={[s.chip, filter===val && s.chipActive]}>
-            <Text style={[s.chipTxt, filter===val && s.chipTxtActive]}>{label}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      {section === 'all' ? (
+        // ── Summary view: Today / Next 3 Days / Missed, each drills down ──
+        loading ? <View style={s.center}><ActivityIndicator size="large" color={COLORS.primary} /></View> : (
+          <ScrollView contentContainerStyle={{padding:16,gap:12}} refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={()=>{setRefreshing(true);fetchFollowups()}} tintColor={COLORS.primary} />
+          }>
+            <Text style={s.summaryTotal}>{counts.total} total pending follow-up{counts.total===1?'':'s'}</Text>
+            {SECTIONS.map(sec => (
+              <TouchableOpacity key={sec.key} style={[s.summaryCard,{borderColor:sec.color+'40'}]} onPress={()=>setSection(sec.key)}>
+                <View style={[s.summaryIcon,{backgroundColor:sec.color+'20'}]}>
+                  <Ionicons name={sec.icon} size={22} color={sec.color} />
+                </View>
+                <View style={{flex:1}}>
+                  <Text style={s.summaryLabel}>{sec.label}</Text>
+                  <Text style={s.summarySub}>
+                    {sec.key === 'today' ? "Follow-ups due today" :
+                     sec.key === 'next_3_days' ? 'Coming up in the next 3 days' :
+                     'Overdue — missed follow-ups'}
+                  </Text>
+                </View>
+                <Text style={[s.summaryCount,{color:sec.color}]}>{counts[sec.key] ?? 0}</Text>
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )
+      ) : (
+        // ── Drilled-down list for the selected section ──
+        <>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[s.filterBar, {paddingBottom:4}]}>
+            {[{label:'All Status',value:''}, ...ALL_STATUSES.map(k=>({label:k.replace(/_/g,' '),value:k}))].map(item=>(
+              <TouchableOpacity key={item.value} onPress={()=>setStatusFilter(item.value)}
+                style={[s.chip, statusFilter===item.value && s.chipActive]}>
+                <Text style={[s.chipTxt, statusFilter===item.value && s.chipTxtActive]}>{item.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
 
-      {/* Lead status filter - compact horizontal chips */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[s.filterBar, {paddingBottom:4}]}>
-        {[{label:'All Status',value:''}, ...ALL_STATUSES.map(k=>({label:k.replace(/_/g,' '),value:k}))].map(item=>(
-          <TouchableOpacity key={item.value} onPress={()=>setStatusFilter(item.value)}
-            style={[s.chip, statusFilter===item.value && s.chipActive]}>
-            <Text style={[s.chipTxt, statusFilter===item.value && s.chipTxtActive]}>{item.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {loading ? <View style={s.center}><ActivityIndicator size="large" color={COLORS.primary} /></View> : (
-        <FlatList data={followups} keyExtractor={item=>String(item.id)} renderItem={renderItem}
-          contentContainerStyle={{padding:12,paddingBottom:80}}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={()=>{setRefreshing(true);fetchFollowups()}} tintColor={COLORS.primary} />}
-          ListEmptyComponent={<View style={s.center}><Ionicons name="alarm-outline" size={48} color="#D1D5DB" /><Text style={{color:'#9CA3AF',marginTop:8}}>No follow-ups found</Text></View>} />
+          {loading ? <View style={s.center}><ActivityIndicator size="large" color={COLORS.primary} /></View> : (
+            <FlatList data={followups} keyExtractor={item=>String(item.id)} renderItem={renderItem}
+              contentContainerStyle={{padding:12,paddingBottom:80}}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={()=>{setRefreshing(true);fetchFollowups()}} tintColor={COLORS.primary} />}
+              ListEmptyComponent={<View style={s.center}><Ionicons name="alarm-outline" size={48} color="#D1D5DB" /><Text style={{color:'#9CA3AF',marginTop:8}}>No follow-ups found</Text></View>} />
+          )}
+        </>
       )}
 
       {/* Update modal */}
@@ -261,8 +318,13 @@ function UpdateFollowUpModal({ visible, followup, agents, onClose, onSave }) {
       if (followUpDate) {
         await api.post('/followups',{lead_id:followup.lead_id,follow_up_date:followUpDate,notes:discussion}).catch(()=>{})
       }
-      // Mark current follow-up as done
-      await api.patch(`/followups/${followup.id}`,{status:'done'}).catch(()=>{})
+      // NOTE: previously also called PATCH /followups/:id with {status:'done'}
+      // here — but followup.id IS the lead's id, and that route updates the
+      // LEAD's status column (not a "followup done" flag, which doesn't
+      // exist). That was silently overwriting the status just set above
+      // back to the literal string "done". Removed — logging a fresh call
+      // (above) and/or setting a new follow-up date is what actually moves
+      // a lead out of the "pending" follow-up buckets.
       Alert.alert('✅ Saved','Follow-up updated',[{text:'OK',onPress:onSave}])
     } catch(e) { Alert.alert('Error',e.message||'Failed') }
     finally { setSaving(false) }
@@ -282,6 +344,7 @@ function UpdateFollowUpModal({ visible, followup, agents, onClose, onSave }) {
         <ScrollView contentContainerStyle={{padding:16,paddingBottom:40,gap:14}}>
           <View style={{backgroundColor:'#F9FAFB',borderRadius:12,padding:12}}>
             <Text style={{fontSize:15,fontWeight:'700',color:'#111827'}}>{followup.lead_name||followup.contact_name}</Text>
+            {followup.school_name ? <Text style={{fontSize:12,color:'#9CA3AF',marginTop:1}}>{followup.school_name}</Text> : null}
             <Text style={{fontSize:13,color:'#6B7280',marginTop:2}}>{followup.phone||followup.lead_phone}</Text>
           </View>
 
@@ -357,6 +420,12 @@ const s = StyleSheet.create({
   header:      {flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:16,paddingTop:52,paddingBottom:12,backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#E5E7EB'},
   title:       {fontSize:22,fontWeight:'800',color:'#111827'},
   count:       {fontSize:16,fontWeight:'700',color:'#6B7280'},
+  summaryTotal:{fontSize:13,fontWeight:'600',color:'#6B7280',marginBottom:2},
+  summaryCard: {flexDirection:'row',alignItems:'center',gap:12,backgroundColor:'#fff',borderRadius:16,padding:16,borderWidth:1.5,shadowColor:'#000',shadowOffset:{width:0,height:1},shadowOpacity:0.05,shadowRadius:4,elevation:2},
+  summaryIcon: {width:44,height:44,borderRadius:12,alignItems:'center',justifyContent:'center'},
+  summaryLabel:{fontSize:15,fontWeight:'700',color:'#111827'},
+  summarySub:  {fontSize:12,color:'#9CA3AF',marginTop:1},
+  summaryCount:{fontSize:24,fontWeight:'800',marginRight:2},
   filterBar:   {paddingVertical:4,paddingHorizontal:12,backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#F3F4F6',maxHeight:42},
   chip:        {paddingHorizontal:12,paddingVertical:0,borderRadius:20,backgroundColor:'#F3F4F6',marginRight:6,height:30,alignItems:'center',justifyContent:'center'},
   chipActive:  {backgroundColor:'#4F46E5',shadowColor:'#4F46E5',shadowOpacity:0.3,shadowRadius:4,elevation:3},
@@ -366,7 +435,9 @@ const s = StyleSheet.create({
   cardOverdue: {borderWidth:1.5,borderColor:'#FCA5A5',backgroundColor:'#FFF5F5'},
   cardTop:     {flexDirection:'row',alignItems:'flex-start',marginBottom:10},
   leadName:    {fontSize:15,fontWeight:'700',color:'#111827'},
+  leadSchool:  {fontSize:12,color:'#6B7280',marginTop:1},
   leadPhone:   {fontSize:13,color:'#6B7280',marginTop:2},
+  leadProduct: {fontSize:11,color:'#7C3AED',marginTop:2,fontWeight:'600'},
   dateRow:     {flexDirection:'row',alignItems:'center',gap:4,marginTop:4},
   dateText:    {fontSize:12,color:'#D97706'},
   notes:       {fontSize:12,color:'#6B7280',marginTop:4,fontStyle:'italic'},

@@ -20,25 +20,33 @@ export default function LoginReportPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
+
+    // Users list — independent of the login-activity call, so if that one
+    // fails the "All Users" dropdown still populates instead of staying empty.
+    try {
+      const userRes = await api.get('/users')
+      const userBody = userRes || {}
+      setUsers(Array.isArray(userBody) ? userBody : (Array.isArray(userBody.data) ? userBody.data : []))
+    } catch (err) {
+      console.error('Failed to load users:', err)
+      toast.error(err?.message || 'Failed to load users list')
+    }
+
     try {
       const params = {
         ...(filterUser.length && { user_id: filterUser[0] }),
         ...(from && { from }),
         ...(to && { to }),
       }
-      const [r, userRes] = await Promise.all([
-        api.get('/reports/login-activity', { params }),
-        api.get('/users'),
-      ])
+      const r = await api.get('/reports/login-activity', { params })
       setLogs(r.data || [])
       setRollup(r.rollup || [])
-      const userBody = userRes || {}
-      setUsers(Array.isArray(userBody) ? userBody : (Array.isArray(userBody.data) ? userBody.data : []))
-    } catch {
-      toast.error('Failed to load login report')
-    } finally {
-      setLoading(false)
+    } catch (err) {
+      console.error('Failed to load login activity:', err)
+      toast.error(err?.message || 'Failed to load login report')
     }
+
+    setLoading(false)
   }, [filterUser, from, to])
 
   useEffect(() => { fetchData() }, [fetchData])

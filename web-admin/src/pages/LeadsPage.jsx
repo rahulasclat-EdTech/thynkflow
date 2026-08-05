@@ -39,11 +39,35 @@ const STATUS_DOT = {
   converted:'#22c55e', not_interested:'#9ca3af', call_back:'#a855f7',
 }
 
+// Populated at runtime from the admin-managed Status Master
+// (GET /api/settings → category 'lead_status'). Any status an admin adds
+// there — e.g. "Proposal Shared" — shows up everywhere on this page
+// automatically instead of only the 7 statuses hardcoded above.
+let dynamicStatusMeta = {}
+function registerStatuses(list) {
+  dynamicStatusMeta = {}
+  ;(list || []).forEach(s => {
+    const key = typeof s === 'string' ? s : s.key
+    if (!key) return
+    dynamicStatusMeta[key] = {
+      label: (typeof s === 'string' ? s : s.label) || key.replace(/_/g, ' '),
+      color: (typeof s === 'object' && s.color) || STATUS_DOT[key] || '#64748b',
+    }
+  })
+}
+
+// Uses inline styles (not Tailwind classes) since admin-added status
+// colors are arbitrary hex values chosen at runtime — Tailwind's build-time
+// class scanner can't generate CSS for class names it never saw in source.
 function Badge({ status }) {
+  const meta = dynamicStatusMeta[status]
+  const color = meta?.color || STATUS_DOT[status] || '#94a3b8'
+  const label = meta?.label || status?.replace(/_/g, ' ') || '—'
   return (
-    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold capitalize inline-flex items-center gap-1 ${STATUS_COLORS[status] || 'bg-gray-100 text-gray-600'}`}>
-      <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: STATUS_DOT[status] || '#9ca3af' }} />
-      {status?.replace(/_/g, ' ')}
+    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold capitalize inline-flex items-center gap-1"
+      style={{ background: color + '22', color }}>
+      <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: color }} />
+      {label}
     </span>
   )
 }
@@ -98,6 +122,9 @@ export default function LeadsPage() {
   const [products, setProducts]     = useState([])
   const [agents, setAgents]         = useState([])
   const [settings, setSettings]     = useState({ statuses: [], sources: [], cities: [], lead_types: [] })
+  const statusOptions = settings.statuses.length
+    ? settings.statuses.map(st => ({ key: typeof st === 'string' ? st : st.key, label: typeof st === 'string' ? st.replace(/_/g,' ') : (st.label || st.key.replace(/_/g,' ')) }))
+    : Object.keys(STATUS_COLORS).map(k => ({ key: k, label: k.replace(/_/g,' ') }))
   const [loading, setLoading]       = useState(true)
   const [totalCount, setTotalCount] = useState(0)
 
@@ -263,8 +290,10 @@ export default function LeadsPage() {
 
       const sBody = settRes || {}
       const s = Array.isArray(sBody) ? {} : (sBody.data || sBody || {})
+      const statusList = s.lead_status || s.statuses || []
+      registerStatuses(statusList)
       setSettings({
-        statuses:   s.lead_status || s.statuses   || [],
+        statuses:   statusList,
         sources:    s.lead_source || s.sources     || [],
         cities:     s.city        || s.cities      || [],
         lead_types: s.lead_type   || s.lead_types  || [],
@@ -504,7 +533,7 @@ export default function LeadsPage() {
           placeholder="All Statuses"
           value={filterStatus}
           onChange={v => { setFilterStatus(v); setPage(1) }}
-          options={Object.keys(STATUS_COLORS).map(s => ({ value: s, label: s.replace(/_/g,' ') }))}
+          options={statusOptions.map(s => ({ value: s.key, label: s.label }))}
         />
         <MultiSelect
           placeholder="All Products"
@@ -768,7 +797,7 @@ export default function LeadsPage() {
                       <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wide">Status</label>
                       <select value={editForm.status||''} onChange={e=>setEditForm(f=>({...f,status:e.target.value}))}
                         className="w-full border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-                        {Object.keys(STATUS_COLORS).map(s=><option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
+                        {statusOptions.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}
                       </select>
                     </div>
                     <div>
@@ -1009,7 +1038,7 @@ export default function LeadsPage() {
                   <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Status</label>
                   <select value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}
                     className="w-full border-2 border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-                    {Object.keys(STATUS_COLORS).map(s=><option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
+                    {statusOptions.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}
                   </select>
                 </div>
                 <div>

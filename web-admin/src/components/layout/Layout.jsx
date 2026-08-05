@@ -20,6 +20,7 @@ const navItems = [
   { to: '/assign',      label: 'Assign Leads', icon: '↗',  adminOnly: true },
   { to: '/reports',     label: 'Reports',      icon: '📊', adminOnly: false },
   { to: '/lead-aging',    label: 'Lead Aging',    icon: '⏳', adminOnly: false },
+  { to: '/status-change', label: 'Status Changes', icon: '🔄', adminOnly: false },
   { to: '/login-report',  label: 'Login Report',  icon: '🔐', adminOnly: true },
   { to: '/inbound-email', label: 'Inbound Email', icon: '📥', adminOnly: true },
   { to: '/users',       label: 'Users',        icon: '👤', adminOnly: true },

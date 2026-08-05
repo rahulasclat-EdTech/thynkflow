@@ -2,21 +2,22 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import api from '../utils/api'
 import toast from 'react-hot-toast'
+import useLeadStatuses from '../hooks/useLeadStatuses'
 
-const STATUS_COLORS = {
-  new:'#1e40af', hot:'#991b1b', warm:'#92400e', cold:'#475569',
-  converted:'#14532d', not_interested:'#64748b', call_back:'#5b21b6',
-}
-const STATUS_BG = {
-  new:'#dbeafe', hot:'#fee2e2', warm:'#fef3c7', cold:'#e2e8f0',
-  converted:'#dcfce7', not_interested:'#f1f5f9', call_back:'#ede9fe',
+const _FALLBACK_PALETTE = ['#1e40af','#991b1b','#92400e','#475569','#14532d','#64748b','#5b21b6','#9d174d','#065f46','#9a3412']
+function fallbackColor(key) {
+  let h = 0; for (let i=0;i<(key||'').length;i++) h = (h*31 + key.charCodeAt(i)) >>> 0
+  return _FALLBACK_PALETTE[h % _FALLBACK_PALETTE.length]
 }
 
-function Badge({ status }) {
+function Badge({ status, statuses = [] }) {
+  const meta = statuses.find(s => s.key === status)
+  const color = meta?.color || fallbackColor(status)
+  const label = meta?.label || (status || '').replace(/_/g,' ')
   return (
     <span className="text-xs font-bold px-2 py-0.5 rounded-full capitalize"
-      style={{ background: STATUS_BG[status]||'#f1f5f9', color: STATUS_COLORS[status]||'#64748b' }}>
-      {status?.replace(/_/g,' ')}
+      style={{ background: color + '22', color }}>
+      {label}
     </span>
   )
 }
@@ -42,6 +43,7 @@ function SummaryCard({ icon, label, value, color, bg, onClick, active }) {
 }
 
 export default function AssignPage() {
+  const { statuses } = useLeadStatuses()
   const [leads, setLeads]       = useState([])
   const [agents, setAgents]     = useState([])
   const [products, setProducts] = useState([])
@@ -320,7 +322,7 @@ export default function AssignPage() {
         <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
           className="border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
           <option value="">All Statuses</option>
-          {Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
+          {statuses.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
 
         <select value={filterAgent} onChange={e => { setFilterAgent(e.target.value); if (e.target.value) setFilterUnassignedAgent(false) }}
@@ -421,7 +423,7 @@ export default function AssignPage() {
                       {lead.city || <span className="text-slate-300">—</span>}
                     </td>
                     <td className="px-4 py-3 font-mono text-blue-600 font-semibold text-xs">{lead.phone}</td>
-                    <td className="px-4 py-3"><Badge status={lead.status} /></td>
+                    <td className="px-4 py-3"><Badge status={lead.status} statuses={statuses} /></td>
                     <td className="px-4 py-3">
                       {lead.product_id
                         ? <span className="bg-violet-100 text-violet-700 text-xs font-bold px-2.5 py-1 rounded-full">

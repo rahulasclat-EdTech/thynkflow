@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import * as XLSX from 'xlsx'
+import useLeadStatuses from '../hooks/useLeadStatuses'
 
 /* ─── helpers ─────────────────────────────────────────────── */
 function fmtMoney(n) {
@@ -17,26 +18,26 @@ function pct(a, b) { return b > 0 ? Math.min((a / b) * 100, 100).toFixed(1) : '0
 function num(v) { return parseInt(v) || 0 }
 function money(v) { return parseFloat(v) || 0 }
 
-const STATUS_META = {
-  new:            { label: 'New',           color: '#3b82f6', bg: '#dbeafe' },
-  hot:            { label: 'Hot',           color: '#ef4444', bg: '#fee2e2' },
-  warm:           { label: 'Warm',          color: '#f59e0b', bg: '#fef3c7' },
-  cold:           { label: 'Cold',          color: '#94a3b8', bg: '#e2e8f0' },
-  call_back:      { label: 'Call Back',     color: '#8b5cf6', bg: '#ede9fe' },
-  not_interested: { label: 'Not Int.',      color: '#64748b', bg: '#f1f5f9' },
-  converted:      { label: 'Converted',     color: '#16a34a', bg: '#dcfce7' },
+// Fallback palette for a status with no Status Master entry (shouldn't
+// normally happen once the master governs everything, but keeps colors
+// stable and distinct if it ever does).
+const _FALLBACK_PALETTE = ['#3b82f6','#ef4444','#f59e0b','#94a3b8','#8b5cf6','#64748b','#16a34a','#ec4899','#0891b2','#d97706']
+function fallbackColor(key) {
+  let h = 0; for (let i=0;i<(key||'').length;i++) h = (h*31 + key.charCodeAt(i)) >>> 0
+  return _FALLBACK_PALETTE[h % _FALLBACK_PALETTE.length]
 }
-const ALL_STATUSES = Object.keys(STATUS_META)
 
 const PRODUCT_COLORS = ['#4f46e5','#0891b2','#16a34a','#d97706','#dc2626','#7c3aed','#0f766e','#be185d']
 
 /* ─── sub-components ──────────────────────────────────────── */
-function Badge({ status }) {
-  const m = STATUS_META[status] || { label: status, color: '#64748b', bg: '#f1f5f9' }
+function Badge({ status, statuses = [] }) {
+  const meta = statuses.find(s => s.key === status)
+  const color = meta?.color || fallbackColor(status)
+  const label = meta?.label || (status || '').replace(/_/g, ' ')
   return (
     <span className="text-xs font-bold px-2 py-0.5 rounded-full capitalize"
-      style={{ background: m.bg, color: m.color }}>
-      {m.label}
+      style={{ background: color + '22', color }}>
+      {label}
     </span>
   )
 }
@@ -99,7 +100,7 @@ function SectionHeader({ title, count, onExport }) {
   )
 }
 
-function DrillModal({ title, rows, onClose }) {
+function DrillModal({ title, rows, statuses = [], onClose }) {
   if (!rows) return null
   const exportXls = () => {
     const wb = XLSX.utils.book_new()
@@ -131,7 +132,7 @@ function DrillModal({ title, rows, onClose }) {
                     <td className="px-4 py-3 font-medium">{r.school_name || r.contact_name || r.name || '—'}</td>
                     <td className="px-4 py-3 text-blue-600">{r.phone || '—'}</td>
                     <td className="px-4 py-3 text-slate-500">{r.agent_name || '—'}</td>
-                    <td className="px-4 py-3"><Badge status={r.status} /></td>
+                    <td className="px-4 py-3"><Badge status={r.status} statuses={statuses} /></td>
                     <td className="px-4 py-3 text-xs text-slate-400 max-w-[140px] truncate">{r.notes || r.discussion || r.admin_remark || '—'}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">
                       {(() => { try { const d = r.created_at || r.updated_at; return d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—' } catch { return '—' } })()}
@@ -164,6 +165,7 @@ const TABS = [
 export default function ProductAnalyticsPage() {
   const { user } = useAuth()
   const isAdmin = user?.role_id === 1 || user?.role_name === 'admin'
+  const { statuses } = useLeadStatuses()
 
   const [tab, setTab]                 = useState('overview')
   const [products, setProducts]       = useState([])
@@ -235,6 +237,7 @@ export default function ProductAnalyticsPage() {
 
   const productStats   = dashData?.product_stats   || []
   const agentBreakdown = dashData?.agent_breakdown  || []
+  const statusByProduct = dashData?.status_by_product || []
 
   const totPotential = money(dashData?.total_potential)
   const totEarned    = money(dashData?.total_actual_earned)
@@ -244,9 +247,32 @@ export default function ProductAnalyticsPage() {
   const totConverted = num(dashData?.total_converted)
   const totNI        = num(dashData?.total_not_interested)
 
-  // aggregate by status across products
-  const statusTotals = ALL_STATUSES.reduce((acc, s) => {
-    acc[s] = productStats.reduce((sum, p) => sum + num(p[`${s}_leads`] || p[`${s}`]), 0)
+  // productId -> { status: count }, from the dynamic GROUP BY product_id, status query
+  const productStatusMap = {}
+  statusByProduct.forEach(row => {
+    const pid = row.product_id
+    if (!productStatusMap[pid]) productStatusMap[pid] = {}
+    productStatusMap[pid][row.status] = num(row.count)
+  })
+  const countFor = (productId, status) => productStatusMap[productId]?.[status] || 0
+
+  // Every status that actually appears anywhere, ordered to match the
+  // Status Master's sort order (falls back to appearance order for any
+  // status with no master entry).
+  const presentStatusKeys = [...new Set(statusByProduct.map(r => r.status))]
+  const orderedStatusKeys = statuses.length
+    ? statuses.map(s => s.key).filter(k => presentStatusKeys.includes(k))
+        .concat(presentStatusKeys.filter(k => !statuses.some(s => s.key === k)))
+    : presentStatusKeys
+  const metaFor = (key) => {
+    const m = statuses.find(s => s.key === key)
+    const color = m?.color || fallbackColor(key)
+    return { label: m?.label || (key || '').replace(/_/g,' '), color, bg: color + '1a' }
+  }
+
+  // aggregate by status across products (dynamic — covers every real status)
+  const statusTotals = orderedStatusKeys.reduce((acc, s) => {
+    acc[s] = productStats.reduce((sum, p) => sum + countFor(p.product_id, s), 0)
     return acc
   }, {})
 
@@ -404,14 +430,14 @@ export default function ProductAnalyticsPage() {
           <div className="card p-5">
             <h3 className="font-bold text-slate-800 mb-4">🏷️ Overall Status Distribution</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {ALL_STATUSES.map(s => {
-                const m = STATUS_META[s]
+              {orderedStatusKeys.map(s => {
+                const m = metaFor(s)
                 const cnt = statusTotals[s] || 0
                 return (
                   <div key={s} className="rounded-xl border p-3 text-center"
                     style={{ borderColor: m.color + '40', background: m.bg }}>
                     <p className="text-2xl font-black" style={{ color: m.color }}>{cnt}</p>
-                    <p className="text-xs font-semibold" style={{ color: m.color }}>{m.label}</p>
+                    <p className="text-xs font-semibold capitalize" style={{ color: m.color }}>{m.label}</p>
                     <p className="text-xs text-slate-400">{pct(cnt, totLeads)}%</p>
                   </div>
                 )
@@ -427,9 +453,9 @@ export default function ProductAnalyticsPage() {
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase whitespace-nowrap">Product</th>
-                    {ALL_STATUSES.map(s => (
-                      <th key={s} className="text-left px-3 py-3 text-xs font-semibold uppercase whitespace-nowrap"
-                        style={{ color: STATUS_META[s].color }}>{STATUS_META[s].label}</th>
+                    {orderedStatusKeys.map(s => (
+                      <th key={s} className="text-left px-3 py-3 text-xs font-semibold uppercase whitespace-nowrap capitalize"
+                        style={{ color: metaFor(s).color }}>{metaFor(s).label}</th>
                     ))}
                     <th className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase">Total</th>
                     <th className="text-left px-3 py-3 text-xs text-slate-500 font-semibold uppercase min-w-[120px]">Distribution</th>
@@ -438,9 +464,9 @@ export default function ProductAnalyticsPage() {
                 <tbody className="divide-y divide-slate-100">
                   {productStats.map((p, i) => {
                     const total = num(p.total_leads)
-                    const segments = ALL_STATUSES.map(s => ({
-                      color: STATUS_META[s].color,
-                      value: num(p[`${s}_leads`] || p[s] || 0),
+                    const segments = orderedStatusKeys.map(s => ({
+                      color: metaFor(s).color,
+                      value: countFor(p.product_id, s),
                     }))
                     return (
                       <tr key={p.product_id} className="hover:bg-slate-50">
@@ -448,12 +474,12 @@ export default function ProductAnalyticsPage() {
                           <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: PRODUCT_COLORS[i % PRODUCT_COLORS.length] }} />
                           {p.product_name}
                         </td>
-                        {ALL_STATUSES.map(s => {
-                          const cnt = num(p[`${s}_leads`] || p[s] || 0)
+                        {orderedStatusKeys.map(s => {
+                          const cnt = countFor(p.product_id, s)
                           return (
                             <td key={s} className="px-3 py-3 font-medium cursor-pointer hover:underline"
-                              style={{ color: STATUS_META[s].color }}
-                              onClick={() => openDrill(`${p.product_name} — ${STATUS_META[s].label}`, { product_id: p.product_id, status: s })}>
+                              style={{ color: metaFor(s).color }}
+                              onClick={() => openDrill(`${p.product_name} — ${metaFor(s).label}`, { product_id: p.product_id, status: s })}>
                               {cnt}
                             </td>
                           )
@@ -467,9 +493,9 @@ export default function ProductAnalyticsPage() {
                 <tfoot className="bg-slate-50 border-t font-bold">
                   <tr>
                     <td className="px-3 py-3 font-bold text-slate-800">Total</td>
-                    {ALL_STATUSES.map(s => (
-                      <td key={s} className="px-3 py-3 font-bold" style={{ color: STATUS_META[s].color }}>
-                        {productStats.reduce((sum, p) => sum + num(p[`${s}_leads`] || p[s] || 0), 0)}
+                    {orderedStatusKeys.map(s => (
+                      <td key={s} className="px-3 py-3 font-bold" style={{ color: metaFor(s).color }}>
+                        {statusTotals[s] || 0}
                       </td>
                     ))}
                     <td className="px-3 py-3 font-bold text-slate-700">{totLeads}</td>
@@ -874,7 +900,7 @@ export default function ProductAnalyticsPage() {
       )}
 
       {/* Drill-down modal */}
-      {drill && <DrillModal title={drill.title} rows={drill.rows} onClose={() => setDrill(null)} />}
+      {drill && <DrillModal title={drill.title} rows={drill.rows} statuses={statuses} onClose={() => setDrill(null)} />}
     </div>
   )
 }

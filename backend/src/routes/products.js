@@ -68,6 +68,19 @@ router.get('/dashboard', auth, async (req, res) => {
       ORDER BY u.name, earned DESC
     `)
 
+    // Dynamic status breakdown per product — GROUP BY whatever status
+    // values actually exist, so custom statuses added via the Status
+    // Master (e.g. "Interested", "Proposal Shared") appear here too.
+    // NOTE: converted/not_interested stay as fixed columns above since
+    // the earnings math (actual_earned/earning_lost/still_to_earn) is
+    // intentionally tied to those two specific business outcomes.
+    const { rows: statusByProduct } = await db.query(`
+      SELECT l.product_id, l.status, COUNT(*)::int AS count
+      FROM leads l
+      WHERE l.product_id IS NOT NULL ${scope}
+      GROUP BY l.product_id, l.status
+    `)
+
     const totals = productStats.reduce((acc, p) => ({
       total_leads:     acc.total_leads     + parseInt(p.total_leads || 0),
       total_potential: acc.total_potential + parseFloat(p.total_potential_earning || 0),
@@ -82,6 +95,7 @@ router.get('/dashboard', auth, async (req, res) => {
       success: true,
       data: {
         product_stats:        productStats,
+        status_by_product:    statusByProduct,
         agent_breakdown:      agentBreakdown,
         total_potential:      totals.total_potential,
         total_actual_earned:  totals.total_earned,

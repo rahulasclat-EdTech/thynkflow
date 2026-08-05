@@ -81,6 +81,17 @@ router.get('/', auth, async (req, res) => {
       followups = f
     } catch { /* keep zeros */ }
 
+    // ── Dynamic status breakdown — GROUP BY whatever status values
+    // actually exist on leads, so custom statuses added via the Status
+    // Master (e.g. "Interested", "Proposal Shared") show up here too,
+    // instead of only the 7 statuses the fixed columns above cover.
+    const { rows: byStatus } = await db.query(`
+      SELECT status, COUNT(*)::int AS count
+      FROM leads l WHERE 1=1 ${scope}
+      GROUP BY status
+      ORDER BY count DESC
+    `)
+
     res.json({
       success: true,
       data: {
@@ -89,7 +100,8 @@ router.get('/', auth, async (req, res) => {
           ...calls,
           upcoming_followups: followups.upcoming,
           missed_followups:   followups.missed
-        }
+        },
+        by_status: byStatus
       }
     })
   } catch (err) { res.status(500).json({ success: false, message: err.message }) }

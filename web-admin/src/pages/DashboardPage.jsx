@@ -6,23 +6,27 @@ import React, { useEffect, useState, useCallback } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import { format } from 'date-fns'
+import useLeadStatuses from '../hooks/useLeadStatuses'
 
-const STATUS_COLORS = {
-  new:            { bg: '#dbeafe', text: '#1e40af' },
-  hot:            { bg: '#fee2e2', text: '#991b1b' },
-  warm:           { bg: '#fef3c7', text: '#92400e' },
-  cold:           { bg: '#e2e8f0', text: '#475569' },
-  converted:      { bg: '#dcfce7', text: '#14532d' },
-  not_interested: { bg: '#f1f5f9', text: '#64748b' },
-  call_back:      { bg: '#ede9fe', text: '#5b21b6' },
+// Fallback palette used only until the Status Master finishes loading,
+// or for a status key that has no master entry (shouldn't normally happen).
+const _FALLBACK_PALETTE = [
+  '#1e40af','#991b1b','#92400e','#475569','#14532d','#64748b','#5b21b6',
+  '#9d174d','#065f46','#9a3412','#0369a1','#6b21a8','#854d0e',
+]
+function fallbackColor(key) {
+  let h = 0; for (let i=0;i<(key||'').length;i++) h = (h*31 + key.charCodeAt(i)) >>> 0
+  return _FALLBACK_PALETTE[h % _FALLBACK_PALETTE.length]
 }
 
-function StatusBadge({ status }) {
-  const c = STATUS_COLORS[status] || STATUS_COLORS.new
+function StatusBadge({ status, statuses = [] }) {
+  const meta = statuses.find(s => s.key === status)
+  const color = meta?.color || fallbackColor(status)
+  const label = meta?.label || (status || '').replace(/_/g, ' ')
   return (
     <span className="text-xs font-bold px-2 py-0.5 rounded-full capitalize"
-      style={{ background: c.bg, color: c.text }}>
-      {status?.replace(/_/g, ' ')}
+      style={{ background: color + '22', color }}>
+      {label}
     </span>
   )
 }
@@ -42,7 +46,7 @@ function KPICard({ label, value, icon, color = '#2563eb', sub, onClick }) {
   )
 }
 
-function DrillModal({ title, leads, onClose }) {
+function DrillModal({ title, leads, statuses, onClose }) {
   if (!leads) return null
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -66,7 +70,7 @@ function DrillModal({ title, leads, onClose }) {
                     <td className="px-4 py-3 font-medium">{l.school_name||l.contact_name||l.name||'—'}</td>
                     <td className="px-4 py-3 text-blue-600">{l.phone}</td>
                     <td className="px-4 py-3 text-slate-500">{l.agent_name||'—'}</td>
-                    <td className="px-4 py-3"><StatusBadge status={l.status} /></td>
+                    <td className="px-4 py-3"><StatusBadge status={l.status} statuses={statuses} /></td>
                     <td className="px-4 py-3 text-xs text-slate-400 max-w-[200px] truncate">{l.admin_remark||l.creation_comment||'—'}</td>
                   </tr>
                 ))}
@@ -84,8 +88,10 @@ function DrillModal({ title, leads, onClose }) {
 export default function DashboardPage() {
   const { user } = useAuth()
   const isAdmin = user?.role_name === 'admin'
+  const { statuses } = useLeadStatuses()
 
   const [stats, setStats]         = useState(null)
+  const [statusBreakdown, setStatusBreakdown] = useState([])
   const [critical, setCritical]   = useState(null)
   const [agentData, setAgentData] = useState([])
   const [followups, setFollowups] = useState([])
@@ -96,13 +102,14 @@ export default function DashboardPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [ovRes, callRes, dashRes, critRes, agentRes, fuRes] = await Promise.all([
+      const [ovRes, callRes, dashRes, critRes, agentRes, fuRes, swRes] = await Promise.all([
         api.get('/reports/overview').catch(() => ({ data: {} })),
         api.get('/reports/call-stats').catch(() => ({ data: {} })),
         api.get('/dashboard').catch(() => ({ data: {} })),
         api.get('/dashboard/critical').catch(() => ({ data: {} })),
         api.get('/reports/agent-wise').catch(() => ({ data: [] })),
         api.get('/reports/upcoming-followups').catch(() => ({ data: [] })),
+        api.get('/reports/status-wise').catch(() => ({ data: [] })), // already fully dynamic (GROUP BY status)
       ])
 
       // Primary: /reports/overview returns flat { total_leads, hot_leads, ... converted_leads, call_back_leads }
@@ -137,6 +144,9 @@ export default function DashboardPage() {
 
       const fu = fuRes.data?.data || fuRes.data || []
       setFollowups(Array.isArray(fu) ? fu.slice(0, 5) : [])
+
+      const sw = swRes.data?.data || swRes.data || []
+      setStatusBreakdown(Array.isArray(sw) ? sw : [])
     } catch (err) { console.error('Dashboard error:', err) }
     finally { setLoading(false) }
   }, [])
@@ -259,19 +269,26 @@ export default function DashboardPage() {
           onClick={() => openDrill('Unattended Leads', { unattended: 'true' })} />
       </div>
 
-      {/* Status breakdown — 8 statuses all clickable */}
+      {/* Status breakdown — every status that actually exists on leads,
+          pulled live from GROUP BY status + the Status Master for
+          label/color, so custom statuses (e.g. "Proposal Shared") show
+          up automatically instead of only the original 7. */}
       <div className="card p-5">
         <h3 className="font-bold text-slate-800 mb-4">📊 Lead Status Breakdown</h3>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            { label: 'New',           val: newLeads,      status: 'new',            color: '#1e40af', bg: '#dbeafe' },
-            { label: 'Hot',           val: hot,           status: 'hot',            color: '#991b1b', bg: '#fee2e2' },
-            { label: 'Warm',          val: warm,          status: 'warm',           color: '#92400e', bg: '#fef3c7' },
-            { label: 'Cold',          val: cold,          status: 'cold',           color: '#475569', bg: '#e2e8f0' },
-            { label: 'Call Back',     val: callBack,      status: 'call_back',      color: '#5b21b6', bg: '#ede9fe' },
-            { label: 'Not Interested',val: notInterested, status: 'not_interested', color: '#64748b', bg: '#f1f5f9' },
-            { label: 'Converted',     val: converted,     status: 'converted',      color: '#14532d', bg: '#dcfce7' },
-            { label: 'Unattended',    val: unattended,    status: null,             color: '#ea580c', bg: '#ffedd5' },
+            ...statusBreakdown.map(row => {
+              const meta = statuses.find(s => s.key === row.status)
+              const color = meta?.color || fallbackColor(row.status)
+              return {
+                label: meta?.label || (row.status || '(no status)').replace(/_/g,' '),
+                val: parseInt(row.count) || 0,
+                status: row.status,
+                color,
+                bg: color + '1a',
+              }
+            }),
+            { label: 'Unattended', val: unattended, status: null, color: '#ea580c', bg: '#ffedd5' },
           ].map(item => (
             <div key={item.label}
               className="p-4 rounded-xl cursor-pointer hover:shadow-md transition-all border-2 border-transparent hover:border-opacity-50"
@@ -279,8 +296,8 @@ export default function DashboardPage() {
               onClick={() => item.status
                 ? openDrill(`${item.label} Leads`, { status: item.status })
                 : openDrill('Unattended Leads', { unattended: 'true' })}>
-              <p className="text-2xl font-black" style={{ color: item.color }}>{item.val}</p>
-              <p className="text-xs font-semibold mt-1" style={{ color: item.color }}>{item.label}</p>
+              <p className="text-2xl font-black capitalize" style={{ color: item.color }}>{item.val}</p>
+              <p className="text-xs font-semibold mt-1 capitalize" style={{ color: item.color }}>{item.label}</p>
               <div className="mt-2 h-1.5 bg-white/50 rounded-full overflow-hidden">
                 <div className="h-full rounded-full" style={{
                   width: `${totalLeads > 0 ? Math.max((item.val / totalLeads) * 100, 2) : 0}%`,
@@ -348,7 +365,7 @@ export default function DashboardPage() {
                     <p className="text-sm font-semibold text-slate-800 truncate">{f.school_name || f.contact_name || '—'}</p>
                     <p className="text-xs text-slate-400">{f.agent_name} · {f.phone}</p>
                   </div>
-                  <StatusBadge status={f.lead_status || f.status} />
+                  <StatusBadge status={f.lead_status || f.status} statuses={statuses} />
                   <span className={`text-xs font-semibold flex-shrink-0 ${isOverdue ? 'text-red-600' : 'text-slate-600'}`}>
                     {dateVal ? (() => { try { return format(new Date(dateVal), 'dd MMM') } catch { return '—' } })() : '—'}
                     {isOverdue ? ' ⚠️' : ''}
@@ -388,7 +405,7 @@ export default function DashboardPage() {
                           <td className="px-3 py-2 font-medium">{l.name || '—'}</td>
                           <td className="px-3 py-2 text-blue-600">{l.phone}</td>
                           <td className="px-3 py-2 text-slate-500">{l.agent_name || '—'}</td>
-                          <td className="px-3 py-2"><StatusBadge status={l.status} /></td>
+                          <td className="px-3 py-2"><StatusBadge status={l.status} statuses={statuses} /></td>
                           <td className="px-3 py-2 font-bold text-red-600">{l.days_idle} days</td>
                         </tr>
                       ))}
@@ -412,7 +429,7 @@ export default function DashboardPage() {
                           <td className="px-3 py-2 font-medium">{f.lead_name || '—'}</td>
                           <td className="px-3 py-2 text-blue-600">{f.phone}</td>
                           <td className="px-3 py-2 text-slate-500">{f.agent_name || '—'}</td>
-                          <td className="px-3 py-2"><StatusBadge status={f.lead_status} /></td>
+                          <td className="px-3 py-2"><StatusBadge status={f.lead_status} statuses={statuses} /></td>
                           <td className="px-3 py-2 font-bold text-orange-600">{f.days_overdue} days</td>
                           <td className="px-3 py-2 text-slate-500">
                             {f.follow_up_date ? (() => { try { return format(new Date(f.follow_up_date), 'dd MMM yyyy') } catch { return '—' } })() : '—'}
@@ -431,7 +448,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {drillDown && <DrillModal title={drillDown.title} leads={drillDown.leads} onClose={() => setDrillDown(null)} />}
+      {drillDown && <DrillModal title={drillDown.title} leads={drillDown.leads} statuses={statuses} onClose={() => setDrillDown(null)} />}
     </div>
   )
 }
