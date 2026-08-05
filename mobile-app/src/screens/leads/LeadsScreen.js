@@ -83,9 +83,15 @@ export default function LeadsScreen({ navigation }) {
         ...(search && { search }), ...(filterStatus && { status: filterStatus }),
         ...(filterProduct && { product_id: filterProduct }) })
       const res = await api.get(`/leads?${params}`)
+      // NOTE: api client's interceptor already unwraps res.data, so `res`
+      // here IS the {success, data, total, page, per_page} body — `total`
+      // is a sibling of `data`, not nested inside it. Reading it off the
+      // leads array (raw.total) was always undefined, which made hasMore
+      // go false right after page 1 — the list looked capped at ~20 items
+      // no matter how many leads actually existed.
       const raw = res.data
-      const rows = Array.isArray(raw) ? raw : (raw.data || [])
-      const total = raw.total || rows.length
+      const rows = Array.isArray(raw) ? raw : (raw?.data || [])
+      const total = res.total ?? rows.length
       if (append) setLeads(p => [...p, ...rows]); else setLeads(rows)
       setHasMore(pageNum * PER_PAGE < total)
     } catch (e) { console.log(e.message) }
@@ -220,6 +226,7 @@ export default function LeadsScreen({ navigation }) {
 
       {loading ? <View style={s.center}><ActivityIndicator size="large" color={COLORS.primary} /></View> : (
         <FlatList data={leads} keyExtractor={item=>String(item.id)} renderItem={renderLead}
+          style={{flex:1}}
           contentContainerStyle={{padding:12, paddingBottom:80}}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={()=>{setRefreshing(true);setPage(1);fetchLeads(1)}} tintColor={COLORS.primary} />}
           onEndReached={()=>{if(!hasMore||loadingMore)return;const n=page+1;setPage(n);fetchLeads(n,true)}}
@@ -293,7 +300,7 @@ function CreateLeadModal({ visible, onClose, onSave, products, agents, leadTypes
             <Text style={{color:'#fff',fontWeight:'700',fontSize:14}}>{saving?'…':'Save'}</Text>
           </TouchableOpacity>
         </View>
-        <ScrollView contentContainerStyle={{padding:16,paddingBottom:40}}>
+        <ScrollView style={{flex:1}} contentContainerStyle={{padding:16,paddingBottom:40}} keyboardShouldPersistTaps="handled">
           {/* Name & Phone */}
           <View style={{flexDirection:'row',gap:10,marginBottom:14}}>
             <View style={{flex:1}}>

@@ -91,20 +91,44 @@ export default function ReportsScreen() {
   useEffect(() => { fetchReports() }, [fetchReports])
   const onRefresh = () => { setRefreshing(true); fetchReports() }
 
-  // ── Daily Calls (product-wise & agent-wise) — lazy-loaded ──
+  // ── Daily Calls (product-wise, agent-wise & status-wise) — lazy-loaded ──
+  // Uses the same /reports/daily-calls endpoint the web app uses (backed by
+  // communication_logs, which includes every call — ad-hoc and follow-up-
+  // completion alike). Previously this screen called /reports/call-logs-daily,
+  // which reads call_logs — a table populated ONLY by the follow-up flow —
+  // so it silently missed every ad-hoc call and under-reported totals.
   const [dailyData, setDailyData]       = useState(null)
   const [dailyLoading, setDailyLoading] = useState(false)
   const [dailyDate, setDailyDate]       = useState(todayStr())
   const fetchDaily = useCallback(async (date) => {
     setDailyLoading(true)
     try {
-      const r = await api.get(`/reports/call-logs-daily?from=${date}&to=${date}`)
-      const body = r.data || r
+      const r = await api.get(`/reports/daily-calls?date=${date}`)
+      const rows = r.data || []
+
+      const byAgent = {}, byProduct = {}, byStatus = {}
+      rows.forEach(row => {
+        const aKey = row.agent_name || 'Unassigned'
+        byAgent[aKey] = byAgent[aKey] || { agent_name: aKey, call_count: 0, followup_count: 0 }
+        byAgent[aKey].call_count++
+        if (row.is_followup) byAgent[aKey].followup_count++
+
+        const pKey = row.product_name || 'No Product'
+        byProduct[pKey] = byProduct[pKey] || { product_name: pKey, call_count: 0 }
+        byProduct[pKey].call_count++
+
+        const sKey = row.status || 'unknown'
+        byStatus[sKey] = byStatus[sKey] || { status: sKey, call_count: 0 }
+        byStatus[sKey].call_count++
+      })
+
       setDailyData({
-        calls:      body.calls || [],
-        by_agent:   body.by_agent || [],
-        by_product: body.by_product || [],
-        total:      body.total || 0,
+        calls: rows,
+        by_agent: Object.values(byAgent).sort((a,b)=>b.call_count-a.call_count),
+        by_product: Object.values(byProduct).sort((a,b)=>b.call_count-a.call_count),
+        by_status: Object.values(byStatus).sort((a,b)=>b.call_count-a.call_count),
+        total: rows.length,
+        followup_total: rows.filter(r2 => r2.is_followup).length,
       })
     } catch (e) { console.log('Daily calls report error:', e.message) }
     finally { setDailyLoading(false) }
@@ -334,12 +358,16 @@ export default function ReportsScreen() {
               <>
                 <View style={s.kpiGrid}>
                   <KPI label="Total Calls" value={dailyData.total} color="#4F46E5" />
+                  <KPI label="Follow-up Calls" value={dailyData.followup_total} color="#7C3AED" />
                 </View>
                 <Text style={s.cardTitle}>By Agent</Text>
                 <View style={s.card}>
                   {dailyData.by_agent.map((a, i) => (
                     <View key={i} style={s.statusRow}>
                       <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: '#374151' }}>{a.agent_name}</Text>
+                      {a.followup_count > 0 && (
+                        <Text style={{ fontSize: 11, color: '#7C3AED', fontWeight: '600', marginRight: 8 }}>{a.followup_count} follow-up</Text>
+                      )}
                       <Text style={s.countText}>{a.call_count}</Text>
                     </View>
                   ))}
@@ -353,10 +381,29 @@ export default function ReportsScreen() {
                     </View>
                   ))}
                 </View>
+                <Text style={s.cardTitle}>By Status</Text>
+                <View style={s.card}>
+                  {dailyData.by_status.map((st, i) => (
+                    <View key={i} style={s.statusRow}>
+                      <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: '#374151', textTransform: 'capitalize' }}>{(st.status||'').replace(/_/g,' ')}</Text>
+                      <Text style={s.countText}>{st.call_count}</Text>
+                    </View>
+                  ))}
+                </View>
                 <Text style={s.cardTitle}>Call Log</Text>
                 {dailyData.calls.slice(0, 30).map((c, i) => (
-                  <View key={i} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 6 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827' }}>{c.lead_name}</Text>
+                  <View key={i} style={[
+                    { backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 6 },
+                    c.is_followup && { borderLeftWidth: 3, borderLeftColor: '#7C3AED', backgroundColor: '#FAF5FF' },
+                  ]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827' }}>{c.contact_name || c.school_name || 'Lead'}</Text>
+                      {c.is_followup && (
+                        <View style={{ backgroundColor: '#EDE9FE', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8 }}>
+                          <Text style={{ fontSize: 9, fontWeight: '700', color: '#6D28D9' }}>FOLLOW-UP</Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>
                       {c.agent_name} · {c.product_name || 'No product'}
                     </Text>

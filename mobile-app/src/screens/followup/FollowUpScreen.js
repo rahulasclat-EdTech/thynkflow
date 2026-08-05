@@ -120,10 +120,14 @@ export default function FollowUpScreen({ navigation }) {
       if (section === 'all') {
         // Backend groups into { today, previous, next_3_days } + counts when
         // no specific section is requested — this powers the summary cards.
-        setCounts(fuRes.data?.counts || { today: 0, previous: 0, next_3_days: 0, total: 0 })
+        // NOTE: the api client's response interceptor already unwraps
+        // res.data, so `fuRes` here IS the {success,data,counts} body —
+        // `counts` sits at the top level, not nested under `.data`.
+        setCounts(fuRes.counts || { today: 0, previous: 0, next_3_days: 0, total: 0 })
         setFollowups([])
       } else {
-        const raw = fuRes.data?.data || []
+        // Same reasoning: fuRes.data IS already the array for a specific section.
+        const raw = fuRes.data || []
         const rows = Array.isArray(raw) ? raw : []
         setFollowups(rows)
         setCounts(c => ({ ...c, [section]: rows.length }))
@@ -142,7 +146,7 @@ export default function FollowUpScreen({ navigation }) {
     if (!phone) return Alert.alert('No phone number')
     calledLeadRef.current = { id: fu.lead_id, name: fu.lead_name || fu.contact_name, phone }
     Linking.openURL(`tel:${phone}`)
-    api.post(`/leads/${fu.lead_id}/communications`,{type:'call',direction:'outbound',note:'Follow-up call'}).catch(()=>{})
+    api.post(`/leads/${fu.lead_id}/communications`,{type:'call',direction:'outbound',note:'Follow-up call',is_followup:true}).catch(()=>{})
   }
 
   const handleWhatsApp = (fu) => {
@@ -218,7 +222,7 @@ export default function FollowUpScreen({ navigation }) {
       {section === 'all' ? (
         // ── Summary view: Today / Next 3 Days / Missed, each drills down ──
         loading ? <View style={s.center}><ActivityIndicator size="large" color={COLORS.primary} /></View> : (
-          <ScrollView contentContainerStyle={{padding:16,gap:12}} refreshControl={
+          <ScrollView style={{flex:1}} contentContainerStyle={{padding:16,gap:12}} refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={()=>{setRefreshing(true);fetchFollowups()}} tintColor={COLORS.primary} />
           }>
             <Text style={s.summaryTotal}>{counts.total} total pending follow-up{counts.total===1?'':'s'}</Text>
@@ -255,6 +259,7 @@ export default function FollowUpScreen({ navigation }) {
 
           {loading ? <View style={s.center}><ActivityIndicator size="large" color={COLORS.primary} /></View> : (
             <FlatList data={followups} keyExtractor={item=>String(item.id)} renderItem={renderItem}
+              style={{flex:1}}
               contentContainerStyle={{padding:12,paddingBottom:80}}
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={()=>{setRefreshing(true);fetchFollowups()}} tintColor={COLORS.primary} />}
               ListEmptyComponent={<View style={s.center}><Ionicons name="alarm-outline" size={48} color="#D1D5DB" /><Text style={{color:'#9CA3AF',marginTop:8}}>No follow-ups found</Text></View>} />
@@ -309,7 +314,7 @@ function UpdateFollowUpModal({ visible, followup, agents, onClose, onSave }) {
     setSaving(true)
     try {
       if (followup.lead_id) {
-        await api.post(`/leads/${followup.lead_id}/communications`,{type:'call',direction:'outbound',note:discussion})
+        await api.post(`/leads/${followup.lead_id}/communications`,{type:'call',direction:'outbound',note:discussion,is_followup:true})
         await api.patch(`/leads/${followup.lead_id}/status`,{status})
         if (assignedTo && assignedTo !== followup.assigned_to) {
           await api.put(`/leads/${followup.lead_id}`,{assigned_to:assignedTo}).catch(()=>{})
@@ -341,7 +346,7 @@ function UpdateFollowUpModal({ visible, followup, agents, onClose, onSave }) {
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={{padding:16,paddingBottom:40,gap:14}}>
+        <ScrollView style={{flex:1}} contentContainerStyle={{padding:16,paddingBottom:40,gap:14}} keyboardShouldPersistTaps="handled">
           <View style={{backgroundColor:'#F9FAFB',borderRadius:12,padding:12}}>
             <Text style={{fontSize:15,fontWeight:'700',color:'#111827'}}>{followup.lead_name||followup.contact_name}</Text>
             {followup.school_name ? <Text style={{fontSize:12,color:'#9CA3AF',marginTop:1}}>{followup.school_name}</Text> : null}

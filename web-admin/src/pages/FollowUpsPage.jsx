@@ -177,7 +177,7 @@ function UpdateModal({ followup, onClose, onSave }) {
     if (!discussion.trim()) return toast.error('Add call notes first')
     setSaving(true)
     try {
-      await api.post(`/leads/${followup.lead_id}/communications`, { type:'call', direction:'outbound', note: discussion })
+      await api.post(`/leads/${followup.lead_id}/communications`, { type:'call', direction:'outbound', note: discussion, is_followup: true })
       await api.patch(`/leads/${followup.lead_id}/status`, { status: newStatus })
       if (nextDate) await api.post('/followups', { lead_id: followup.lead_id, follow_up_date: nextDate, notes: discussion }).catch(()=>{})
       toast.success('Follow-up updated ✓')

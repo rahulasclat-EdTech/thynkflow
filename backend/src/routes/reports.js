@@ -97,7 +97,14 @@ router.get('/agent-wise', auth, async (req, res) => {
           JOIN leads lc ON lc.id = cl.lead_id
           WHERE cl.agent_id = u.id AND cl.type = 'call'
             ${prodId ? `AND lc.product_id = ${prodId}` : ''}
-        ), 0) AS total_calls
+        ), 0) AS total_calls,
+        COALESCE((
+          SELECT COUNT(*)
+          FROM communication_logs cl
+          JOIN leads lc ON lc.id = cl.lead_id
+          WHERE cl.agent_id = u.id AND cl.type = 'call' AND cl.is_followup = true
+            ${prodId ? `AND lc.product_id = ${prodId}` : ''}
+        ), 0) AS followup_calls
       FROM users u
       LEFT JOIN leads l ON l.assigned_to = u.id ${leadsWhere}
       ${userFilter}
@@ -133,6 +140,7 @@ router.get('/daily-calls', auth, async (req, res) => {
         cl.id,
         cl.note        AS discussion,
         cl.created_at  AS called_at,
+        cl.is_followup,
         l.contact_name,
         l.school_name,
         l.phone,

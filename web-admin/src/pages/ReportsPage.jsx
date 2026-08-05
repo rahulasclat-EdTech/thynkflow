@@ -574,7 +574,12 @@ export default function ReportsPage() {
                               <td className="px-4 py-3 text-lg">{medal}</td>
                               <td className="px-4 py-3 font-bold text-slate-800">{a.agent_name}</td>
                               <td className="px-4 py-3 font-black text-green-600 text-base">{a.converted||0}</td>
-                              <td className="px-4 py-3 font-bold text-blue-600">{a.total_calls||0}</td>
+                              <td className="px-4 py-3 font-bold text-blue-600">
+                                {a.total_calls||0}
+                                {parseInt(a.followup_calls||0) > 0 && (
+                                  <span className="block text-[10px] font-semibold text-purple-500">{a.followup_calls} follow-up</span>
+                                )}
+                              </td>
                               <td className="px-4 py-3 font-bold text-red-500">{a.hot||0}</td>
                               <td className="px-4 py-3 font-bold text-amber-500">{a.warm||0}</td>
                               <td className="px-4 py-3 text-slate-500">{a.total_leads} ↗</td>
@@ -708,7 +713,12 @@ export default function ReportsPage() {
                               <tr key={row.agent_id} className="hover:bg-slate-50">
                                 <td className="px-3 py-3 font-medium whitespace-nowrap">{['🥇','🥈','🥉'][i]||''} {row.agent_name}</td>
                                 <td className="px-3 py-3 font-bold text-blue-600 cursor-pointer hover:underline" onClick={()=>openDrill(`${row.agent_name}'s Leads`,{assigned_to:row.agent_id})}>{row.total_leads} ↗</td>
-                                <td className="px-3 py-3">{row.total_calls||0}</td>
+                                <td className="px-3 py-3">
+                                  {row.total_calls||0}
+                                  {parseInt(row.followup_calls||0) > 0 && (
+                                    <span className="block text-[10px] font-semibold text-purple-500">{row.followup_calls} follow-up</span>
+                                  )}
+                                </td>
                                 <td className="px-3 py-3">{row.new_leads||0}</td>
                                 <td className="px-3 py-3 font-bold text-red-500">{row.hot||0}</td>
                                 <td className="px-3 py-3 font-bold text-amber-500">{row.warm||0}</td>
@@ -932,9 +942,14 @@ export default function ReportsPage() {
                       </tr></thead>
                       <tbody className="divide-y divide-slate-100">
                         {filteredRows.map((row,i)=>(
-                          <tr key={row.id||i} className="hover:bg-slate-50">
+                          <tr key={row.id||i} className={`hover:bg-slate-50 ${row.is_followup ? 'bg-purple-50/60 border-l-4 border-l-purple-400' : ''}`}>
                             <td className="px-4 py-3 font-medium">
-                              <div>{row.contact_name || '—'}</div>
+                              <div className="flex items-center gap-2">
+                                {row.contact_name || '—'}
+                                {row.is_followup && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 uppercase tracking-wide">Follow-up</span>
+                                )}
+                              </div>
                               {row.school_name && <div className="text-xs text-slate-400 font-normal">{row.school_name}</div>}
                             </td>
                             <td className="px-4 py-3 text-blue-600">{row.phone}</td>
