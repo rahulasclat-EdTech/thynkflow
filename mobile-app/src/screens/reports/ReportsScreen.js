@@ -149,6 +149,8 @@ export default function ReportsScreen() {
         by_agent:   body.by_agent || [],
         by_product: body.by_product || [],
         by_status:  body.by_status || [],
+        by_transition:       body.by_transition || [],
+        by_agent_transition: body.by_agent_transition || [],
         total:      body.total || 0,
       })
     } catch (e) { console.log('Status change report error:', e.message) }
@@ -448,6 +450,48 @@ export default function ReportsScreen() {
                     </View>
                   ))}
                 </View>
+                <Text style={s.cardTitle}>Old → New (Summary)</Text>
+                <View style={s.card}>
+                  {(scData.by_transition || []).map((t, i) => (
+                    <View key={i} style={s.statusRow}>
+                      <Text style={{ flex: 1, fontSize: 12, color: '#6B7280' }}>
+                        <Text style={{ fontStyle: t.from_status ? 'normal' : 'italic' }}>
+                          {t.from_status ? t.from_status.replace(/_/g,' ') : 'new lead'}
+                        </Text>
+                        {'  →  '}
+                        <Text style={{ fontWeight: '700', color: '#4F46E5' }}>{t.to_status.replace(/_/g,' ')}</Text>
+                      </Text>
+                      <Text style={s.countText}>{t.count}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={s.cardTitle}>Agent-wise — Old → New</Text>
+                {Object.values((scData.by_agent_transition || []).reduce((groups, t) => {
+                  const key = t.agent_name || 'Unknown'
+                  groups[key] = groups[key] || { agent_name: key, total: 0, rows: [] }
+                  groups[key].rows.push(t)
+                  groups[key].total += t.count
+                  return groups
+                }, {})).sort((a,b)=>b.total-a.total).map((g, gi) => (
+                  <View key={gi} style={[s.card, { marginBottom: 8 }]}>
+                    <View style={{ flexDirection:'row', justifyContent:'space-between', marginBottom: 6 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827' }}>{g.agent_name}</Text>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF' }}>{g.total} total</Text>
+                    </View>
+                    {g.rows.map((t, i) => (
+                      <View key={i} style={[s.statusRow, { paddingVertical: 4 }]}>
+                        <Text style={{ flex: 1, fontSize: 11, color: '#6B7280' }}>
+                          <Text style={{ fontStyle: t.from_status ? 'normal' : 'italic' }}>
+                            {t.from_status ? t.from_status.replace(/_/g,' ') : 'new lead'}
+                          </Text>
+                          {'  →  '}
+                          <Text style={{ fontWeight: '700', color: '#4F46E5' }}>{t.to_status.replace(/_/g,' ')}</Text>
+                        </Text>
+                        <Text style={[s.countText, { fontSize: 12 }]}>{t.count}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ))}
                 <Text style={s.cardTitle}>Recent Transitions</Text>
                 {scData.changes.slice(0, 30).map((c, i) => (
                   <View key={i} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 6 }}>

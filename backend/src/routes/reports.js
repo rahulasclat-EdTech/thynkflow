@@ -840,6 +840,12 @@ router.get('/status-change', auth, async (req, res) => {
     const byAgent = {}
     const byProduct = {}
     const byStatus = {}
+    // Overall "Old status -> New status = count" summary, and the same
+    // breakdown split per agent — key on from|to (and agent|from|to) so
+    // repeats of the same transition accumulate into one count instead
+    // of one row per change.
+    const byTransition = {}
+    const byAgentTransition = {}
     changes.forEach(c => {
       const aKey = c.agent_name || 'Unknown'
       byAgent[aKey] = byAgent[aKey] || { agent_id: c.agent_id, agent_name: aKey, count: 0 }
@@ -852,6 +858,18 @@ router.get('/status-change', auth, async (req, res) => {
       const sKey = c.to_status
       byStatus[sKey] = byStatus[sKey] || { to_status: sKey, count: 0 }
       byStatus[sKey].count++
+
+      const fromLabel = c.from_status || 'new lead'
+      const tKey = `${fromLabel}→${c.to_status}`
+      byTransition[tKey] = byTransition[tKey] || { from_status: c.from_status, to_status: c.to_status, count: 0 }
+      byTransition[tKey].count++
+
+      const atKey = `${aKey}||${tKey}`
+      byAgentTransition[atKey] = byAgentTransition[atKey] || {
+        agent_id: c.agent_id, agent_name: aKey,
+        from_status: c.from_status, to_status: c.to_status, count: 0,
+      }
+      byAgentTransition[atKey].count++
     })
 
     res.json({
@@ -861,6 +879,9 @@ router.get('/status-change', auth, async (req, res) => {
       by_agent: Object.values(byAgent).sort((a, b) => b.count - a.count),
       by_product: Object.values(byProduct).sort((a, b) => b.count - a.count),
       by_status: Object.values(byStatus).sort((a, b) => b.count - a.count),
+      by_transition: Object.values(byTransition).sort((a, b) => b.count - a.count),
+      by_agent_transition: Object.values(byAgentTransition)
+        .sort((a, b) => a.agent_name.localeCompare(b.agent_name) || b.count - a.count),
     })
   } catch (err) {
     console.error('status-change error:', err.message)

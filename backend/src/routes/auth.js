@@ -16,21 +16,29 @@ const router = express.Router();
 //  column name to stay compatible with the existing queries.
 //  Powers GET /api/reports/login-activity (user-wise login report)
 // ══════════════════════════════════════════════════════════════
+// CREATE TABLE IF NOT EXISTS is a no-op when the table already exists —
+// so if login_logs was previously created (by an older version of this
+// code, or manually) without the `status` column, that column would
+// never get added and every query on ll.status would fail with
+// "column ll.status does not exist". Follow up with ALTER TABLE ADD
+// COLUMN IF NOT EXISTS for every column so an existing-but-incomplete
+// table gets patched up to the current schema too.
 async function ensureLoginLogsTable() {
   await db.query(`
     CREATE TABLE IF NOT EXISTS login_logs (
       id            SERIAL PRIMARY KEY,
       user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
-      email         VARCHAR(255),
-      status        VARCHAR(20) NOT NULL DEFAULT 'success', -- success | failed
-      reason        VARCHAR(255),
-      ip_address    VARCHAR(64),
-      user_agent    TEXT,
       logged_in_at  TIMESTAMP DEFAULT NOW()
     );
-    CREATE INDEX IF NOT EXISTS idx_login_logs_user_id ON login_logs(user_id);
-    CREATE INDEX IF NOT EXISTS idx_login_logs_logged_in_at ON login_logs(logged_in_at);
   `);
+  await db.query(`ALTER TABLE login_logs ADD COLUMN IF NOT EXISTS email        VARCHAR(255)`);
+  await db.query(`ALTER TABLE login_logs ADD COLUMN IF NOT EXISTS status       VARCHAR(20) NOT NULL DEFAULT 'success'`);
+  await db.query(`ALTER TABLE login_logs ADD COLUMN IF NOT EXISTS reason       VARCHAR(255)`);
+  await db.query(`ALTER TABLE login_logs ADD COLUMN IF NOT EXISTS ip_address   VARCHAR(64)`);
+  await db.query(`ALTER TABLE login_logs ADD COLUMN IF NOT EXISTS user_agent   TEXT`);
+  await db.query(`ALTER TABLE login_logs ADD COLUMN IF NOT EXISTS logged_in_at TIMESTAMP DEFAULT NOW()`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_login_logs_user_id ON login_logs(user_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_login_logs_logged_in_at ON login_logs(logged_in_at)`);
 }
 ensureLoginLogsTable().catch(console.error);
 

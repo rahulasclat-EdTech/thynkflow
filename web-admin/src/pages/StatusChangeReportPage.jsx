@@ -2,7 +2,7 @@
 // Add to App.jsx routes: <Route path="status-change" element={<StatusChangeReportPage />} />
 // Add to sidebar nav: { to: '/status-change', label: 'Status Changes', icon: '🔄', adminOnly: false }
 
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
@@ -17,6 +17,8 @@ export default function StatusChangeReportPage() {
   const [byAgent, setByAgent]     = useState([])
   const [byProduct, setByProduct] = useState([])
   const [byStatus, setByStatus]   = useState([])
+  const [byTransition, setByTransition]           = useState([])
+  const [byAgentTransition, setByAgentTransition]  = useState([])
   const [total, setTotal]         = useState(0)
   const [loading, setLoading]     = useState(true)
 
@@ -60,6 +62,8 @@ export default function StatusChangeReportPage() {
       setByAgent(r.by_agent || [])
       setByProduct(r.by_product || [])
       setByStatus(r.by_status || [])
+      setByTransition(r.by_transition || [])
+      setByAgentTransition(r.by_agent_transition || [])
       setTotal(r.total || 0)
     } catch {
       toast.error('Failed to load status change report')
@@ -70,6 +74,18 @@ export default function StatusChangeReportPage() {
 
   useEffect(() => { fetchMeta() }, [fetchMeta])
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Group the flat agent-transition rows into one block per agent for display.
+  const agentTransitionGroups = useMemo(() => {
+    const groups = {}
+    byAgentTransition.forEach(t => {
+      const key = t.agent_name || 'Unknown'
+      groups[key] = groups[key] || { agent_name: key, total: 0, transitions: [] }
+      groups[key].transitions.push(t)
+      groups[key].total += t.count
+    })
+    return Object.values(groups).sort((a, b) => b.total - a.total)
+  }, [byAgentTransition])
 
   const exportCsv = () => {
     const header = ['Lead', 'Previous Status', 'New Status', 'Agent', 'Product', 'Changed At']
@@ -161,6 +177,52 @@ export default function StatusChangeReportPage() {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Transition summary — "Old status → New status = count" */}
+      <div className="bg-white rounded-2xl border-2 border-slate-100 p-4">
+        <h3 className="font-bold text-slate-700 mb-3">Status Transitions — Old → New</h3>
+        <div className="space-y-1.5">
+          {byTransition.length === 0 && <p className="text-xs text-slate-400">No data</p>}
+          {byTransition.map(t => (
+            <div key={`${t.from_status}→${t.to_status}`} className="flex items-center justify-between text-sm py-1">
+              <span className="flex items-center gap-2 capitalize text-slate-600">
+                {t.from_status ? t.from_status.replace(/_/g,' ') : <span className="italic text-slate-400">new lead</span>}
+                <span className="text-slate-300">→</span>
+                <span className="font-semibold text-indigo-700">{t.to_status.replace(/_/g,' ')}</span>
+              </span>
+              <span className="font-black text-slate-800">{t.count}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Agent-wise transition summary — "Old status → New status = count" per agent */}
+      <div className="bg-white rounded-2xl border-2 border-slate-100 p-4">
+        <h3 className="font-bold text-slate-700 mb-3">Agent-wise — Old → New</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {agentTransitionGroups.length === 0 && <p className="text-xs text-slate-400">No data</p>}
+          {agentTransitionGroups.map(g => (
+            <div key={g.agent_name} className="border border-slate-100 rounded-xl p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-bold text-slate-700 text-sm">{g.agent_name}</span>
+                <span className="text-xs font-bold text-slate-400">{g.total} total</span>
+              </div>
+              <div className="space-y-1">
+                {g.transitions.map(t => (
+                  <div key={`${g.agent_name}-${t.from_status}→${t.to_status}`} className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5 capitalize text-slate-500">
+                      {t.from_status ? t.from_status.replace(/_/g,' ') : <span className="italic text-slate-400">new lead</span>}
+                      <span className="text-slate-300">→</span>
+                      <span className="font-semibold text-indigo-600">{t.to_status.replace(/_/g,' ')}</span>
+                    </span>
+                    <span className="font-black text-slate-700">{t.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
