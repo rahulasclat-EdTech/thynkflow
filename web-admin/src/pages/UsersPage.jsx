@@ -3,6 +3,8 @@ import React, { useEffect, useState, useCallback } from 'react'
 import api from '../utils/api'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
+import SortableTh from '../components/common/SortableTh'
+import useTableControls from '../utils/useTableControls'
 
 const ROLES = [
   { id: 1, name: 'admin' },
@@ -38,6 +40,9 @@ export default function UsersPage() {
 
   const activeUsers   = users.filter(u => u.is_active)
   const inactiveUsers = users.filter(u => !u.is_active)
+
+  const activeTable   = useTableControls(activeUsers,   { searchKeys: ['name','email','phone','role_name'], defaultSortKey: 'name' })
+  const inactiveTable = useTableControls(inactiveUsers, { searchKeys: ['name','email','phone','role_name'], defaultSortKey: 'name' })
 
   const openCreate = () => {
     setEditUser(null)
@@ -165,12 +170,16 @@ export default function UsersPage() {
     </tr>
   )
 
-  const TableHeader = () => (
+  const TableHeader = ({ sortKey, sortDir, toggleSort }) => (
     <thead className="bg-slate-50 border-b border-slate-200">
       <tr>
-        {['Name','Email','Phone','Role','Status','Last Login','Actions'].map(h => (
-          <th key={h} className="text-left px-4 py-3 text-xs text-slate-500 font-semibold uppercase">{h}</th>
-        ))}
+        <SortableTh label="Name" columnKey="name" {...{ sortKey, sortDir, toggleSort }} />
+        <SortableTh label="Email" columnKey="email" {...{ sortKey, sortDir, toggleSort }} />
+        <SortableTh label="Phone" columnKey="phone" {...{ sortKey, sortDir, toggleSort }} />
+        <SortableTh label="Role" columnKey="role_name" {...{ sortKey, sortDir, toggleSort }} />
+        <SortableTh label="Status" columnKey="is_active" {...{ sortKey, sortDir, toggleSort }} />
+        <SortableTh label="Last Login" columnKey="last_login" {...{ sortKey, sortDir, toggleSort }} />
+        <th className="text-left px-4 py-3 text-xs text-slate-500 font-semibold uppercase">Actions</th>
       </tr>
     </thead>
   )
@@ -189,27 +198,35 @@ export default function UsersPage() {
 
       {/* Active Users Table */}
       <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
           <h2 className="font-bold text-slate-800">✅ Active Users ({activeUsers.length})</h2>
+          <input type="text" value={activeTable.search} onChange={e => activeTable.setSearch(e.target.value)}
+            placeholder="Search name, email, phone, role…"
+            className="border-2 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 w-64" />
         </div>
         <table className="w-full text-sm">
-          <TableHeader />
+          <TableHeader sortKey={activeTable.sortKey} sortDir={activeTable.sortDir} toggleSort={activeTable.toggleSort} />
           <tbody className="divide-y divide-slate-100">
             {loading ? (
               <tr><td colSpan={7} className="text-center py-10 text-slate-400">Loading...</td></tr>
-            ) : activeUsers.length === 0 ? (
+            ) : activeTable.rows.length === 0 ? (
               <tr><td colSpan={7} className="text-center py-10 text-slate-400">No active users</td></tr>
-            ) : activeUsers.map(user => <UserRow key={user.id} user={user} />)}
+            ) : activeTable.rows.map(user => <UserRow key={user.id} user={user} />)}
           </tbody>
         </table>
       </div>
 
       {/* Deactivated Users Section */}
       <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
           <h2 className="font-bold text-slate-700 flex items-center gap-2">
             🔴 Deactivated Users ({inactiveUsers.length})
           </h2>
+          {showInactive && (
+            <input type="text" value={inactiveTable.search} onChange={e => inactiveTable.setSearch(e.target.value)}
+              placeholder="Search name, email, phone, role…"
+              className="border-2 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 w-64" />
+          )}
           <button onClick={() => setShowInactive(!showInactive)}
             className="text-xs text-slate-500 hover:text-slate-700 font-medium px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">
             {showInactive ? 'Hide' : 'Show'}
@@ -217,11 +234,11 @@ export default function UsersPage() {
         </div>
         {showInactive && (
           <table className="w-full text-sm">
-            <TableHeader />
+            <TableHeader sortKey={inactiveTable.sortKey} sortDir={inactiveTable.sortDir} toggleSort={inactiveTable.toggleSort} />
             <tbody className="divide-y divide-slate-100">
-              {inactiveUsers.length === 0 ? (
+              {inactiveTable.rows.length === 0 ? (
                 <tr><td colSpan={7} className="text-center py-8 text-slate-400">No deactivated users</td></tr>
-              ) : inactiveUsers.map(user => <UserRow key={user.id} user={user} isInactive={true} />)}
+              ) : inactiveTable.rows.map(user => <UserRow key={user.id} user={user} isInactive={true} />)}
             </tbody>
           </table>
         )}

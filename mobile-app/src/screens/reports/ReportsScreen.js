@@ -2,12 +2,13 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, ActivityIndicator,
-  RefreshControl, StyleSheet
+  RefreshControl, StyleSheet, Modal
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import api from '../../api/client'
 import { useAuth } from '../../context/AuthContext'
 import COLORS from '../../utils/colors'
+import CalendarPicker from '../../components/CalendarPicker'
 
 const STATUS_COLORS = {
   new:            { bg: '#DBEAFE', text: '#1E40AF' },
@@ -17,6 +18,25 @@ const STATUS_COLORS = {
   converted:      { bg: '#DCFCE7', text: '#166534' },
   not_interested: { bg: '#F3F4F6', text: '#6B7280' },
   call_back:      { bg: '#EDE9FE', text: '#5B21B6' },
+}
+const STATUS_ICONS = {
+  new: '🆕', hot: '🔥', warm: '☀️', cold: '❄️',
+  call_back: '📞', not_interested: '🚫', converted: '✅',
+}
+// Fallback palette + icon for any status that isn't one of the known ones
+// above (custom statuses added in Settings) — without this, the Pipeline
+// tab was hardcoded to only these 7 keys and silently dropped every
+// custom status that existed in the actual lead data.
+const _FALLBACK_COLORS = [
+  { bg: '#FCE7F3', text: '#9D174D' }, { bg: '#ECFDF5', text: '#065F46' },
+  { bg: '#FFF7ED', text: '#9A3412' }, { bg: '#F0F9FF', text: '#0369A1' },
+  { bg: '#FAF5FF', text: '#6B21A8' }, { bg: '#FEFCE8', text: '#854D0E' },
+]
+let _fbIdx = 0
+function getStatusColor(key) {
+  if (STATUS_COLORS[key]) return STATUS_COLORS[key]
+  const c = _FALLBACK_COLORS[_fbIdx % _FALLBACK_COLORS.length]; _fbIdx++
+  STATUS_COLORS[key] = c; return c
 }
 
 function KPI({ label, value, color = '#4F46E5', sub }) {
@@ -48,14 +68,76 @@ const TABS = [
 ]
 
 function todayStr() { return new Date().toISOString().slice(0, 10) }
+function daysAgoStr(n) {
+  const d = new Date(); d.setDate(d.getDate() - n)
+  return d.toISOString().slice(0, 10)
+}
+function startOfMonthStr() {
+  const d = new Date(); d.setDate(1)
+  return d.toISOString().slice(0, 10)
+}
+function fmtShort(iso) {
+  if (!iso) return ''
+  try { return new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) }
+  catch { return iso }
+}
 
-export default function ReportsScreen() {
+// Reusable date-range bar: From/To chips (each opens the calendar) plus
+// quick presets, used by both the Daily Calls and Status Change tabs.
+function DateRangeBar({ from, to, onPickFrom, onPickTo, onPreset }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <TouchableOpacity onPress={onPickFrom} style={s.dateChip}>
+          <Ionicons name="calendar-outline" size={14} color="#4F46E5" />
+          <Text style={s.dateChipText}>From: {fmtShort(from)}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onPickTo} style={s.dateChip}>
+          <Ionicons name="calendar-outline" size={14} color="#4F46E5" />
+          <Text style={s.dateChipText}>To: {fmtShort(to)}</Text>
+        </TouchableOpacity>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        {[
+          { label: 'Today', from: todayStr(), to: todayStr() },
+          { label: 'Yesterday', from: daysAgoStr(1), to: daysAgoStr(1) },
+          { label: 'Last 7 Days', from: daysAgoStr(6), to: todayStr() },
+          { label: 'This Month', from: startOfMonthStr(), to: todayStr() },
+        ].map(p => (
+          <TouchableOpacity key={p.label} onPress={() => onPreset(p.from, p.to)} style={s.presetChip}>
+            <Text style={s.presetChipText}>{p.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  )
+}
+
+export default function ReportsScreen({ navigation }) {
   const { user } = useAuth()
   const isAdmin = user?.role_name === 'admin'
   const [tab, setTab] = useState('overview')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+
+  const openLead = (row) => {
+    if (!row.lead_id) return
+    navigation.navigate('Leads', {
+      screen: 'LeadDetail',
+      params: {
+        lead: {
+          id: row.lead_id,
+          contact_name: row.contact_name || row.lead_name,
+          school_name: row.school_name,
+          phone: row.phone,
+          status: row.status || row.to_status,
+          product_id: row.product_id,
+          product_name: row.product_name,
+        },
+      },
+    })
+  }
 
   const fetchReports = useCallback(async () => {
     try {
@@ -99,11 +181,13 @@ export default function ReportsScreen() {
   // so it silently missed every ad-hoc call and under-reported totals.
   const [dailyData, setDailyData]       = useState(null)
   const [dailyLoading, setDailyLoading] = useState(false)
-  const [dailyDate, setDailyDate]       = useState(todayStr())
-  const fetchDaily = useCallback(async (date) => {
+  const [dailyFrom, setDailyFrom]       = useState(todayStr())
+  const [dailyTo, setDailyTo]           = useState(todayStr())
+  const [showDailyCal, setShowDailyCal] = useState(null) // 'from' | 'to' | null
+  const fetchDaily = useCallback(async (from, to) => {
     setDailyLoading(true)
     try {
-      const r = await api.get(`/reports/daily-calls?date=${date}`)
+      const r = await api.get(`/reports/daily-calls?from=${from}&to=${to}`)
       const rows = r.data || []
 
       const byAgent = {}, byProduct = {}, byStatus = {}
@@ -133,16 +217,18 @@ export default function ReportsScreen() {
     } catch (e) { console.log('Daily calls report error:', e.message) }
     finally { setDailyLoading(false) }
   }, [])
-  useEffect(() => { if (tab === 'daily' && !dailyData) fetchDaily(dailyDate) }, [tab])
+  useEffect(() => { if (tab === 'daily' && !dailyData) fetchDaily(dailyFrom, dailyTo) }, [tab])
 
   // ── Status Change Report (product-wise & agent-wise) — lazy-loaded ──
   const [scData, setScData]       = useState(null)
   const [scLoading, setScLoading] = useState(false)
   const [scFrom, setScFrom]       = useState(todayStr())
-  const fetchStatusChange = useCallback(async (date) => {
+  const [scTo, setScTo]           = useState(todayStr())
+  const [showScCal, setShowScCal] = useState(null) // 'from' | 'to' | null
+  const fetchStatusChange = useCallback(async (from, to) => {
     setScLoading(true)
     try {
-      const r = await api.get(`/reports/status-change?from=${date}&to=${date}`)
+      const r = await api.get(`/reports/status-change?from=${from}&to=${to}`)
       const body = r.data || r
       setScData({
         changes:    body.changes || [],
@@ -156,7 +242,7 @@ export default function ReportsScreen() {
     } catch (e) { console.log('Status change report error:', e.message) }
     finally { setScLoading(false) }
   }, [])
-  useEffect(() => { if (tab === 'statuschange' && !scData) fetchStatusChange(scFrom) }, [tab])
+  useEffect(() => { if (tab === 'statuschange' && !scData) fetchStatusChange(scFrom, scTo) }, [tab])
 
   if (loading) return (
     <View style={s.center}>
@@ -225,7 +311,7 @@ export default function ReportsScreen() {
             ) : (
               <View style={s.card}>
                 {statusData.map((item, i) => {
-                  const c   = STATUS_COLORS[item.status] || { bg: '#F3F4F6', text: '#374151' }
+                  const c   = getStatusColor(item.status)
                   const pct = totalLeads > 0 ? (item.count / totalLeads) * 100 : 0
                   return (
                     <View key={i} style={[s.statusRow, i < statusData.length - 1 && { borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }]}>
@@ -320,42 +406,47 @@ export default function ReportsScreen() {
         {tab === 'pipeline' && (
           <View style={{ gap: 8 }}>
             <Text style={s.sectionTitle}>Lead Pipeline</Text>
-            {[
-              { stage: 'New Leads',      key: 'new_leads',      color: '#0891B2', icon: '🆕' },
-              { stage: 'Hot',            key: 'hot_leads',       color: '#DC2626', icon: '🔥' },
-              { stage: 'Warm',           key: 'warm_leads',      color: '#D97706', icon: '☀️' },
-              { stage: 'Cold',           key: 'cold_leads',      color: '#6B7280', icon: '❄️' },
-              { stage: 'Call Back',      key: 'call_back',       color: '#7C3AED', icon: '📞' },
-              { stage: 'Not Interested', key: 'not_interested',  color: '#9CA3AF', icon: '🚫' },
-              { stage: 'Converted',      key: 'converted',       color: '#16A34A', icon: '✅' },
-            ].map((item, i) => {
-              const count = parseInt(ov[item.key] || 0)
-              const pct   = totalLeads > 0 ? (count / totalLeads) * 100 : 0
-              return (
-                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 12, padding: 12 }}>
-                  <Text style={{ fontSize: 20, width: 30 }}>{item.icon}</Text>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151' }}>{item.stage}</Text>
-                      <Text style={{ fontSize: 14, fontWeight: '800', color: item.color }}>{count}</Text>
+            {statusData.length === 0 ? (
+              <Text style={s.empty}>No data available</Text>
+            ) : statusData
+              // Highest-count stage first so the biggest bottleneck is obvious at a glance
+              .slice().sort((a, b) => (b.count || 0) - (a.count || 0))
+              .map((item, i) => {
+                const color = getStatusColor(item.status).text
+                const icon  = STATUS_ICONS[item.status] || '📌'
+                const count = parseInt(item.count || 0)
+                const pct   = totalLeads > 0 ? (count / totalLeads) * 100 : 0
+                return (
+                  <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 12, padding: 12 }}>
+                    <Text style={{ fontSize: 20, width: 30 }}>{icon}</Text>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151', textTransform: 'capitalize' }}>{item.status?.replace(/_/g, ' ')}</Text>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color }}>{count}</Text>
+                      </View>
+                      <ProgressBar pct={pct} color={color} />
                     </View>
-                    <ProgressBar pct={pct} color={item.color} />
                   </View>
-                </View>
-              )
-            })}
+                )
+              })}
           </View>
         )}
         {tab === 'daily' && (
           <View style={{ gap: 12 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={s.sectionTitle}>Daily Calls — {dailyDate}</Text>
-              <TouchableOpacity onPress={() => fetchDaily(dailyDate)}>
+              <Text style={s.sectionTitle}>Daily Calls</Text>
+              <TouchableOpacity onPress={() => fetchDaily(dailyFrom, dailyTo)}>
                 <Ionicons name="refresh" size={18} color="#4F46E5" />
               </TouchableOpacity>
             </View>
+            <DateRangeBar
+              from={dailyFrom} to={dailyTo}
+              onPickFrom={() => setShowDailyCal('from')}
+              onPickTo={() => setShowDailyCal('to')}
+              onPreset={(f, t) => { setDailyFrom(f); setDailyTo(t); fetchDaily(f, t) }}
+            />
             {dailyLoading ? <ActivityIndicator color={COLORS.primary} style={{ marginTop: 20 }} /> : !dailyData || dailyData.total === 0 ? (
-              <Text style={s.empty}>No calls logged for this date</Text>
+              <Text style={s.empty}>No calls logged for this range</Text>
             ) : (
               <>
                 <View style={s.kpiGrid}>
@@ -392,25 +483,28 @@ export default function ReportsScreen() {
                     </View>
                   ))}
                 </View>
-                <Text style={s.cardTitle}>Call Log</Text>
+                <Text style={s.cardTitle}>Call Log · tap a lead to open it</Text>
                 {dailyData.calls.slice(0, 30).map((c, i) => (
-                  <View key={i} style={[
+                  <TouchableOpacity key={i} onPress={() => openLead(c)} style={[
                     { backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 6 },
                     c.is_followup && { borderLeftWidth: 3, borderLeftColor: '#7C3AED', backgroundColor: '#FAF5FF' },
                   ]}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827' }}>{c.contact_name || c.school_name || 'Lead'}</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', flex: 1 }} numberOfLines={1}>{c.contact_name || c.school_name || 'Lead'}</Text>
                       {c.is_followup && (
                         <View style={{ backgroundColor: '#EDE9FE', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8 }}>
                           <Text style={{ fontSize: 9, fontWeight: '700', color: '#6D28D9' }}>FOLLOW-UP</Text>
                         </View>
                       )}
+                      <Ionicons name="chevron-forward" size={14} color="#D1D5DB" />
                     </View>
-                    <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>
+                    {c.school_name ? <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }} numberOfLines={1}>🏫 {c.school_name}</Text> : null}
+                    {c.phone ? <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>📱 {c.phone}</Text> : null}
+                    <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: 1 }}>
                       {c.agent_name} · {c.product_name || 'No product'}
                     </Text>
                     {c.discussion ? <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2, fontStyle: 'italic' }} numberOfLines={1}>{c.discussion}</Text> : null}
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </>
             )}
@@ -420,11 +514,17 @@ export default function ReportsScreen() {
         {tab === 'statuschange' && (
           <View style={{ gap: 12 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={s.sectionTitle}>Status Changes — {scFrom}</Text>
-              <TouchableOpacity onPress={() => fetchStatusChange(scFrom)}>
+              <Text style={s.sectionTitle}>Status Changes</Text>
+              <TouchableOpacity onPress={() => fetchStatusChange(scFrom, scTo)}>
                 <Ionicons name="refresh" size={18} color="#4F46E5" />
               </TouchableOpacity>
             </View>
+            <DateRangeBar
+              from={scFrom} to={scTo}
+              onPickFrom={() => setShowScCal('from')}
+              onPickTo={() => setShowScCal('to')}
+              onPreset={(f, t) => { setScFrom(f); setScTo(t); fetchStatusChange(f, t) }}
+            />
             {scLoading ? <ActivityIndicator color={COLORS.primary} style={{ marginTop: 20 }} /> : !scData || scData.total === 0 ? (
               <Text style={s.empty}>No status changes for this date</Text>
             ) : (
@@ -492,10 +592,15 @@ export default function ReportsScreen() {
                     ))}
                   </View>
                 ))}
-                <Text style={s.cardTitle}>Recent Transitions</Text>
+                <Text style={s.cardTitle}>Recent Transitions · tap a lead to open it</Text>
                 {scData.changes.slice(0, 30).map((c, i) => (
-                  <View key={i} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 6 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827' }}>{c.lead_name}</Text>
+                  <TouchableOpacity key={i} onPress={() => openLead(c)} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 6 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', flex: 1 }} numberOfLines={1}>{c.lead_name}</Text>
+                      <Ionicons name="chevron-forward" size={14} color="#D1D5DB" />
+                    </View>
+                    {c.school_name ? <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }} numberOfLines={1}>🏫 {c.school_name}</Text> : null}
+                    {c.phone ? <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>📱 {c.phone}</Text> : null}
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
                       <Text style={{ fontSize: 11, color: '#9CA3AF', fontStyle: c.from_status ? 'normal' : 'italic' }}>
                         {c.from_status ? c.from_status.replace(/_/g,' ') : 'new lead'}
@@ -504,11 +609,45 @@ export default function ReportsScreen() {
                       <Text style={{ fontSize: 11, fontWeight: '700', color: '#4F46E5' }}>{c.to_status.replace(/_/g,' ')}</Text>
                     </View>
                     <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>{c.agent_name} · {c.product_name || 'No product'}</Text>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </>
             )}
           </View>
+        )}
+
+        {showDailyCal && (
+          <Modal visible transparent animationType="fade">
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
+              <CalendarPicker
+                value={showDailyCal === 'from' ? dailyFrom : dailyTo}
+                onChange={d => {
+                  const nf = showDailyCal === 'from' ? d : dailyFrom
+                  const nt = showDailyCal === 'to' ? d : dailyTo
+                  if (showDailyCal === 'from') setDailyFrom(d); else setDailyTo(d)
+                  setShowDailyCal(null)
+                  fetchDaily(nf, nt)
+                }}
+                onClose={() => setShowDailyCal(null)} />
+            </View>
+          </Modal>
+        )}
+
+        {showScCal && (
+          <Modal visible transparent animationType="fade">
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
+              <CalendarPicker
+                value={showScCal === 'from' ? scFrom : scTo}
+                onChange={d => {
+                  const nf = showScCal === 'from' ? d : scFrom
+                  const nt = showScCal === 'to' ? d : scTo
+                  if (showScCal === 'from') setScFrom(d); else setScTo(d)
+                  setShowScCal(null)
+                  fetchStatusChange(nf, nt)
+                }}
+                onClose={() => setShowScCal(null)} />
+            </View>
+          </Modal>
         )}
       </ScrollView>
     </View>
@@ -551,4 +690,9 @@ const s = StyleSheet.create({
   agentAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#4F46E5',
                  alignItems: 'center', justifyContent: 'center' },
   rateBadge:   { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  dateChip:    { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#fff',
+                 borderWidth: 1.5, borderColor: '#E0E7FF', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  dateChipText:{ fontSize: 12, fontWeight: '700', color: '#4F46E5' },
+  presetChip:  { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: '#EEF2FF', marginRight: 8 },
+  presetChipText:{ fontSize: 11, fontWeight: '600', color: '#4F46E5' },
 })

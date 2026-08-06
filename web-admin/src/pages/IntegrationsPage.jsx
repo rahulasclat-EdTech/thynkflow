@@ -130,7 +130,7 @@ function WhatsAppTab() {
       const r = await api.post('/integrations/test-whatsapp', {
         to: normalisePhone(testPhone.trim()),
         message: testMsg,
-      })
+      }, { timeout: 45000 }) // WhatsApp API providers can be slow to respond — default 15s client timeout was firing before the backend even got a reply
       setTestResult({ ok: true, msg: r.message || 'Message queued successfully' })
       toast.success('✅ Test message sent!')
     } catch (err) {
@@ -393,7 +393,7 @@ function EmailTab() {
     if (!isConfigured)  { toast.error(`Save ${isSes ? 'SES' : 'SMTP'} credentials first`); return }
     setTesting(true); setTestResult(null)
     try {
-      const r = await api.post('/integrations/test-email', { to: testTo.trim() })
+      const r = await api.post('/integrations/test-email', { to: testTo.trim() }, { timeout: 45000 }) // SMTP connect+verify+send can take longer than the default 15s client timeout, especially on first connection to a new provider
       setTestResult({ ok: true, msg: r.message || `Test email sent to ${testTo}` })
       toast.success('✅ Test email sent!')
     } catch (err) {

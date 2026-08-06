@@ -1,5 +1,5 @@
 // web-admin/src/pages/FollowUpsPage.jsx — FIXED VISUAL
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import { format } from 'date-fns'
@@ -590,6 +590,24 @@ export default function FollowUpsPage() {
   const total    = (counts.today||0)+(counts.previous||0)+(counts.next_3_days||0)
   const allLeads = [...data.today,...data.previous,...data.next_3_days]
 
+  // Agent-wise follow-up counts across all three sections — admin only,
+  // since agents only ever see their own queue anyway.
+  const agentBreakdown = useMemo(() => {
+    if (!isAdmin) return []
+    const rows = {}
+    const bump = (name, key) => {
+      const k = name || 'Unassigned'
+      rows[k] = rows[k] || { agent_name: k, today: 0, next_3_days: 0, previous: 0 }
+      rows[k][key]++
+    }
+    data.today.forEach(l => bump(l.agent_name, 'today'))
+    data.next_3_days.forEach(l => bump(l.agent_name, 'next_3_days'))
+    data.previous.forEach(l => bump(l.agent_name, 'previous'))
+    return Object.values(rows)
+      .map(r => ({ ...r, total: r.today + r.next_3_days + r.previous }))
+      .sort((a, b) => b.total - a.total)
+  }, [isAdmin, data])
+
   const stats = {
     total, today:counts.today||0, overdue:counts.previous||0, upcoming:counts.next_3_days||0,
     hot:      allLeads.filter(l=>l.lead_status==='hot').length,
@@ -745,6 +763,44 @@ export default function FollowUpsPage() {
           <span style={{fontSize:11,color:'#9CA3AF',fontWeight:600}}>Auto-refreshes every 60s</span>
         </div>
       </div>
+
+      {/* ── AGENT-WISE BREAKDOWN (admin only) ── */}
+      {isAdmin && agentBreakdown.length > 0 && (
+        <div style={{
+          background:'#fff',border:'1.5px solid #E8ECF4',borderRadius:16,
+          padding:'16px 18px',marginBottom:18,boxShadow:'0 1px 8px rgba(0,0,0,0.04)',
+        }}>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+            <span style={{fontSize:16}}>👥</span>
+            <span style={{fontSize:13,fontWeight:800,color:'#111827'}}>Agent-wise Follow-up Counts</span>
+            <span style={{fontSize:11,color:'#9CA3AF',fontWeight:500}}>— Today · Next 3 Days · Missed</span>
+          </div>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+              <thead>
+                <tr style={{borderBottom:'2px solid #F3F4F6'}}>
+                  <th style={{textAlign:'left',padding:'6px 10px',fontSize:11,fontWeight:800,color:'#6B7280',textTransform:'uppercase',letterSpacing:0.5}}>Agent</th>
+                  <th style={{textAlign:'center',padding:'6px 10px',fontSize:11,fontWeight:800,color:'#D97706',textTransform:'uppercase',letterSpacing:0.5}}>⏰ Today</th>
+                  <th style={{textAlign:'center',padding:'6px 10px',fontSize:11,fontWeight:800,color:'#7C3AED',textTransform:'uppercase',letterSpacing:0.5}}>📆 Next 3 Days</th>
+                  <th style={{textAlign:'center',padding:'6px 10px',fontSize:11,fontWeight:800,color:'#DC2626',textTransform:'uppercase',letterSpacing:0.5}}>🚨 Missed</th>
+                  <th style={{textAlign:'center',padding:'6px 10px',fontSize:11,fontWeight:800,color:'#111827',textTransform:'uppercase',letterSpacing:0.5}}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agentBreakdown.map(a => (
+                  <tr key={a.agent_name} style={{borderBottom:'1px solid #F9FAFB'}}>
+                    <td style={{padding:'8px 10px',fontWeight:700,color:'#111827'}}>{a.agent_name}</td>
+                    <td style={{textAlign:'center',padding:'8px 10px',fontWeight:700,color:a.today?'#D97706':'#D1D5DB'}}>{a.today}</td>
+                    <td style={{textAlign:'center',padding:'8px 10px',fontWeight:700,color:a.next_3_days?'#7C3AED':'#D1D5DB'}}>{a.next_3_days}</td>
+                    <td style={{textAlign:'center',padding:'8px 10px',fontWeight:700,color:a.previous?'#DC2626':'#D1D5DB'}}>{a.previous}</td>
+                    <td style={{textAlign:'center',padding:'8px 10px',fontWeight:900,color:'#111827'}}>{a.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Error */}
       {error&&(

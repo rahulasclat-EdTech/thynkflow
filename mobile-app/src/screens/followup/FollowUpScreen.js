@@ -171,35 +171,47 @@ export default function FollowUpScreen({ navigation }) {
     const sc = getMobStatusColor(item.lead_status || item.status)
     return (
       <View style={[s.card, overdue && s.cardOverdue]}>
-        <View style={s.cardTop}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.leadName}>{item.lead_name || item.contact_name || 'Lead'}</Text>
-            {item.school_name ? <Text style={s.leadSchool}>{item.school_name}</Text> : null}
-            <Text style={s.leadPhone}>{item.phone || item.lead_phone}</Text>
-            {item.product_name ? <Text style={s.leadProduct}>📦 {item.product_name}</Text> : null}
-            <View style={s.dateRow}>
-              <Ionicons name="alarm-outline" size={13} color={overdue?'#DC2626':'#D97706'} />
-              <Text style={[s.dateText, overdue && {color:'#DC2626',fontWeight:'700'}]}>
-                {formatDate(item.follow_up_date || item.scheduled_at)}
-                {overdue ? ' • OVERDUE' : ''}
+        {/* Colored accent strip so the eye can scan urgency at a glance */}
+        <View style={[s.cardAccent, { backgroundColor: overdue ? '#DC2626' : sc.text }]} />
+        <View style={s.cardBody}>
+          <View style={s.cardTop}>
+            <Text style={s.leadName} numberOfLines={1}>{item.lead_name || item.contact_name || 'Lead'}</Text>
+            <View style={[s.sBadge, { backgroundColor: sc.bg }]}>
+              <Text style={[s.sBadgeText, { color: sc.text }]} numberOfLines={1}>
+                {(item.lead_status || item.status || 'new').replace(/_/g, ' ')}
               </Text>
             </View>
-            {item.notes && <Text style={s.notes} numberOfLines={2}>{item.notes}</Text>}
           </View>
-          <View style={[s.sBadge, {backgroundColor: sc.bg}]}>
-            <Text style={[s.sBadgeText, {color: sc.text}]}>{(item.lead_status||item.status||'new').replace(/_/g,' ')}</Text>
+
+          {(item.school_name || item.product_name) ? (
+            <View style={s.metaRow}>
+              {item.school_name ? <Text style={s.leadSchool} numberOfLines={1}>{item.school_name}</Text> : null}
+              {item.product_name ? <Text style={s.leadProduct} numberOfLines={1}>📦 {item.product_name}</Text> : null}
+            </View>
+          ) : null}
+
+          <Text style={s.leadPhone}>{item.phone || item.lead_phone}</Text>
+
+          <View style={s.dateRow}>
+            <Ionicons name="alarm-outline" size={13} color={overdue ? '#DC2626' : '#D97706'} />
+            <Text style={[s.dateText, overdue && { color: '#DC2626', fontWeight: '700' }]}>
+              {formatDate(item.follow_up_date || item.scheduled_at)}
+              {overdue ? ' • OVERDUE' : ''}
+            </Text>
           </View>
-        </View>
-        <View style={s.actions}>
-          <TouchableOpacity style={[s.aBtn,{backgroundColor:'#DCFCE7'}]} onPress={()=>handleCall(item)}>
-            <Ionicons name="call" size={14} color="#16A34A" /><Text style={[s.aTxt,{color:'#16A34A'}]}>Call</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[s.aBtn,{backgroundColor:'#DCFCE7'}]} onPress={()=>handleWhatsApp(item)}>
-            <Ionicons name="logo-whatsapp" size={14} color="#15803D" /><Text style={[s.aTxt,{color:'#15803D'}]}>WhatsApp</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[s.aBtn,{backgroundColor:'#EDE9FE'}]} onPress={()=>openUpdate(item)}>
-            <Ionicons name="create-outline" size={14} color="#5B21B6" /><Text style={[s.aTxt,{color:'#5B21B6'}]}>Update</Text>
-          </TouchableOpacity>
+          {item.notes && <Text style={s.notes} numberOfLines={2}>{item.notes}</Text>}
+
+          <View style={s.actions}>
+            <TouchableOpacity style={[s.aBtn, { backgroundColor: '#DBEAFE' }]} onPress={() => handleCall(item)}>
+              <Ionicons name="call" size={14} color="#1D4ED8" /><Text style={[s.aTxt, { color: '#1D4ED8' }]}>Call</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.aBtn, { backgroundColor: '#DCFCE7' }]} onPress={() => handleWhatsApp(item)}>
+              <Ionicons name="logo-whatsapp" size={14} color="#15803D" /><Text style={[s.aTxt, { color: '#15803D' }]}>WhatsApp</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.aBtn, { backgroundColor: '#EDE9FE' }]} onPress={() => openUpdate(item)}>
+              <Ionicons name="create-outline" size={14} color="#5B21B6" /><Text style={[s.aTxt, { color: '#5B21B6' }]}>Update</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     )
@@ -436,21 +448,24 @@ const s = StyleSheet.create({
   chipActive:  {backgroundColor:'#4F46E5',shadowColor:'#4F46E5',shadowOpacity:0.3,shadowRadius:4,elevation:3},
   chipTxt:     {fontSize:11,color:'#374151',fontWeight:'500'},
   chipTxtActive:{color:'#fff',fontWeight:'700'},
-  card:        {backgroundColor:'#fff',borderRadius:14,padding:14,marginBottom:10,shadowColor:'#000',shadowOffset:{width:0,height:1},shadowOpacity:0.06,shadowRadius:4,elevation:2},
+  card:        {flexDirection:'row',backgroundColor:'#fff',borderRadius:16,marginBottom:12,shadowColor:'#000',shadowOffset:{width:0,height:2},shadowOpacity:0.06,shadowRadius:6,elevation:2,overflow:'hidden'},
+  cardAccent:  {width:5},
+  cardBody:    {flex:1,padding:14},
   cardOverdue: {borderWidth:1.5,borderColor:'#FCA5A5',backgroundColor:'#FFF5F5'},
-  cardTop:     {flexDirection:'row',alignItems:'flex-start',marginBottom:10},
-  leadName:    {fontSize:15,fontWeight:'700',color:'#111827'},
-  leadSchool:  {fontSize:12,color:'#6B7280',marginTop:1},
-  leadPhone:   {fontSize:13,color:'#6B7280',marginTop:2},
-  leadProduct: {fontSize:11,color:'#7C3AED',marginTop:2,fontWeight:'600'},
-  dateRow:     {flexDirection:'row',alignItems:'center',gap:4,marginTop:4},
+  cardTop:     {flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:8,marginBottom:4},
+  leadName:    {flex:1,fontSize:16,fontWeight:'700',color:'#111827'},
+  metaRow:     {flexDirection:'row',flexWrap:'wrap',alignItems:'center',gap:8,marginBottom:2},
+  leadSchool:  {fontSize:12,color:'#6B7280'},
+  leadPhone:   {fontSize:13,color:'#374151',fontWeight:'500',marginTop:2},
+  leadProduct: {fontSize:11,color:'#7C3AED',fontWeight:'600'},
+  dateRow:     {flexDirection:'row',alignItems:'center',gap:4,marginTop:6},
   dateText:    {fontSize:12,color:'#D97706'},
   notes:       {fontSize:12,color:'#6B7280',marginTop:4,fontStyle:'italic'},
-  sBadge:      {paddingHorizontal:8,paddingVertical:3,borderRadius:20},
+  sBadge:      {paddingHorizontal:8,paddingVertical:3,borderRadius:20,flexShrink:0,maxWidth:130},
   sBadgeText:  {fontSize:11,fontWeight:'600',textTransform:'capitalize'},
-  actions:     {flexDirection:'row',gap:6},
-  aBtn:        {flex:1,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:3,paddingVertical:8,borderRadius:8},
-  aTxt:        {fontSize:11,fontWeight:'600'},
+  actions:     {flexDirection:'row',gap:6,marginTop:12},
+  aBtn:        {flex:1,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:3,paddingVertical:9,borderRadius:9},
+  aTxt:        {fontSize:11,fontWeight:'700'},
   mHeader:     {flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:16,paddingTop:52,paddingBottom:12,borderBottomWidth:1,borderBottomColor:'#E5E7EB'},
   mTitle:      {fontSize:17,fontWeight:'700',color:'#111827'},
   mSave:       {backgroundColor:'#4F46E5',paddingHorizontal:16,paddingVertical:7,borderRadius:10},

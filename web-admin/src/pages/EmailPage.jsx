@@ -6,6 +6,8 @@ import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
 import { format, parseISO } from 'date-fns'
+import SortableTh from '../components/common/SortableTh'
+import useTableControls from '../utils/useTableControls'
 
 function StatusBadge({ status }) {
   const map = {
@@ -35,6 +37,11 @@ export default function EmailPage() {
   const [tab, setTab] = useState('compose')
   const [templates, setTemplates]   = useState([])
   const [history, setHistory]       = useState([])
+  const { search: historySearch, setSearch: setHistorySearch, sortKey: histSortKey, sortDir: histSortDir, toggleSort: toggleHistSort, rows: sortedHistory } = useTableControls(history, {
+    searchKeys: ['to_name', 'to_email', 'subject', 'agent_name', 'status'],
+    defaultSortKey: 'sent_at',
+    defaultSortDir: 'desc',
+  })
   const [loading, setLoading]       = useState(false)
   const [stats, setStats]           = useState(null)
 
@@ -381,16 +388,26 @@ export default function EmailPage() {
             <div className="text-center py-16 text-gray-400">No emails sent yet</div>
           ) : (
             <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
+              <div className="px-4 py-3 border-b flex justify-end">
+                <input type="text" value={historySearch} onChange={e => setHistorySearch(e.target.value)}
+                  placeholder="Search to, subject, agent, status…"
+                  className="border-2 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 w-72" />
+              </div>
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    {['To','Subject','Agent','Status','Opens','Clicks','Sent At','Action'].map(h => (
-                      <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{h}</th>
-                    ))}
+                    <SortableTh label="To" columnKey="to_name" sortKey={histSortKey} sortDir={histSortDir} toggleSort={toggleHistSort} />
+                    <SortableTh label="Subject" columnKey="subject" sortKey={histSortKey} sortDir={histSortDir} toggleSort={toggleHistSort} />
+                    <SortableTh label="Agent" columnKey="agent_name" sortKey={histSortKey} sortDir={histSortDir} toggleSort={toggleHistSort} />
+                    <SortableTh label="Status" columnKey="status" sortKey={histSortKey} sortDir={histSortDir} toggleSort={toggleHistSort} />
+                    <SortableTh label="Opens" columnKey="open_count" sortKey={histSortKey} sortDir={histSortDir} toggleSort={toggleHistSort} />
+                    <SortableTh label="Clicks" columnKey="click_count" sortKey={histSortKey} sortDir={histSortDir} toggleSort={toggleHistSort} />
+                    <SortableTh label="Sent At" columnKey="sent_at" sortKey={histSortKey} sortDir={histSortDir} toggleSort={toggleHistSort} />
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {history.map(email => (
+                  {sortedHistory.map(email => (
                     <tr key={email.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
                         <p className="font-medium">{email.to_name||'—'}</p>

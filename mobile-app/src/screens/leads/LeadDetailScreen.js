@@ -383,7 +383,7 @@ export default function LeadDetailScreen({ route, navigation }) {
                           {log.type} · {log.direction}
                         </Text>
                         <Text style={{fontSize:11,color:'#9CA3AF'}}>
-                          {log.created_at?new Date(log.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):''}
+                          {log.created_at?new Date(log.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short'}):''}
                         </Text>
                       </View>
                       {log.note?<Text style={{fontSize:13,color:'#374151'}}>{log.note}</Text>:null}

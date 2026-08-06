@@ -116,7 +116,7 @@ export default function LeadHistoryScreen({ route, navigation }) {
                       <Text style={[styles.statusBadgeText, { color: lsc.text }]}>{log.status?.replace('_', ' ')}</Text>
                     </View>
                     <Text style={styles.timelineDate}>
-                      {format(new Date(log.called_at), 'dd MMM yy, hh:mm a')}
+                      {format(new Date(log.called_at), 'dd MMM yy')}
                     </Text>
                   </View>
                   <Text style={styles.timelineAgent}>by {log.agent_name}</Text>

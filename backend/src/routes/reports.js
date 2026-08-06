@@ -122,9 +122,14 @@ router.get('/agent-wise', auth, async (req, res) => {
 // ── Daily calls ── FIXED: sender_id→agent_id ─────────────
 router.get('/daily-calls', auth, async (req, res) => {
   try {
-    const { date, agent_id } = req.query
-    const admin      = isAdmin(req.user)
-    const targetDate = date || new Date().toISOString().split('T')[0]
+    const { date, from, to, agent_id } = req.query
+    const admin = isAdmin(req.user)
+
+    // Supports either a single ?date= (legacy / mobile "today" view) or a
+    // ?from=&to= range for the new date-range picker. Falls back to today
+    // when neither is supplied.
+    const rangeFrom = from || date || new Date().toISOString().split('T')[0]
+    const rangeTo   = to   || date || rangeFrom
 
     // Build agent filter
     let agentFilter = ''
@@ -161,12 +166,12 @@ router.get('/daily-calls', auth, async (req, res) => {
         ORDER BY lead_id, called_at DESC
       ) fu ON fu.lead_id = l.id
       WHERE cl.type = 'call'
-        AND DATE(cl.created_at AT TIME ZONE 'Asia/Kolkata') = $1
+        AND DATE(cl.created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN $1 AND $2
         ${agentFilter}
       ORDER BY cl.created_at DESC
-    `, [targetDate])
+    `, [rangeFrom, rangeTo])
 
-    res.json({ success: true, data: rows })
+    res.json({ success: true, data: rows, from: rangeFrom, to: rangeTo })
   } catch (err) {
     console.error('daily-calls error:', err.message)
     res.status(500).json({ success: false, message: err.message })
@@ -827,7 +832,8 @@ router.get('/status-change', auth, async (req, res) => {
         h.id, h.lead_id, h.from_status, h.to_status, h.changed_at,
         u.id AS agent_id, u.name AS agent_name,
         p.id AS product_id, p.name AS product_name,
-        COALESCE(l.contact_name, l.school_name, 'Lead') AS lead_name
+        COALESCE(l.contact_name, l.school_name, 'Lead') AS lead_name,
+        l.school_name, l.phone
       FROM lead_status_history h
       LEFT JOIN users u    ON h.changed_by = u.id
       LEFT JOIN products p ON h.product_id = p.id

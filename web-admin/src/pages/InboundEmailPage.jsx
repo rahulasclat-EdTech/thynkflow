@@ -6,6 +6,8 @@ import React, { useEffect, useState, useCallback } from 'react'
 import api from '../utils/api'
 import toast from 'react-hot-toast'
 import { format, parseISO } from 'date-fns'
+import SortableTh from '../components/common/SortableTh'
+import useTableControls from '../utils/useTableControls'
 
 const emptyForm = {
   enabled: false, host: '', port: 993, secure: true,
@@ -38,6 +40,12 @@ export default function InboundEmailPage() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
+  const { search, setSearch, sortKey, sortDir, toggleSort, rows: sortedLogs } = useTableControls(logs, {
+    searchKeys: ['from_name', 'from_email', 'subject', 'action', 'lead_status'],
+    defaultSortKey: 'processed_at',
+    defaultSortDir: 'desc',
+  })
+
   const save = async () => {
     setSaving(true)
     try {
@@ -54,7 +62,7 @@ export default function InboundEmailPage() {
   const testConnection = async () => {
     setTesting(true)
     try {
-      await api.post('/inbound-email/test-connection')
+      await api.post('/inbound-email/test-connection', {}, { timeout: 45000 }) // IMAP handshake can be slow on first connect — default 15s client timeout was firing before the server-side attempt finished
       toast.success('IMAP connection successful ✅')
     } catch (err) {
       toast.error(err?.message || 'Connection failed')
@@ -66,7 +74,7 @@ export default function InboundEmailPage() {
   const pollNow = async () => {
     setPolling(true)
     try {
-      const r = await api.post('/inbound-email/poll-now')
+      const r = await api.post('/inbound-email/poll-now', {}, { timeout: 60000 }) // fetching + parsing every unseen message can take a while with a full inbox
       if (r.skipped) toast(r.reason || 'Skipped', { icon: 'ℹ️' })
       else toast.success(`Processed ${r.processed || 0} message(s), ${r.errors || 0} error(s)`)
       fetchAll()
@@ -156,20 +164,27 @@ export default function InboundEmailPage() {
 
       {/* Recent activity log */}
       <div className="bg-white rounded-2xl border-2 border-slate-100 overflow-x-auto">
-        <div className="px-5 py-3 border-b font-bold text-sm text-slate-700">Recent Processed Emails</div>
+        <div className="px-5 py-3 border-b font-bold text-sm text-slate-700 flex items-center justify-between gap-3">
+          <span>Recent Processed Emails</span>
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search sender, subject, action…"
+            className="border-2 rounded-xl px-3 py-1.5 text-xs font-normal focus:outline-none focus:ring-2 focus:ring-indigo-300 w-64" />
+        </div>
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50">
             <tr>
-              {['From','Subject','Action','Lead Status','When'].map(h => (
-                <th key={h} className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500 whitespace-nowrap">{h}</th>
-              ))}
+              <SortableTh label="From" columnKey="from_name" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Subject" columnKey="subject" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Action" columnKey="action" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Lead Status" columnKey="lead_status" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="When" columnKey="processed_at" {...{ sortKey, sortDir, toggleSort }} />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {logs.length === 0 && (
+            {sortedLogs.length === 0 && (
               <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">No emails processed yet</td></tr>
             )}
-            {logs.map(l => (
+            {sortedLogs.map(l => (
               <tr key={l.id} className="hover:bg-slate-50">
                 <td className="px-4 py-2.5">
                   <p className="font-semibold text-slate-700">{l.from_name || '—'}</p>

@@ -8,6 +8,8 @@ import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
 import { format, parseISO } from 'date-fns'
 import MultiSelect from '../components/common/MultiSelect'
+import SortableTh from '../components/common/SortableTh'
+import useTableControls from '../utils/useTableControls'
 
 const BUCKET_COLORS = {
   '0_3':     '#22c55e',
@@ -82,6 +84,12 @@ export default function LeadAgingReportPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  const { search, setSearch, sortKey, sortDir, toggleSort, rows: sortedRows } = useTableControls(rows, {
+    searchKeys: ['contact_name', 'school_name', 'phone', 'status', 'agent_name', 'product_name'],
+    defaultSortKey: 'age_days',
+    defaultSortDir: 'desc',
+  })
+
   const exportCsv = () => {
     const header = ['School/Contact','Phone','Email','Status','Agent','Product','Age (days)','Days Since Last Activity','Created']
     const lines = rows.map(r => [
@@ -153,23 +161,34 @@ export default function LeadAgingReportPage() {
       )}
 
       {/* Detail table */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-black text-slate-700">Leads</h2>
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search lead, agent, product, status…"
+          className="border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 w-64" />
+      </div>
       <div className="bg-white rounded-2xl border-2 border-slate-100 overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50">
             <tr>
-              {['Lead','Phone','Status','Agent','Product','Age','Last Activity','Created'].map(h => (
-                <th key={h} className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500 whitespace-nowrap">{h}</th>
-              ))}
+              <SortableTh label="Lead" columnKey="contact_name" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Phone" columnKey="phone" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Status" columnKey="status" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Agent" columnKey="agent_name" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Product" columnKey="product_name" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Age" columnKey="age_days" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Last Activity" columnKey="days_since_last_activity" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Created" columnKey="created_at" {...{ sortKey, sortDir, toggleSort }} />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {loading && (
               <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-400">Loading…</td></tr>
             )}
-            {!loading && rows.length === 0 && (
+            {!loading && sortedRows.length === 0 && (
               <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-400">No aging leads found for this filter 🎉</td></tr>
             )}
-            {!loading && rows.map(r => (
+            {!loading && sortedRows.map(r => (
               <tr key={r.id} className="hover:bg-slate-50">
                 <td className="px-4 py-2.5 font-semibold text-slate-700">{r.contact_name || r.school_name || '—'}</td>
                 <td className="px-4 py-2.5 font-mono text-xs text-slate-500">{r.phone || '—'}</td>

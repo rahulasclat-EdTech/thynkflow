@@ -1,5 +1,7 @@
 // web-admin/src/pages/AssignPage.jsx — VISUAL REWRITE
 import React, { useEffect, useState, useCallback } from 'react'
+import SortableTh from '../components/common/SortableTh'
+import useTableControls from '../utils/useTableControls'
 import api from '../utils/api'
 import toast from 'react-hot-toast'
 import useLeadStatuses from '../hooks/useLeadStatuses'
@@ -66,6 +68,7 @@ export default function AssignPage() {
 
   // selection & actions
   const [selected, setSelected]         = useState([])
+  const { sortKey, sortDir, toggleSort, rows: sortedLeads } = useTableControls(leads, {})
   const [assignTo, setAssignTo]         = useState('')
   const [assignProduct, setAssignProduct] = useState('')
   const [actionMode, setActionMode]     = useState('agent')
@@ -393,13 +396,21 @@ export default function AssignPage() {
                     checked={selected.length === leads.length && leads.length > 0}
                     onChange={toggleAll} className="rounded accent-white" />
                 </th>
-                {['Name','School','City','Phone','Status','Product','Assigned To','Type'].map(h => (
-                  <th key={h} className="text-left px-4 py-3 text-xs text-indigo-100 font-bold uppercase tracking-wider whitespace-nowrap">{h}</th>
-                ))}
+                {['Name','School','City','Phone','Status','Product','Assigned To','Type'].map((h, i) => {
+                  const keys = ['contact_name','school_name','city','phone','status','product_name','agent_name','lead_type']
+                  return (
+                    <th key={h} onClick={() => toggleSort(keys[i])}
+                      className={`text-left px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap cursor-pointer select-none ${sortKey===keys[i] ? 'text-white' : 'text-indigo-100'}`}>
+                      <span className="inline-flex items-center gap-1">{h}
+                        <span className="text-[10px]">{sortKey===keys[i] ? (sortDir==='asc'?'▲':'▼') : '⇅'}</span>
+                      </span>
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {leads.map(lead => {
+              {sortedLeads.map(lead => {
                 const isSel    = selected.includes(lead.id)
                 const rowStyle = getRowStyle(lead)
                 return (

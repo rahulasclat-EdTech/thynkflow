@@ -8,6 +8,8 @@ import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
 import { format, parseISO } from 'date-fns'
 import MultiSelect from '../components/common/MultiSelect'
+import SortableTh from '../components/common/SortableTh'
+import useTableControls from '../utils/useTableControls'
 
 export default function StatusChangeReportPage() {
   const { user } = useAuth()
@@ -86,6 +88,12 @@ export default function StatusChangeReportPage() {
     })
     return Object.values(groups).sort((a, b) => b.total - a.total)
   }, [byAgentTransition])
+
+  const { search, setSearch, sortKey, sortDir, toggleSort, rows: sortedChanges } = useTableControls(changes, {
+    searchKeys: ['lead_name', 'from_status', 'to_status', 'agent_name', 'product_name'],
+    defaultSortKey: 'changed_at',
+    defaultSortDir: 'desc',
+  })
 
   const exportCsv = () => {
     const header = ['Lead', 'Previous Status', 'New Status', 'Agent', 'Product', 'Changed At']
@@ -227,23 +235,32 @@ export default function StatusChangeReportPage() {
       </div>
 
       {/* Detail table — includes previous status alongside the new one */}
+      <div className="flex items-center justify-between">
+        <h3 className="font-bold text-slate-700">All Changes</h3>
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search lead, agent, product, status…"
+          className="border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 w-64" />
+      </div>
       <div className="bg-white rounded-2xl border-2 border-slate-100 overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50">
             <tr>
-              {['Lead','Previous Status','New Status','Agent','Product','Changed At'].map(h => (
-                <th key={h} className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500 whitespace-nowrap">{h}</th>
-              ))}
+              <SortableTh label="Lead" columnKey="lead_name" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Previous Status" columnKey="from_status" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="New Status" columnKey="to_status" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Agent" columnKey="agent_name" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Product" columnKey="product_name" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Changed At" columnKey="changed_at" {...{ sortKey, sortDir, toggleSort }} />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {loading && (
               <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">Loading…</td></tr>
             )}
-            {!loading && changes.length === 0 && (
+            {!loading && sortedChanges.length === 0 && (
               <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">No status changes in this range</td></tr>
             )}
-            {!loading && changes.map(c => (
+            {!loading && sortedChanges.map(c => (
               <tr key={c.id} className="hover:bg-slate-50">
                 <td className="px-4 py-2.5 font-semibold text-slate-700">{c.lead_name || '—'}</td>
                 <td className="px-4 py-2.5 text-slate-400 capitalize">{c.from_status ? c.from_status.replace(/_/g,' ') : <span className="italic">new lead</span>}</td>

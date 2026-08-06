@@ -7,6 +7,8 @@ import api from '../utils/api'
 import toast from 'react-hot-toast'
 import { format, parseISO } from 'date-fns'
 import MultiSelect from '../components/common/MultiSelect'
+import SortableTh from '../components/common/SortableTh'
+import useTableControls from '../utils/useTableControls'
 
 export default function LoginReportPage() {
   const [rollup, setRollup]     = useState([])
@@ -52,6 +54,11 @@ export default function LoginReportPage() {
   useEffect(() => { fetchData() }, [fetchData])
 
   const visibleLogs = selectedUser ? logs.filter(l => l.user_id === selectedUser) : logs
+  const { search, setSearch, sortKey, sortDir, toggleSort, rows: sortedLogs } = useTableControls(visibleLogs, {
+    searchKeys: ['user_name', 'email', 'role_name', 'status', 'reason', 'ip_address', 'user_agent'],
+    defaultSortKey: 'logged_in_at',
+    defaultSortDir: 'desc',
+  })
 
   return (
     <div className="space-y-5">
@@ -99,6 +106,9 @@ export default function LoginReportPage() {
             ✕ clear user selection
           </button>
         )}
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search logs…"
+          className="border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 ml-auto" />
       </div>
 
       {/* Detail log table */}
@@ -106,19 +116,23 @@ export default function LoginReportPage() {
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50">
             <tr>
-              {['User','Role','Status','Reason','IP Address','Device','When'].map(h => (
-                <th key={h} className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500 whitespace-nowrap">{h}</th>
-              ))}
+              <SortableTh label="User" columnKey="user_name" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Role" columnKey="role_name" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Status" columnKey="status" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Reason" columnKey="reason" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="IP Address" columnKey="ip_address" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="Device" columnKey="user_agent" {...{ sortKey, sortDir, toggleSort }} />
+              <SortableTh label="When" columnKey="logged_in_at" {...{ sortKey, sortDir, toggleSort }} />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {loading && (
               <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">Loading…</td></tr>
             )}
-            {!loading && visibleLogs.length === 0 && (
+            {!loading && sortedLogs.length === 0 && (
               <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">No login activity found</td></tr>
             )}
-            {!loading && visibleLogs.map(l => (
+            {!loading && sortedLogs.map(l => (
               <tr key={l.id} className="hover:bg-slate-50">
                 <td className="px-4 py-2.5 font-semibold text-slate-700">{l.user_name || l.email || 'Unknown'}</td>
                 <td className="px-4 py-2.5 capitalize text-slate-500">{l.role_name || '—'}</td>
