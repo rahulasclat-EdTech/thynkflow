@@ -21,12 +21,28 @@ function isAdmin(user) {
   return user.role_id === 1 || user.role_name === 'admin'
 }
 
+// Validates a YYYY-MM-DD date string before it's interpolated into raw
+// SQL below (these report routes build WHERE clauses via string concat
+// rather than parameterized queries) — returns null for anything else.
+function safeDate(d) {
+  return typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null
+}
+// Builds a "created between from/to" SQL fragment for a leads alias.
+function dateRangeScope(from, to, alias = 'l') {
+  const f = safeDate(from), t = safeDate(to)
+  let scope = ''
+  if (f) scope += ` AND ${alias}.created_at >= '${f}'`
+  if (t) scope += ` AND ${alias}.created_at < '${t}'::date + INTERVAL '1 day'`
+  return scope
+}
+
 // ── Overview ── UNTOUCHED (was working) ───────────────────
 router.get('/overview', auth, async (req, res) => {
   try {
-    const { product_id } = req.query
+    const { product_id, from, to } = req.query
     let scope = agentScope(req.user)
     if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
+    scope += dateRangeScope(from, to)
     const { rows: [r] } = await db.query(`
       SELECT
         COUNT(*)                                                          AS total_leads,
@@ -48,9 +64,10 @@ router.get('/overview', auth, async (req, res) => {
 // ── Status wise ──────────────────────────────────────────
 router.get('/status-wise', auth, async (req, res) => {
   try {
-    const { product_id } = req.query
+    const { product_id, from, to } = req.query
     let scope = agentScope(req.user)
     if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
+    scope += dateRangeScope(from, to)
     const { rows } = await db.query(`
       SELECT status, COUNT(*) AS count
       FROM leads l WHERE 1=1 ${scope}
@@ -64,14 +81,14 @@ router.get('/status-wise', auth, async (req, res) => {
 router.get('/agent-wise', auth, async (req, res) => {
   try {
     const admin = isAdmin(req.user)
-    const { product_id } = req.query
+    const { product_id, from, to } = req.query
     const prodId = product_id ? parseInt(product_id) : null
 
     // Build WHERE clause filters (not JOIN ON, to avoid LEFT JOIN masking)
     const whereClauses = []
     if (!admin) whereClauses.push(`l.assigned_to = '${req.user.id}'`)
     if (prodId)  whereClauses.push(`l.product_id = ${prodId}`)
-    const leadsWhere = whereClauses.length ? 'AND ' + whereClauses.join(' AND ') : ''
+    const leadsWhere = (whereClauses.length ? 'AND ' + whereClauses.join(' AND ') : '') + dateRangeScope(from, to)
 
     const userFilter = admin
       ? `JOIN roles r ON r.id = u.role_id WHERE r.name IN ('agent','admin') AND u.is_active = true`
@@ -519,14 +536,14 @@ router.get('/daily-summary', auth, async (req, res) => {
 router.get('/conversion', auth, async (req, res) => {
   try {
     const admin = isAdmin(req.user)
-    const { product_id } = req.query
+    const { product_id, from, to } = req.query
     const prodId = product_id ? parseInt(product_id) : null
 
     // Build WHERE conditions (use WHERE not JOIN ON to prevent LEFT JOIN masking)
     const whereClauses = []
     if (!admin) whereClauses.push(`l.assigned_to = '${req.user.id}'`)
     if (prodId)  whereClauses.push(`l.product_id = ${prodId}`)
-    const leadsWhere = whereClauses.length ? 'AND ' + whereClauses.join(' AND ') : ''
+    const leadsWhere = (whereClauses.length ? 'AND ' + whereClauses.join(' AND ') : '') + dateRangeScope(from, to)
 
     const { rows } = await db.query(`
       SELECT

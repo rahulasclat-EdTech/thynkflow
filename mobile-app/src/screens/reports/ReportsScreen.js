@@ -83,22 +83,24 @@ function fmtShort(iso) {
 }
 
 // Reusable date-range bar: From/To chips (each opens the calendar) plus
-// quick presets, used by both the Daily Calls and Status Change tabs.
-function DateRangeBar({ from, to, onPickFrom, onPickTo, onPreset }) {
+// quick presets. Used across every Reports tab now — pass showAllTime to
+// include an "All Time" preset that clears the range (from='', to='').
+function DateRangeBar({ from, to, onPickFrom, onPickTo, onPreset, showAllTime }) {
   return (
     <View style={{ gap: 8 }}>
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <TouchableOpacity onPress={onPickFrom} style={s.dateChip}>
           <Ionicons name="calendar-outline" size={14} color="#4F46E5" />
-          <Text style={s.dateChipText}>From: {fmtShort(from)}</Text>
+          <Text style={s.dateChipText}>From: {from ? fmtShort(from) : 'Any'}</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={onPickTo} style={s.dateChip}>
           <Ionicons name="calendar-outline" size={14} color="#4F46E5" />
-          <Text style={s.dateChipText}>To: {fmtShort(to)}</Text>
+          <Text style={s.dateChipText}>To: {to ? fmtShort(to) : 'Any'}</Text>
         </TouchableOpacity>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         {[
+          ...(showAllTime ? [{ label: 'All Time', from: '', to: '' }] : []),
           { label: 'Today', from: todayStr(), to: todayStr() },
           { label: 'Yesterday', from: daysAgoStr(1), to: daysAgoStr(1) },
           { label: 'Last 7 Days', from: daysAgoStr(6), to: todayStr() },
@@ -139,13 +141,20 @@ export default function ReportsScreen({ navigation }) {
     })
   }
 
-  const fetchReports = useCallback(async () => {
+  // ── Date range shared by Overview / Status / Agent / Conversion / Pipeline ──
+  const [mainFrom, setMainFrom]   = useState('')
+  const [mainTo, setMainTo]       = useState('')
+  const [showMainCal, setShowMainCal] = useState(null) // 'from' | 'to' | null
+
+  const fetchReports = useCallback(async (from = '', to = '') => {
     try {
+      const qs = new URLSearchParams({ ...(from && { from }), ...(to && { to }) }).toString()
+      const suffix = qs ? `?${qs}` : ''
       const [r1, r2, r3, r4] = await Promise.all([
-        api.get('/reports/overview').catch(() => ({ data: {} })),
-        api.get('/reports/status-wise').catch(() => ({ data: [] })),
-        api.get('/reports/agent-wise').catch(() => ({ data: [] })),
-        api.get('/reports/conversion').catch(() => ({ data: [] })),
+        api.get(`/reports/overview${suffix}`).catch(() => ({ data: {} })),
+        api.get(`/reports/status-wise${suffix}`).catch(() => ({ data: [] })),
+        api.get(`/reports/agent-wise${suffix}`).catch(() => ({ data: [] })),
+        api.get(`/reports/conversion${suffix}`).catch(() => ({ data: [] })),
       ])
       // /reports/overview returns { success, data: { total_leads, hot_leads, ... } }
       const ovRaw = r1.data?.data || r1.data || {}
@@ -170,8 +179,8 @@ export default function ReportsScreen({ navigation }) {
     }
   }, [])
 
-  useEffect(() => { fetchReports() }, [fetchReports])
-  const onRefresh = () => { setRefreshing(true); fetchReports() }
+  useEffect(() => { fetchReports(mainFrom, mainTo) }, [fetchReports])
+  const onRefresh = () => { setRefreshing(true); fetchReports(mainFrom, mainTo) }
 
   // ── Daily Calls (product-wise, agent-wise & status-wise) — lazy-loaded ──
   // Uses the same /reports/daily-calls endpoint the web app uses (backed by
@@ -278,6 +287,18 @@ export default function ReportsScreen({ navigation }) {
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 14, paddingBottom: 40 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}>
+
+        {['overview', 'status', 'agent', 'conversion', 'pipeline'].includes(tab) && (
+          <View style={{ marginBottom: 14 }}>
+            <DateRangeBar
+              from={mainFrom} to={mainTo}
+              onPickFrom={() => setShowMainCal('from')}
+              onPickTo={() => setShowMainCal('to')}
+              onPreset={(f, t) => { setMainFrom(f); setMainTo(t); fetchReports(f, t) }}
+              showAllTime
+            />
+          </View>
+        )}
 
         {tab === 'overview' && (
           <View style={{ gap: 12 }}>
@@ -614,6 +635,23 @@ export default function ReportsScreen({ navigation }) {
               </>
             )}
           </View>
+        )}
+
+        {showMainCal && (
+          <Modal visible transparent animationType="fade">
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
+              <CalendarPicker
+                value={showMainCal === 'from' ? mainFrom : mainTo}
+                onChange={d => {
+                  const nf = showMainCal === 'from' ? d : mainFrom
+                  const nt = showMainCal === 'to' ? d : mainTo
+                  if (showMainCal === 'from') setMainFrom(d); else setMainTo(d)
+                  setShowMainCal(null)
+                  fetchReports(nf, nt)
+                }}
+                onClose={() => setShowMainCal(null)} />
+            </View>
+          </Modal>
         )}
 
         {showDailyCal && (

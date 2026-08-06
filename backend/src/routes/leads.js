@@ -105,7 +105,25 @@ router.get('/', auth, async (req, res) => {
         (SELECT cl.status      FROM call_logs cl WHERE cl.lead_id = l.id ORDER BY cl.called_at DESC LIMIT 1) AS last_status,
         (SELECT cl.discussion  FROM call_logs cl WHERE cl.lead_id = l.id ORDER BY cl.called_at DESC LIMIT 1) AS last_remark,
         (SELECT cl.next_followup_date FROM call_logs cl WHERE cl.lead_id = l.id ORDER BY cl.called_at DESC LIMIT 1) AS next_followup_date,
-        (SELECT cl.called_at   FROM call_logs cl WHERE cl.lead_id = l.id ORDER BY cl.called_at DESC LIMIT 1) AS last_called_at
+        (SELECT cl.called_at   FROM call_logs cl WHERE cl.lead_id = l.id ORDER BY cl.called_at DESC LIMIT 1) AS last_called_at,
+        -- who logged the last remark (call_logs entry), for "remark by" display
+        (SELECT u2.name FROM call_logs cl
+           LEFT JOIN users u2 ON u2.id = cl.user_id
+           WHERE cl.lead_id = l.id
+           ORDER BY cl.called_at DESC LIMIT 1) AS last_remark_by,
+        -- previous status (the status the lead moved FROM in its most recent transition)
+        (SELECT lsh.from_status FROM lead_status_history lsh
+           WHERE lsh.lead_id = l.id ORDER BY lsh.changed_at DESC LIMIT 1) AS previous_status,
+        -- how many logged interactions (call/status updates) this lead has had
+        (SELECT COUNT(*) FROM call_logs cl WHERE cl.lead_id = l.id) AS activity_count,
+        -- best-effort "who last touched this lead" — most recent of a call log or a status change
+        (SELECT actor FROM (
+           (SELECT u3.name AS actor, cl.called_at AS ts FROM call_logs cl
+              LEFT JOIN users u3 ON u3.id = cl.user_id WHERE cl.lead_id = l.id)
+           UNION ALL
+           (SELECT u4.name AS actor, lsh.changed_at AS ts FROM lead_status_history lsh
+              LEFT JOIN users u4 ON u4.id = lsh.changed_by WHERE lsh.lead_id = l.id)
+         ) touches ORDER BY ts DESC LIMIT 1) AS last_updated_by
       FROM leads l
       LEFT JOIN users    u ON l.assigned_to  = u.id
       LEFT JOIN products p ON l.product_id   = p.id
@@ -127,7 +145,10 @@ router.get('/:id', auth, async (req, res) => {
   try {
     const { rows } = await db.query(`
       SELECT l.*, u.name AS agent_name, p.name AS product_name,
-             ab.name AS assigned_by_name
+             ab.name AS assigned_by_name,
+             (SELECT lsh.from_status FROM lead_status_history lsh
+                WHERE lsh.lead_id = l.id ORDER BY lsh.changed_at DESC LIMIT 1) AS previous_status,
+             (SELECT COUNT(*) FROM call_logs cl WHERE cl.lead_id = l.id) AS activity_count
       FROM leads l
       LEFT JOIN users    u  ON l.assigned_to = u.id
       LEFT JOIN products p  ON l.product_id  = p.id

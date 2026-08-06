@@ -11,6 +11,20 @@ import api from '../../api/client'
 import COLORS from '../../utils/colors'
 import CalendarPicker from '../../components/CalendarPicker'
 import VoiceInput from '../../components/VoiceInput'
+import { format } from 'date-fns'
+
+// Formats an ISO timestamp as "12 Aug, 3:45 PM"; returns '—' when absent.
+function fmtDateTime(iso) {
+  if (!iso) return '—'
+  try { return format(new Date(iso), 'd MMM, h:mm a') } catch { return '—' }
+}
+// Activity-count colour rule: >5 red, >3 dark blue, else default text colour.
+function activityNameColor(count) {
+  const n = parseInt(count) || 0
+  if (n > 5) return '#DC2626'
+  if (n > 3) return '#1E3A8A'
+  return '#111827'
+}
 
 const STATUS_COLORS = {
   new:            { bg:'#DBEAFE', text:'#1E40AF' },
@@ -53,6 +67,7 @@ export default function LeadsScreen({ navigation }) {
   const [search, setSearch]           = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterProduct, setFilterProduct] = useState('')
+  const [filterAgent, setFilterAgent] = useState('')
   const [page, setPage]               = useState(1)
   const [hasMore, setHasMore]         = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -81,7 +96,8 @@ export default function LeadsScreen({ navigation }) {
     try {
       const params = new URLSearchParams({ page: pageNum, per_page: PER_PAGE,
         ...(search && { search }), ...(filterStatus && { status: filterStatus }),
-        ...(filterProduct && { product_id: filterProduct }) })
+        ...(filterProduct && { product_id: filterProduct }),
+        ...(filterAgent && { assigned_to: filterAgent }) })
       const res = await api.get(`/leads?${params}`)
       // NOTE: api client's interceptor already unwraps res.data, so `res`
       // here IS the {success, data, total, page, per_page} body — `total`
@@ -96,7 +112,7 @@ export default function LeadsScreen({ navigation }) {
       setHasMore(pageNum * PER_PAGE < total)
     } catch (e) { console.log(e.message) }
     finally { setLoading(false); setLoadingMore(false); setRefreshing(false) }
-  }, [search, filterStatus, filterProduct])
+  }, [search, filterStatus, filterProduct, filterAgent])
 
   useEffect(() => { setPage(1); fetchLeads(1) }, [fetchLeads])
 
@@ -128,13 +144,21 @@ export default function LeadsScreen({ navigation }) {
 
   const renderLead = ({ item }) => {
     const sc = getMobStatusColor(item.status)
+    const psc = item.previous_status ? getMobStatusColor(item.previous_status) : null
     const pname = products.find(p => p.id === parseInt(item.product_id))?.name
+    const nameColor = activityNameColor(item.activity_count)
     return (
       <TouchableOpacity style={s.card} onPress={() => navigation.navigate('LeadDetail', { lead: item })}>
         <View style={s.cardTop}>
           <View style={{ flex: 1 }}>
             <View style={{flexDirection:'row',alignItems:'center',gap:6}}>
-              <Text style={s.leadName}>{item.name || item.contact_name || item.school_name}</Text>
+              <Text style={[s.leadName,{color:nameColor}]}>{item.name || item.contact_name || item.school_name}</Text>
+              {parseInt(item.activity_count) > 0 && (
+                <View style={{flexDirection:'row',alignItems:'center',gap:2,backgroundColor:nameColor+'1A',paddingHorizontal:5,paddingVertical:1,borderRadius:8}}>
+                  <Ionicons name="pulse-outline" size={10} color={nameColor} />
+                  <Text style={{fontSize:10,fontWeight:'700',color:nameColor}}>{item.activity_count}</Text>
+                </View>
+              )}
               {item.lead_type && (
                 <View style={{paddingHorizontal:6,paddingVertical:1,borderRadius:8,backgroundColor:item.lead_type==='B2B'?'#DBEAFE':'#DCFCE7'}}>
                   <Text style={{fontSize:9,fontWeight:'700',color:item.lead_type==='B2B'?'#1E40AF':'#166534'}}>{item.lead_type}</Text>
@@ -146,17 +170,38 @@ export default function LeadsScreen({ navigation }) {
             )}
             <Text style={s.leadPhone}>{item.phone}</Text>
             {pname && <View style={s.pBadge}><Ionicons name="cube-outline" size={10} color="#4F46E5" /><Text style={s.pBadgeText}>{pname}</Text></View>}
+            <Text style={{fontSize:11,color:'#6B7280',marginTop:3}}>
+              👤 {item.agent_name ? item.agent_name : 'Unassigned'}
+            </Text>
           </View>
-          <View style={[s.sBadge, { backgroundColor: sc.bg }]}>
-            <Text style={[s.sBadgeText, { color: sc.text }]}>{item.status?.replace(/_/g,' ')}</Text>
+          {/* Status log: Previous status → Current status */}
+          <View style={{alignItems:'flex-end',gap:4}}>
+            {psc && item.previous_status !== item.status && (
+              <View style={{flexDirection:'row',alignItems:'center',gap:3}}>
+                <View style={[s.sBadge,{backgroundColor:psc.bg,opacity:0.7}]}>
+                  <Text style={[s.sBadgeText,{color:psc.text,fontSize:9}]}>{item.previous_status?.replace(/_/g,' ')}</Text>
+                </View>
+                <Ionicons name="arrow-forward" size={10} color="#9CA3AF" />
+              </View>
+            )}
+            <View style={[s.sBadge, { backgroundColor: sc.bg }]}>
+              <Text style={[s.sBadgeText, { color: sc.text }]}>{item.status?.replace(/_/g,' ')}</Text>
+            </View>
           </View>
         </View>
         {(item.last_remark || item.admin_remark || item.creation_comment) && (
           <View style={{paddingHorizontal:2,paddingBottom:6}}>
             {(item.last_remark || item.admin_remark) ? (
-              <Text style={{fontSize:11,color:'#7C3AED',lineHeight:16}} numberOfLines={2}>
-                📝 {item.last_remark || item.admin_remark}
-              </Text>
+              <>
+                <Text style={{fontSize:11,color:'#7C3AED',lineHeight:16}} numberOfLines={2}>
+                  📝 {item.last_remark || item.admin_remark}
+                </Text>
+                {(item.last_remark_by || item.last_called_at) && (
+                  <Text style={{fontSize:10,color:'#9CA3AF',marginTop:1}}>
+                    — {item.last_remark_by || 'Unknown'} · {fmtDateTime(item.last_called_at)}
+                  </Text>
+                )}
+              </>
             ) : null}
             {item.creation_comment ? (
               <Text style={{fontSize:11,color:'#6B7280',lineHeight:16,marginTop:2}} numberOfLines={1}>
@@ -178,6 +223,12 @@ export default function LeadsScreen({ navigation }) {
           <TouchableOpacity style={[s.aBtn, { backgroundColor:'#DBEAFE' }]} onPress={() => navigation.navigate('PostCall', { lead: item })}>
             <Ionicons name="create-outline" size={14} color="#1E40AF" /><Text style={[s.aTxt,{color:'#1E40AF'}]}>Update</Text>
           </TouchableOpacity>
+        </View>
+        <View style={s.updatedFooter}>
+          <Ionicons name="time-outline" size={11} color="#9CA3AF" />
+          <Text style={s.updatedFooterText}>
+            Last updated {fmtDateTime(item.updated_at)}{(item.last_updated_by || item.agent_name) ? ` by ${item.last_updated_by || item.agent_name}` : ''}
+          </Text>
         </View>
       </TouchableOpacity>
     )
@@ -202,6 +253,18 @@ export default function LeadsScreen({ navigation }) {
 
       {/* Filter chips — each row is independently scrollable, no overlap */}
       <View style={{backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#F3F4F6'}}>
+        {/* Agent-wise filter — only meaningful for admins/managers who see other agents' leads */}
+        {user?.role_name !== 'agent' && agents.length > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{paddingHorizontal:12,paddingTop:6,paddingBottom:2,flexDirection:'row',alignItems:'center'}}>
+            {[{name:'All Agents',id:''}, ...agents].map(a=>(
+              <TouchableOpacity key={String(a.id)} onPress={()=>{setFilterAgent(a.id?String(a.id):'');setPage(1)}}
+                style={[s.chip, filterAgent===(a.id?String(a.id):'') && s.chipActive]}>
+                <Text style={[s.chipTxt, filterAgent===(a.id?String(a.id):'') && s.chipTxtActive]}>{a.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
           contentContainerStyle={{paddingHorizontal:12,paddingTop:6,paddingBottom:4,flexDirection:'row',alignItems:'center'}}>
           {[{label:'All',value:''}, ...ALL_STATUSES.map(s2=>({label:s2.replace(/_/g,' '),value:s2}))].map(item=>(
@@ -465,6 +528,8 @@ const s = StyleSheet.create({
   sBadge:    {paddingHorizontal:8,paddingVertical:3,borderRadius:20},
   sBadgeText:{fontSize:11,fontWeight:'600',textTransform:'capitalize'},
   actions:   {flexDirection:'row',gap:6},
+  updatedFooter: {flexDirection:'row',alignItems:'center',gap:4,marginTop:8,paddingTop:8,borderTopWidth:1,borderTopColor:'#F3F4F6'},
+  updatedFooterText: {fontSize:10,color:'#9CA3AF'},
   aBtn:      {flex:1,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:3,paddingVertical:7,borderRadius:8},
   aTxt:      {fontSize:11,fontWeight:'600'},
   mHeader:   {flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:16,paddingTop:52,paddingBottom:12,borderBottomWidth:1,borderBottomColor:'#E5E7EB'},
