@@ -23,12 +23,26 @@ function StatusPill({ status, statuses }) {
 export default function LeadDetailModal({ leadId, onClose }) {
   const [lead, setLead] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [pushingSchool, setPushingSchool] = useState(false)
   const { statuses } = useLeadStatuses()
 
   useEffect(() => {
     if (!leadId) return
     api.get(`/leads/${leadId}`).then(res => setLead(res.data)).finally(() => setLoading(false))
   }, [leadId])
+
+  const createSchoolInRegistration = async () => {
+    setPushingSchool(true)
+    try {
+      const res = await api.post(`/leads/${leadId}/push-to-registration`)
+      const data = res.data || {}
+      setLead(p => ({ ...p, registration_school_id: data.registration_school_id, registration_school_code: data.registration_school_code }))
+    } catch (e) {
+      alert(e.message || 'Could not create school in Registration')
+    } finally {
+      setPushingSchool(false)
+    }
+  }
 
   if (!leadId) return null
 
@@ -61,6 +75,27 @@ export default function LeadDetailModal({ leadId, onClose }) {
               } />
               <InfoRow label="Assigned On" value={lead?.assigned_at ? format(new Date(lead.assigned_at), 'dd MMM yyyy') : '—'} />
             </div>
+
+            {/* Create School in Registration — only once Converted */}
+            {lead?.status === 'converted' && (
+              <div className="mb-6">
+                {lead?.registration_school_id ? (
+                  <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3">
+                    <p className="text-sm font-bold text-emerald-800">
+                      ✅ School created in Thynk Registration{lead.registration_school_code ? ` — code: ${lead.registration_school_code}` : ''}
+                    </p>
+                    <p className="text-xs text-emerald-700 mt-1">Finish pricing & documents there to complete approval.</p>
+                  </div>
+                ) : (
+                  <button
+                    disabled={pushingSchool}
+                    onClick={createSchoolInRegistration}
+                    className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white text-sm font-bold transition">
+                    {pushingSchool ? 'Creating…' : '🏫 Create School in Registration'}
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* History */}
             <div>
