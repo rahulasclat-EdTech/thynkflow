@@ -21,6 +21,7 @@ const integrationRoutes    = require('./routes/integrations');
 const webhookRoutes        = require('./routes/webhooks');
 const inboundEmailRoutes   = require('./routes/inbound_email');
 const reminderRoutes       = require('./routes/reminders');
+const registrationIntegrationRoutes = require('./routes/registration_integration');
 
 const app = express();
 app.use(cors({
@@ -50,6 +51,7 @@ app.use('/api/integrations',  integrationRoutes);
 app.use('/api/webhooks',      webhookRoutes);
 app.use('/api/inbound-email', inboundEmailRoutes);
 app.use('/api/reminders',     reminderRoutes);
+app.use('/api',               registrationIntegrationRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', app: 'ThynkFlow' }));
 app.use((err, req, res, next) => {

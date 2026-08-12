@@ -57,6 +57,7 @@ export default function LeadDetailScreen({ route, navigation }) {
   const [savingComm, setSavingComm]   = useState(false)
   const [showCal, setShowCal]         = useState(false)
   const [followUpDate, setFollowUpDate] = useState('')
+  const [pushingSchool, setPushingSchool] = useState(false)
 
   // Post-call detection
   const appStateRef = useRef(AppState.currentState)
@@ -113,6 +114,20 @@ export default function LeadDetailScreen({ route, navigation }) {
   const updateStatus = async (st) => {
     try { await api.patch(`/leads/${lead.id}/status`,{status:st}); setLead(p=>({...p,status:st})) }
     catch(e) { Alert.alert('Error',e.message) }
+  }
+
+  const createSchoolInRegistration = async () => {
+    setPushingSchool(true)
+    try {
+      const r = await api.post(`/leads/${lead.id}/push-to-registration`)
+      const data = r.data?.data || r.data || {}
+      setLead(p => ({ ...p, registration_school_id: data.registration_school_id, registration_school_code: data.registration_school_code }))
+      Alert.alert('✅ School created', `Created in Thynk Registration${data.registration_school_code ? ` (code: ${data.registration_school_code})` : ''}. Complete pricing & docs there to finish approval.`)
+    } catch (e) {
+      Alert.alert('Could not create school', e.message || 'Something went wrong')
+    } finally {
+      setPushingSchool(false)
+    }
   }
 
   const saveProduct = async () => {
@@ -240,6 +255,36 @@ export default function LeadDetailScreen({ route, navigation }) {
               })}
             </ScrollView>
           </View>
+
+          {/* Create School in Registration — only once Converted */}
+          {lead.status === 'converted' && (
+            <View style={s.section}>
+              <Text style={s.secTitle}>Thynk Registration</Text>
+              {lead.registration_school_id ? (
+                <View style={{ padding: 12, borderRadius: 10, backgroundColor: '#DCFCE7' }}>
+                  <Text style={{ color: '#166534', fontWeight: '700' }}>
+                    ✅ School created{lead.registration_school_code ? ` — code: ${lead.registration_school_code}` : ''}
+                  </Text>
+                  <Text style={{ color: '#166534', fontSize: 12, marginTop: 2 }}>
+                    Finish pricing & documents in Thynk Registration for approval.
+                  </Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  disabled={pushingSchool}
+                  onPress={createSchoolInRegistration}
+                  style={{ flexDirection:'row', alignItems:'center', justifyContent:'center', gap:8,
+                           padding:12, borderRadius:10, backgroundColor: pushingSchool ? '#A5B4FC' : '#4F46E5' }}>
+                  {pushingSchool
+                    ? <ActivityIndicator color="#fff" />
+                    : <Ionicons name="school-outline" size={18} color="#fff" />}
+                  <Text style={{ color:'#fff', fontWeight:'700' }}>
+                    {pushingSchool ? 'Creating…' : 'Create School in Registration'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
 
           {/* Lead Type */}
           <View style={s.section}>
