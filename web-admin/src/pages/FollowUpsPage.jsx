@@ -179,7 +179,12 @@ function UpdateModal({ followup, onClose, onSave }) {
     try {
       await api.post(`/leads/${followup.lead_id}/communications`, { type:'call', direction:'outbound', note: discussion, is_followup: true })
       await api.patch(`/leads/${followup.lead_id}/status`, { status: newStatus })
-      if (nextDate) await api.post('/followups', { lead_id: followup.lead_id, follow_up_date: nextDate, notes: discussion }).catch(()=>{})
+      // Always record this as the lead's latest follow-up activity —
+      // with the chosen date, or null when marking it done with nothing
+      // further scheduled. Only calling this when nextDate was set meant
+      // "done" leads never got cleared from Missed/Today and kept
+      // reappearing with their old overdue date.
+      await api.post('/followups', { lead_id: followup.lead_id, follow_up_date: nextDate || null, notes: discussion }).catch(()=>{})
       toast.success('Follow-up updated ✓')
       onSave()
     } catch (err) { toast.error(err?.message || 'Failed') }

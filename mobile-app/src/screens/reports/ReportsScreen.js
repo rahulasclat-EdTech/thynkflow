@@ -65,6 +65,7 @@ const TABS = [
   { key: 'pipeline',   label: 'Pipeline',   icon: 'funnel-outline' },
   { key: 'daily',      label: 'Daily Calls',    icon: 'call-outline' },
   { key: 'statuschange', label: 'Status Changes', icon: 'sync-outline' },
+  { key: 'followupsdone', label: 'Follow-ups Done', icon: 'checkmark-done-outline' },
 ]
 
 function todayStr() { return new Date().toISOString().slice(0, 10) }
@@ -133,7 +134,7 @@ export default function ReportsScreen({ navigation }) {
           contact_name: row.contact_name || row.lead_name,
           school_name: row.school_name,
           phone: row.phone,
-          status: row.status || row.to_status,
+          status: row.status || row.to_status || row.lead_status,
           product_id: row.product_id,
           product_name: row.product_name,
         },
@@ -252,6 +253,29 @@ export default function ReportsScreen({ navigation }) {
     finally { setScLoading(false) }
   }, [])
   useEffect(() => { if (tab === 'statuschange' && !scData) fetchStatusChange(scFrom, scTo) }, [tab])
+
+  // ── Follow-ups Completed report — lazy-loaded ──────────────
+  const [fdData, setFdData]       = useState(null)
+  const [fdLoading, setFdLoading] = useState(false)
+  const [fdFrom, setFdFrom]       = useState(todayStr())
+  const [fdTo, setFdTo]           = useState(todayStr())
+  const [showFdCal, setShowFdCal] = useState(null) // 'from' | 'to' | null
+  const fetchFollowupsDone = useCallback(async (from, to) => {
+    setFdLoading(true)
+    try {
+      const r = await api.get(`/reports/followups-completed?from=${from}&to=${to}`)
+      const body = r.data || r
+      setFdData({
+        completed:  body.completed || [],
+        by_agent:   body.by_agent || [],
+        by_product: body.by_product || [],
+        by_outcome: body.by_outcome || [],
+        total:      body.total || 0,
+      })
+    } catch (e) { console.log('Follow-ups completed report error:', e.message) }
+    finally { setFdLoading(false) }
+  }, [])
+  useEffect(() => { if (tab === 'followupsdone' && !fdData) fetchFollowupsDone(fdFrom, fdTo) }, [tab])
 
   if (loading) return (
     <View style={s.center}>
@@ -524,6 +548,24 @@ export default function ReportsScreen({ navigation }) {
                     <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: 1 }}>
                       {c.agent_name} · {c.product_name || 'No product'}
                     </Text>
+                    {/* Status history for this call, not just static lead info —
+                        shows what the lead's status was moving into/at the time
+                        of this call, so the call log doubles as a status trail. */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                      {c.previous_status && c.previous_status !== c.status && (
+                        <>
+                          <View style={[s.miniStatusBadge, { backgroundColor: getStatusColor(c.previous_status).bg }]}>
+                            <Text style={[s.miniStatusText, { color: getStatusColor(c.previous_status).text }]}>{c.previous_status.replace(/_/g,' ')}</Text>
+                          </View>
+                          <Ionicons name="arrow-forward" size={10} color="#9CA3AF" />
+                        </>
+                      )}
+                      {c.status && (
+                        <View style={[s.miniStatusBadge, { backgroundColor: getStatusColor(c.status).bg }]}>
+                          <Text style={[s.miniStatusText, { color: getStatusColor(c.status).text }]}>{c.status.replace(/_/g,' ')}</Text>
+                        </View>
+                      )}
+                    </View>
                     {c.discussion ? <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2, fontStyle: 'italic' }} numberOfLines={1}>{c.discussion}</Text> : null}
                   </TouchableOpacity>
                 ))}
@@ -637,6 +679,71 @@ export default function ReportsScreen({ navigation }) {
           </View>
         )}
 
+        {tab === 'followupsdone' && (
+          <View style={{ gap: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={s.sectionTitle}>Follow-ups Done</Text>
+              <TouchableOpacity onPress={() => fetchFollowupsDone(fdFrom, fdTo)}>
+                <Ionicons name="refresh" size={18} color="#4F46E5" />
+              </TouchableOpacity>
+            </View>
+            <DateRangeBar
+              from={fdFrom} to={fdTo}
+              onPickFrom={() => setShowFdCal('from')}
+              onPickTo={() => setShowFdCal('to')}
+              onPreset={(f, t) => { setFdFrom(f); setFdTo(t); fetchFollowupsDone(f, t) }}
+            />
+            {fdLoading ? <ActivityIndicator color={COLORS.primary} style={{ marginTop: 20 }} /> : !fdData || fdData.total === 0 ? (
+              <Text style={s.empty}>No follow-ups completed for this range</Text>
+            ) : (
+              <>
+                <View style={s.kpiGrid}>
+                  <KPI label="Completed" value={fdData.total} color="#059669" />
+                  <KPI label="Rescheduled" value={fdData.by_outcome.find(o=>o.outcome==='rescheduled')?.count||0} color="#7C3AED" />
+                </View>
+                <Text style={s.cardTitle}>By Agent</Text>
+                <View style={s.card}>
+                  {fdData.by_agent.map((a, i) => (
+                    <View key={i} style={s.statusRow}>
+                      <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: '#374151' }}>{a.agent_name}</Text>
+                      <Text style={s.countText}>{a.count}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={s.cardTitle}>By Product</Text>
+                <View style={s.card}>
+                  {fdData.by_product.map((p, i) => (
+                    <View key={i} style={s.statusRow}>
+                      <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: '#374151' }}>{p.product_name}</Text>
+                      <Text style={s.countText}>{p.count}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={s.cardTitle}>Completed · tap a lead to open it</Text>
+                {fdData.completed.slice(0, 30).map((c, i) => (
+                  <TouchableOpacity key={i} onPress={() => openLead({ ...c, lead_id: c.lead_id, status: c.lead_status })} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 6 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', flex: 1 }} numberOfLines={1}>{c.contact_name || c.school_name || 'Lead'}</Text>
+                      <View style={{ backgroundColor: c.outcome==='rescheduled' ? '#EDE9FE' : '#D1FAE5', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8 }}>
+                        <Text style={{ fontSize: 9, fontWeight: '700', color: c.outcome==='rescheduled' ? '#6D28D9' : '#065F46' }}>
+                          {c.outcome === 'rescheduled' ? 'RESCHEDULED' : 'CLOSED'}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={14} color="#D1D5DB" />
+                    </View>
+                    {c.school_name ? <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }} numberOfLines={1}>🏫 {c.school_name}</Text> : null}
+                    {c.phone ? <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>📱 {c.phone}</Text> : null}
+                    <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: 1 }}>
+                      {c.agent_name} · {c.product_name || 'No product'}
+                    </Text>
+                    {c.notes ? <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2, fontStyle: 'italic' }} numberOfLines={1}>{c.notes}</Text> : null}
+                  </TouchableOpacity>
+                ))}
+              </>
+            )}
+          </View>
+        )}
+
         {showMainCal && (
           <Modal visible transparent animationType="fade">
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
@@ -687,6 +794,23 @@ export default function ReportsScreen({ navigation }) {
             </View>
           </Modal>
         )}
+
+        {showFdCal && (
+          <Modal visible transparent animationType="fade">
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
+              <CalendarPicker
+                value={showFdCal === 'from' ? fdFrom : fdTo}
+                onChange={d => {
+                  const nf = showFdCal === 'from' ? d : fdFrom
+                  const nt = showFdCal === 'to' ? d : fdTo
+                  if (showFdCal === 'from') setFdFrom(d); else setFdTo(d)
+                  setShowFdCal(null)
+                  fetchFollowupsDone(nf, nt)
+                }}
+                onClose={() => setShowFdCal(null)} />
+            </View>
+          </Modal>
+        )}
       </ScrollView>
     </View>
   )
@@ -719,6 +843,8 @@ const s = StyleSheet.create({
   card:        { backgroundColor: '#fff', borderRadius: 14, padding: 14 },
   cardTitle:   { fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 8 },
   statusRow:   { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
+  miniStatusBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8 },
+  miniStatusText:  { fontSize: 9, fontWeight: '700', textTransform: 'capitalize' },
   badge:       { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
   badgeText:   { fontSize: 11, fontWeight: '600', textTransform: 'capitalize', textAlign: 'center' },
   countText:   { fontSize: 14, fontWeight: '700', color: '#111827', width: 30, textAlign: 'right' },

@@ -84,8 +84,14 @@ export default function PostCallScreen({ route, navigation }) {
       if (assignedTo && assignedTo !== lead?.assigned_to) {
         await api.put(`/leads/${lead.id}`, { assigned_to:assignedTo }).catch(()=>{})
       }
-      if (followUpDate.trim()) {
+      if (followUpDate) {
         await api.post('/followups', { lead_id:lead.id, follow_up_date:followUpDate, notes:discussion }).catch(()=>{})
+      } else if (discussion.trim()) {
+        // No new follow-up date chosen — still log this as the lead's
+        // latest activity with a null next_followup_date, so any prior
+        // pending follow-up for this lead is cleared instead of staying
+        // stuck in "Past Due" forever.
+        await api.post('/followups', { lead_id:lead.id, follow_up_date:null, notes:discussion }).catch(()=>{})
       }
       Alert.alert('✅ Saved', 'Call logged and lead updated', [{ text:'OK', onPress:()=>navigation.goBack() }])
     } catch (e) { Alert.alert('Error', e.message||'Failed to save') }
@@ -259,11 +265,13 @@ export default function PostCallScreen({ route, navigation }) {
         </TouchableOpacity>
       </ScrollView>
 
-      <Modal visible={showCal} transparent animationType="fade">
-        <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.5)',alignItems:'center',justifyContent:'center'}}>
+      {/* In-place overlay rather than <Modal> — consistent with the other
+          Update flows; avoids RN Modal window-teardown issues on close. */}
+      {showCal && (
+        <View style={{position:'absolute',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',alignItems:'center',justifyContent:'center',zIndex:999,elevation:999}}>
           <CalendarPicker value={followUpDate} onChange={d=>{setFollowUpDate(d);setShowCal(false)}} onClose={()=>setShowCal(false)} />
         </View>
-      </Modal>
+      )}
     </View>
   )
 }

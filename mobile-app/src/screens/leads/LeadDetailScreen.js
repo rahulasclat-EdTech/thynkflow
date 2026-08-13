@@ -72,6 +72,24 @@ export default function LeadDetailScreen({ route, navigation }) {
     return () => sub.remove()
   }, [])
 
+  // Fetch the FULL lead record by id, always. Entry points like the Leads
+  // list already pass a fully-populated lead object, but others — Daily
+  // Call report, Status Change report, follow-up cards — construct a
+  // partial lead object with only a handful of fields (name, phone,
+  // status…). Rendering straight off that partial object is why Info,
+  // Product, Comms & Assign all appeared blank when opened from Reports.
+  // Fetching by id here and merging over whatever was passed in fixes
+  // every entry point at once instead of patching each call site.
+  useEffect(() => {
+    if (!initialLead?.id) return
+    api.get(`/leads/${initialLead.id}`)
+      .then(r => {
+        const full = r.data?.data || r.data
+        if (full && full.id) setLead(prev => ({ ...prev, ...full }))
+      })
+      .catch(() => {}) // keep the partial data we already have on failure
+  }, [initialLead?.id])
+
   useEffect(() => {
     Promise.all([api.get('/products/active'), api.get('/chat/users'), api.get('/settings')]).then(([p, u, s]) => {
       setProducts(p.data?.data || p.data || [])
@@ -462,11 +480,14 @@ export default function LeadDetailScreen({ route, navigation }) {
         </View>}
       </ScrollView>
 
-      <Modal visible={showCal} transparent animationType="fade">
-        <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.5)',alignItems:'center',justifyContent:'center'}}>
+      {/* In-place overlay rather than <Modal> — keeps this screen's touch
+          handling consistent with the other Update flows and avoids any
+          RN Modal window-teardown edge cases after closing the calendar. */}
+      {showCal && (
+        <View style={{position:'absolute',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',alignItems:'center',justifyContent:'center',zIndex:999,elevation:999}}>
           <CalendarPicker value={followUpDate} onChange={d=>{setFollowUpDate(d);setShowCal(false)}} onClose={()=>setShowCal(false)} />
         </View>
-      </Modal>
+      )}
     </View>
   )
 }

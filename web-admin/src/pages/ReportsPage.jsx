@@ -22,6 +22,7 @@ const TABS = [
   { key: 'pipeline',   label: '🔽 Pipeline' },
   { key: 'pending',    label: '⏳ Pending Follow-ups' },
   { key: 'upcoming',   label: '📅 Upcoming Follow-ups' },
+  { key: 'followupsdone', label: '✅ Follow-ups Done' },
   { key: 'conversion', label: '✅ Conversion' },
 ]
 
@@ -286,6 +287,13 @@ export default function ReportsPage() {
         const r = await api.get('/reports/upcoming-followups', { params })
         setData(Array.isArray(r?.data) ? r.data : [])
 
+      } else if (tab === 'followupsdone') {
+        const params = { from: fuDateFrom, to: fuDateTo }
+        if (isAdmin && fuAgent) params.agent_id   = fuAgent
+        if (fuProduct)          params.product_id = fuProduct
+        const r = await api.get('/reports/followups-completed', { params })
+        setData(Array.isArray(r?.completed) ? r.completed : [])
+
       } else if (tab === 'conversion') {
         const params = {}
         if (filterProductConversion) params.product_id = filterProductConversion
@@ -350,13 +358,15 @@ export default function ReportsPage() {
           </select>
         </div>
       )}
-      <div className="flex items-center gap-2">
-        <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Status:</label>
-        <select className="input w-40 text-sm" value={fuStatus} onChange={e => setFuStatus(e.target.value)}>
-          <option value="">All Statuses</option>
-          {(masterStatuses.length ? masterStatuses.map(s=>s.key) : ALL_STATUSES).map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
-        </select>
-      </div>
+      {tab !== 'followupsdone' && (
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Status:</label>
+          <select className="input w-40 text-sm" value={fuStatus} onChange={e => setFuStatus(e.target.value)}>
+            <option value="">All Statuses</option>
+            {(masterStatuses.length ? masterStatuses.map(s=>s.key) : ALL_STATUSES).map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
+          </select>
+        </div>
+      )}
       <button onClick={() => { setFuDateFrom(monthAgo); setFuDateTo(monthAhead); setFuAgent(''); setFuProduct(''); setFuStatus('') }}
         className="text-xs text-slate-400 hover:text-slate-600 underline">Reset</button>
     </div>
@@ -485,7 +495,7 @@ export default function ReportsPage() {
           )}
         </div>
       )}
-      {(tab === 'pending' || tab === 'upcoming') && FUFilters}
+      {(tab === 'pending' || tab === 'upcoming' || tab === 'followupsdone') && FUFilters}
 
       {loading ? (
         <div className="card p-12 text-center text-slate-400">
@@ -1316,13 +1326,22 @@ export default function ReportsPage() {
           )}
 
           {/* ── PENDING / UPCOMING ── */}
-          {['pending','upcoming'].includes(tab) && (
+          {['pending','upcoming','followupsdone'].includes(tab) && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard label="Total" value={Array.isArray(data)?data.length:0} icon="📋" color="#2563eb" onClick={()=>openDataDrill('All Follow-ups',Array.isArray(data)?data:[])} />
-                <StatCard label="Hot Leads" value={(Array.isArray(data)?data:[]).filter(d=>d.lead_status==='hot').length} icon="🔥" color="#dc2626" onClick={()=>openDataDrill('Hot Follow-ups',(Array.isArray(data)?data:[]).filter(d=>d.lead_status==='hot'))} />
-                <StatCard label="Warm Leads" value={(Array.isArray(data)?data:[]).filter(d=>d.lead_status==='warm').length} icon="☀️" color="#d97706" onClick={()=>openDataDrill('Warm Follow-ups',(Array.isArray(data)?data:[]).filter(d=>d.lead_status==='warm'))} />
-                <StatCard label="Overdue" value={(Array.isArray(data)?data:[]).filter(d=>d.followup_type==='missed').length} icon="⚠️" color="#7c3aed" onClick={()=>openDataDrill('Overdue',(Array.isArray(data)?data:[]).filter(d=>d.followup_type==='missed'))} />
+                {tab === 'followupsdone' ? (
+                  <>
+                    <StatCard label="Closed" value={(Array.isArray(data)?data:[]).filter(d=>d.outcome==='closed').length} icon="✅" color="#059669" onClick={()=>openDataDrill('Closed Follow-ups',(Array.isArray(data)?data:[]).filter(d=>d.outcome==='closed'))} />
+                    <StatCard label="Rescheduled" value={(Array.isArray(data)?data:[]).filter(d=>d.outcome==='rescheduled').length} icon="🔁" color="#7c3aed" onClick={()=>openDataDrill('Rescheduled Follow-ups',(Array.isArray(data)?data:[]).filter(d=>d.outcome==='rescheduled'))} />
+                  </>
+                ) : (
+                  <>
+                    <StatCard label="Hot Leads" value={(Array.isArray(data)?data:[]).filter(d=>d.lead_status==='hot').length} icon="🔥" color="#dc2626" onClick={()=>openDataDrill('Hot Follow-ups',(Array.isArray(data)?data:[]).filter(d=>d.lead_status==='hot'))} />
+                    <StatCard label="Warm Leads" value={(Array.isArray(data)?data:[]).filter(d=>d.lead_status==='warm').length} icon="☀️" color="#d97706" onClick={()=>openDataDrill('Warm Follow-ups',(Array.isArray(data)?data:[]).filter(d=>d.lead_status==='warm'))} />
+                    <StatCard label="Overdue" value={(Array.isArray(data)?data:[]).filter(d=>d.followup_type==='missed').length} icon="⚠️" color="#7c3aed" onClick={()=>openDataDrill('Overdue',(Array.isArray(data)?data:[]).filter(d=>d.followup_type==='missed'))} />
+                  </>
+                )}
               </div>
 
               {Array.isArray(data) && data.length > 0 && (()=>{
@@ -1386,17 +1405,17 @@ export default function ReportsPage() {
 
               <div className="card overflow-hidden">
                 {!Array.isArray(data) || !data.length
-                  ? <div className="p-12 text-center text-slate-400"><p className="text-4xl mb-3">🎉</p><p>No follow-ups for this filter</p></div>
+                  ? <div className="p-12 text-center text-slate-400"><p className="text-4xl mb-3">🎉</p><p>{tab==='followupsdone' ? 'No follow-ups completed for this filter' : 'No follow-ups for this filter'}</p></div>
                   : <table className="w-full text-sm">
                       <thead className="bg-slate-50 border-b border-slate-200"><tr>
-                        {['Name / School','Phone','Agent','Product','Lead Status','Notes','Date'].map(h=>(
+                        {[...['Name / School','Phone','Agent','Product','Lead Status','Notes','Date'], ...(tab==='followupsdone' ? ['Outcome'] : [])].map(h=>(
                           <th key={h} className="text-left px-4 py-3 text-xs text-slate-500 font-semibold uppercase">{h}</th>
                         ))}
                       </tr></thead>
                       <tbody className="divide-y divide-slate-100">
                         {data.map((row,i)=>{
-                          const dateVal=row.next_followup_date||row.follow_up_date
-                          const isOverdue=dateVal&&new Date(dateVal)<new Date()
+                          const dateVal = tab==='followupsdone' ? row.completed_at : (row.next_followup_date||row.follow_up_date)
+                          const isOverdue = tab!=='followupsdone' && dateVal && new Date(dateVal)<new Date()
                           return (
                             <tr key={row.id||i} className={`hover:bg-slate-50 ${isOverdue?'bg-red-50':''}`}>
                               <td className="px-4 py-3 font-medium">{row.school_name||row.contact_name||'—'}</td>
@@ -1411,6 +1430,13 @@ export default function ReportsPage() {
                                   {isOverdue?' ⚠️':''}
                                 </span>
                               </td>
+                              {tab==='followupsdone' && (
+                                <td className="px-4 py-3">
+                                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${row.outcome==='rescheduled' ? 'bg-violet-50 text-violet-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                                    {row.outcome==='rescheduled' ? '🔁 Rescheduled' : '✅ Closed'}
+                                  </span>
+                                </td>
+                              )}
                             </tr>
                           )
                         })}

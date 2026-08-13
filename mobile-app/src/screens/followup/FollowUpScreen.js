@@ -334,6 +334,11 @@ function UpdateFollowUpModal({ visible, followup, agents, onClose, onSave }) {
       }
       if (followUpDate) {
         await api.post('/followups',{lead_id:followup.lead_id,follow_up_date:followUpDate,notes:discussion}).catch(()=>{})
+      } else {
+        // Marking this follow-up done with no next date — record it
+        // explicitly (null date) so it's cleared from Today/Missed/
+        // Next-3-Days instead of the stale overdue entry sticking around.
+        await api.post('/followups',{lead_id:followup.lead_id,follow_up_date:null,notes:discussion}).catch(()=>{})
       }
       // NOTE: previously also called PATCH /followups/:id with {status:'done'}
       // here — but followup.id IS the lead's id, and that route updates the
@@ -421,11 +426,15 @@ function UpdateFollowUpModal({ visible, followup, agents, onClose, onSave }) {
           </View>
         </ScrollView>
 
-        <Modal visible={showCal} transparent animationType="fade">
-          <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.5)',alignItems:'center',justifyContent:'center'}}>
+        {/* In-place overlay instead of a nested <Modal> — see LeadsScreen's
+            CreateLeadModal for why: two stacked RN Modals is a well-known
+            cause of the screen freezing (going unresponsive to touch)
+            after the inner one is dismissed. */}
+        {showCal && (
+          <View style={{position:'absolute',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',alignItems:'center',justifyContent:'center',zIndex:999,elevation:999}}>
             <CalendarPicker value={followUpDate} onChange={d=>{setFollowUpDate(d);setShowCal(false)}} onClose={()=>setShowCal(false)} />
           </View>
-        </Modal>
+        )}
       </View>
     </Modal>
   )

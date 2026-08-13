@@ -398,7 +398,7 @@ function CreateLeadModal({ visible, onClose, onSave, products, agents, leadTypes
             <Text style={s.lbl}>Lead Type</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {[{label:'',key:''},...leadTypes].map(t=>{
-                const lbl = t?.label||t
+                const lbl = typeof t === 'string' ? t : (t?.label ?? '')
                 const sel = form.lead_type === lbl
                 return <TouchableOpacity key={t?.key||lbl||'none'} onPress={()=>setForm(f=>({...f,lead_type:lbl}))}
                   style={[s.chip, sel&&s.chipActive, {marginRight:6}]}>
@@ -496,11 +496,15 @@ function CreateLeadModal({ visible, onClose, onSave, products, agents, leadTypes
             </TouchableOpacity>
           </View>
         </ScrollView>
-        <Modal visible={showCal} transparent animationType="fade">
-          <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.5)',alignItems:'center',justifyContent:'center'}}>
+        {/* Calendar as an in-place overlay, not a second <Modal> — nesting
+            a RN Modal inside another Modal is a known cause of the whole
+            screen becoming unresponsive ("frozen") after the inner one
+            closes, since each Modal opens its own native window. */}
+        {showCal && (
+          <View style={{position:'absolute',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',alignItems:'center',justifyContent:'center',zIndex:999,elevation:999}}>
             <CalendarPicker value={form.follow_up_date} onChange={d=>f('follow_up_date')(d)} onClose={()=>setShowCal(false)} />
           </View>
-        </Modal>
+        )}
       </View>
     </Modal>
   )
