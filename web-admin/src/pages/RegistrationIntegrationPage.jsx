@@ -215,15 +215,53 @@ function ProductMappingSection() {
 }
 
 export default function RegistrationIntegrationPage() {
+  const [setupNeeded, setSetupNeeded] = useState(false)
+  const [runningSetup, setRunningSetup] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    api.get('/registration-integration/consultant-mapping').catch(e => {
+      if (/does not exist/i.test(e?.message || '')) setSetupNeeded(true)
+    })
+  }, [refreshKey])
+
+  const runSetup = async () => {
+    setRunningSetup(true)
+    try {
+      await api.post('/registration-integration/setup')
+      toast.success('Setup complete — tables created')
+      setSetupNeeded(false)
+      setRefreshKey(k => k + 1)
+    } catch (e) {
+      toast.error(e.message || 'Setup failed')
+    } finally {
+      setRunningSetup(false)
+    }
+  }
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <h1 className="text-xl font-black text-slate-800 mb-1">Registration Integration</h1>
       <p className="text-sm text-slate-400 mb-6">
         Controls the "Create School" button on Converted leads — where the push goes, and how consultants &amp; products map across systems.
       </p>
-      <ConnectionSection />
-      <ConsultantMappingSection />
-      <ProductMappingSection />
+
+      {setupNeeded && (
+        <div className="mb-6 p-4 rounded-2xl border border-amber-300 bg-amber-50 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold text-amber-800">⚠️ Setup needed</p>
+            <p className="text-xs text-amber-700 mt-1">The database tables for this integration haven't been created yet on this environment.</p>
+          </div>
+          <button onClick={runSetup} disabled={runningSetup}
+            className="shrink-0 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:bg-amber-300 text-white text-sm font-bold">
+            {runningSetup ? 'Running…' : 'Run Setup'}
+          </button>
+        </div>
+      )}
+
+      <ConnectionSection key={`c-${refreshKey}`} />
+      <ConsultantMappingSection key={`u-${refreshKey}`} />
+      <ProductMappingSection key={`p-${refreshKey}`} />
     </div>
   )
 }
