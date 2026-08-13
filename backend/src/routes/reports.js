@@ -167,6 +167,11 @@ router.get('/daily-calls', auth, async (req, res) => {
         l.school_name,
         l.phone,
         l.status,
+        -- Status history context for this call: the lead's status just
+        -- before its most recent change, so the daily call log can show
+        -- "warm → hot" style movement instead of only the identity fields.
+        (SELECT lsh.from_status FROM lead_status_history lsh
+           WHERE lsh.lead_id = l.id ORDER BY lsh.changed_at DESC LIMIT 1) AS previous_status,
         u.name         AS agent_name,
         l.id           AS lead_id,
         p.id           AS product_id,
@@ -441,14 +446,20 @@ router.get('/pending-followups', auth, async (req, res) => {
         u.name AS agent_name,
         CASE WHEN latest.next_followup_date < CURRENT_DATE THEN 'missed' ELSE 'pending' END AS followup_type
       FROM (
+        -- Same fix as backend/src/routes/followups.js: pick the truly
+        -- latest call_logs row per lead first, filter for a non-null
+        -- date after — otherwise a completed follow-up (latest row has
+        -- next_followup_date = NULL) falls back to the previous overdue
+        -- row and never leaves this "pending" list.
         SELECT DISTINCT ON (cl.lead_id) cl.lead_id, cl.next_followup_date, cl.discussion
-        FROM call_logs cl WHERE cl.next_followup_date IS NOT NULL
+        FROM call_logs cl
         ORDER BY cl.lead_id, cl.called_at DESC
       ) latest
       JOIN leads l    ON l.id  = latest.lead_id
       LEFT JOIN users u    ON u.id  = l.assigned_to
       LEFT JOIN products p ON p.id  = l.product_id
       WHERE l.status NOT IN ('converted','not_interested')
+        AND latest.next_followup_date IS NOT NULL
         AND latest.next_followup_date BETWEEN $1 AND $2 ${scope}
       ORDER BY latest.next_followup_date ASC LIMIT 500
     `, [dateFrom, dateTo])
@@ -478,14 +489,16 @@ router.get('/upcoming-followups', auth, async (req, res) => {
         l.product_id, p.name AS product_name,
         u.name AS agent_name
       FROM (
+        -- Same fix as above.
         SELECT DISTINCT ON (cl.lead_id) cl.lead_id, cl.next_followup_date, cl.discussion
-        FROM call_logs cl WHERE cl.next_followup_date IS NOT NULL
+        FROM call_logs cl
         ORDER BY cl.lead_id, cl.called_at DESC
       ) latest
       JOIN leads l    ON l.id  = latest.lead_id
       LEFT JOIN users u    ON u.id  = l.assigned_to
       LEFT JOIN products p ON p.id  = l.product_id
-      WHERE latest.next_followup_date BETWEEN $1 AND $2
+      WHERE latest.next_followup_date IS NOT NULL
+        AND latest.next_followup_date BETWEEN $1 AND $2
         AND l.status NOT IN ('converted','not_interested') ${scope}
       ORDER BY latest.next_followup_date ASC LIMIT 500
     `, [dateFrom, dateTo])
@@ -908,6 +921,89 @@ router.get('/status-change', auth, async (req, res) => {
     })
   } catch (err) {
     console.error('status-change error:', err.message)
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════
+//  FOLLOW-UPS COMPLETED REPORT
+//  "Follow-up done" = a call_logs entry that resolves a follow-up
+//  which was actually scheduled (i.e. the same lead had a prior
+//  call_logs row with a next_followup_date set). Whether the agent
+//  then rescheduled a new date or closed it out completely, this is
+//  the report of "here's what got followed up on and when."
+//  GET /api/reports/followups-completed?from=&to=&agent_id=&product_id=
+// ══════════════════════════════════════════════════════════════
+router.get('/followups-completed', auth, async (req, res) => {
+  try {
+    const admin = isAdmin(req.user)
+    const { from, to, agent_id, product_id } = req.query
+
+    const dateFrom = safeDate(from) || new Date().toISOString().split('T')[0]
+    const dateTo   = safeDate(to)   || dateFrom
+
+    let scope = ''
+    if (!admin) {
+      scope += ` AND o.user_id = '${req.user.id}'`
+    } else if (agent_id) {
+      scope += ` AND o.user_id = '${agent_id}'`
+    }
+    if (product_id) scope += ` AND l.product_id = ${parseInt(product_id)}`
+
+    const { rows } = await db.query(`
+      WITH ordered AS (
+        SELECT
+          cl.id, cl.lead_id, cl.discussion, cl.called_at,
+          cl.next_followup_date, cl.user_id,
+          LAG(cl.next_followup_date) OVER (
+            PARTITION BY cl.lead_id ORDER BY cl.called_at, cl.id
+          ) AS prev_followup_date
+        FROM call_logs cl
+      )
+      SELECT
+        o.id, o.lead_id, o.discussion AS notes, o.called_at AS completed_at,
+        o.next_followup_date,
+        CASE WHEN o.next_followup_date IS NOT NULL THEN 'rescheduled' ELSE 'closed' END AS outcome,
+        COALESCE(l.contact_name, l.school_name) AS school_name,
+        l.contact_name, l.phone, l.status AS lead_status,
+        l.product_id, p.name AS product_name,
+        u.id AS agent_id, u.name AS agent_name
+      FROM ordered o
+      JOIN leads l          ON l.id = o.lead_id
+      LEFT JOIN users u     ON u.id = o.user_id
+      LEFT JOIN products p  ON p.id = l.product_id
+      WHERE o.prev_followup_date IS NOT NULL
+        AND o.called_at::date BETWEEN $1 AND $2
+        ${scope}
+      ORDER BY o.called_at DESC
+      LIMIT 1000
+    `, [dateFrom, dateTo])
+
+    const byAgent = {}, byProduct = {}, byOutcome = {}
+    rows.forEach(r => {
+      const aKey = r.agent_name || 'Unassigned'
+      byAgent[aKey] = byAgent[aKey] || { agent_id: r.agent_id, agent_name: aKey, count: 0 }
+      byAgent[aKey].count++
+
+      const pKey = r.product_name || 'No Product'
+      byProduct[pKey] = byProduct[pKey] || { product_id: r.product_id, product_name: pKey, count: 0 }
+      byProduct[pKey].count++
+
+      byOutcome[r.outcome] = byOutcome[r.outcome] || { outcome: r.outcome, count: 0 }
+      byOutcome[r.outcome].count++
+    })
+
+    res.json({
+      success: true,
+      total: rows.length,
+      completed: rows,
+      by_agent: Object.values(byAgent).sort((a, b) => b.count - a.count),
+      by_product: Object.values(byProduct).sort((a, b) => b.count - a.count),
+      by_outcome: Object.values(byOutcome).sort((a, b) => b.count - a.count),
+      from: dateFrom, to: dateTo,
+    })
+  } catch (err) {
+    console.error('followups-completed error:', err.message)
     res.status(500).json({ success: false, message: err.message })
   }
 })

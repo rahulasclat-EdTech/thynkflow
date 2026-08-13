@@ -89,16 +89,23 @@ async function getFollowups(user, section = 'all', filters = {}) {
       END AS followup_type,
       (${IST_TODAY} - latest.next_followup_date)::int AS days_overdue
     FROM (
+      -- IMPORTANT: pick the truly latest call_logs row per lead FIRST
+      -- (regardless of whether it has a next_followup_date), then filter
+      -- for a non-null date afterwards. Filtering inside this subquery
+      -- (before DISTINCT ON) meant that once a follow-up was completed
+      -- by logging a fresh call with no new next_followup_date, that
+      -- newest row got excluded here and DISTINCT ON fell back to the
+      -- previous (stale, overdue) row instead — so completed follow-ups
+      -- kept showing up under "Past Due / Missed" forever.
       SELECT DISTINCT ON (cl.lead_id)
         cl.lead_id, cl.next_followup_date, cl.discussion
       FROM call_logs cl
-      WHERE cl.next_followup_date IS NOT NULL
       ORDER BY cl.lead_id, cl.id DESC
     ) latest
     JOIN  leads    l ON l.id     = latest.lead_id
     LEFT JOIN users    u ON u.id = l.assigned_to
     LEFT JOIN products p ON p.id = l.product_id
-    WHERE 1=1 ${dateFilter} ${extraScope}
+    WHERE latest.next_followup_date IS NOT NULL ${dateFilter} ${extraScope}
     ORDER BY latest.next_followup_date ASC
     LIMIT 500
   `)
@@ -149,13 +156,14 @@ router.get('/summary', auth, async (req, res) => {
         COUNT(CASE WHEN latest.next_followup_date > ${IST_TODAY}
                     AND latest.next_followup_date <= ${IST_TODAY} + INTERVAL '3 days'          THEN 1 END) AS next_3_days
       FROM (
+        -- Same fix as getFollowups() above: latest row per lead first,
+        -- non-null filter applied after.
         SELECT DISTINCT ON (cl.lead_id) cl.lead_id, cl.next_followup_date
         FROM call_logs cl
-        WHERE cl.next_followup_date IS NOT NULL
         ORDER BY cl.lead_id, cl.id DESC
       ) latest
       JOIN leads l ON l.id = latest.lead_id
-      WHERE 1=1 ${scope}
+      WHERE latest.next_followup_date IS NOT NULL ${scope}
     `)
     res.json({ success: true, data: r })
   } catch (err) {
@@ -164,17 +172,22 @@ router.get('/summary', auth, async (req, res) => {
   }
 })
 
-// ── POST /api/followups — schedule a follow-up ────────────
+// ── POST /api/followups — schedule a follow-up, OR mark one done ──
+// follow_up_date is now OPTIONAL: pass a date to schedule/reschedule a
+// follow-up, or omit it (null/'') to record that this follow-up is
+// complete with nothing further to schedule. Either way this inserts
+// the newest call_logs row for the lead, which is what getFollowups()
+// treats as the current state — so completing without a new date is
+// exactly what clears a lead out of Today/Missed/Next-3-Days.
 router.post('/', auth, async (req, res) => {
   try {
     const { lead_id, follow_up_date, notes } = req.body
-    if (!lead_id)        return res.status(400).json({ success: false, message: 'lead_id required' })
-    if (!follow_up_date) return res.status(400).json({ success: false, message: 'follow_up_date required' })
+    if (!lead_id) return res.status(400).json({ success: false, message: 'lead_id required' })
 
     const { rows: leadCheck } = await db.query(`SELECT id FROM leads WHERE id = $1`, [lead_id])
     if (!leadCheck.length) return res.status(404).json({ success: false, message: 'Lead not found' })
 
-    await insertCallLog(lead_id, req.user.id, notes || '', follow_up_date)
+    await insertCallLog(lead_id, req.user.id, notes || '', follow_up_date || null)
     res.status(201).json({ success: true })
   } catch (err) {
     console.error('Followups POST / error:', err.message, err.stack)
