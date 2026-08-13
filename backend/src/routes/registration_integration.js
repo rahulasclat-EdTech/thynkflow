@@ -73,6 +73,40 @@ router.get('/registration-integration/config', auth, adminOnly, async (req, res)
   }
 })
 
+// POST test the saved connection — hits Registration's intake endpoint with
+// a deliberately-invalid API key just to see what comes back. Lets an admin
+// verify the exact target URL is reachable without needing a real lead.
+router.post('/registration-integration/test-connection', auth, adminOnly, async (req, res) => {
+  const cfg = await getRegistrationConfig()
+  if (!cfg.base_url) return res.status(400).json({ success: false, message: 'No Base URL saved yet.' })
+
+  const targetUrl = `${cfg.base_url}/api/integration/thynkflow-school`
+  try {
+    const r = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': '__connection_test__' },
+      body: JSON.stringify({}),
+    })
+    const rawText = await r.text()
+    let parsed
+    try { parsed = JSON.parse(rawText) } catch { parsed = null }
+
+    if (parsed) {
+      // Any JSON reply — even a 401 "Invalid API key" — proves the URL & endpoint are correct and reachable.
+      return res.json({
+        success: true,
+        message: `✅ Reached ${targetUrl} successfully — got a valid JSON response (status ${r.status}: "${parsed.error || parsed.message || 'ok'}"). The endpoint is correctly deployed and reachable.`,
+      })
+    }
+    return res.json({
+      success: false,
+      message: `❌ Called ${targetUrl} but got back a non-JSON response (status ${r.status}). First 200 chars: ${rawText.slice(0, 200)}`,
+    })
+  } catch (err) {
+    return res.json({ success: false, message: `❌ Could not reach ${targetUrl}: ${err.message}` })
+  }
+})
+
 // POST save config — { base_url, api_key }. api_key omitted/blank keeps the existing one.
 router.post('/registration-integration/config', auth, adminOnly, async (req, res) => {
   try {
@@ -293,8 +327,9 @@ router.post('/leads/:id/push-to-registration', auth, async (req, res) => {
     }
 
     let apiRes, apiJson
+    const targetUrl = `${regConfig.base_url}/api/integration/thynkflow-school`
     try {
-      apiRes = await fetch(`${regConfig.base_url}/api/integration/thynkflow-school`, {
+      apiRes = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': regConfig.api_key },
         body: JSON.stringify(payload),
@@ -303,13 +338,14 @@ router.post('/leads/:id/push-to-registration', auth, async (req, res) => {
       try {
         apiJson = JSON.parse(rawText)
       } catch {
-        const msg = `Registration returned a non-JSON response (status ${apiRes.status}). This usually means the URL is wrong, the endpoint isn't deployed yet, or something on Registration's server (a login wall, firewall, or crash page) is blocking the request before it reaches the app. First 200 chars: ${rawText.slice(0, 200)}`
+        const msg = `Called ${targetUrl} — got a non-JSON response (status ${apiRes.status}). This usually means the URL is wrong, the endpoint isn't deployed yet, or something on Registration's server (a login wall, firewall, or crash page) is blocking the request before it reaches the app. First 200 chars: ${rawText.slice(0, 200)}`
         await db.query(`UPDATE leads SET registration_push_error = $2 WHERE id = $1`, [leadId, msg])
         return res.status(502).json({ success: false, message: msg })
       }
     } catch (fetchErr) {
-      await db.query(`UPDATE leads SET registration_push_error = $2 WHERE id = $1`, [leadId, fetchErr.message])
-      return res.status(502).json({ success: false, message: `Could not reach Registration: ${fetchErr.message}` })
+      const msg = `Called ${targetUrl} — could not reach it: ${fetchErr.message}`
+      await db.query(`UPDATE leads SET registration_push_error = $2 WHERE id = $1`, [leadId, msg])
+      return res.status(502).json({ success: false, message: msg })
     }
 
     if (!apiRes.ok) {

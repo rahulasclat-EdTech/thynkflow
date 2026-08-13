@@ -22,6 +22,8 @@ function ConnectionSection() {
   const [form, setForm] = useState({ base_url: '', api_key: '' })
   const [status, setStatus] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState(null)
 
   const load = useCallback(() => {
     api.get('/registration-integration/config').then(res => {
@@ -35,6 +37,7 @@ function ConnectionSection() {
 
   const save = async () => {
     setSaving(true)
+    setTestResult(null)
     try {
       await api.post('/registration-integration/config', form)
       toast.success('Connection saved')
@@ -42,6 +45,20 @@ function ConnectionSection() {
       load()
     } catch (e) { toast.error(e.message || 'Failed to save') }
     finally { setSaving(false) }
+  }
+
+  const testConnection = async () => {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const res = await api.post('/registration-integration/test-connection')
+      const data = res.data || res
+      setTestResult(data)
+    } catch (e) {
+      setTestResult({ success: false, message: e.message || 'Test failed' })
+    } finally {
+      setTesting(false)
+    }
   }
 
   return (
@@ -67,15 +84,27 @@ function ConnectionSection() {
             className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
         </div>
       </div>
-      <button onClick={save} disabled={saving}
-        className="mt-4 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white text-sm font-bold">
-        {saving ? 'Saving…' : 'Save Connection'}
-      </button>
+      <div className="flex items-center gap-3 mt-4">
+        <button onClick={save} disabled={saving}
+          className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white text-sm font-bold">
+          {saving ? 'Saving…' : 'Save Connection'}
+        </button>
+        <button onClick={testConnection} disabled={testing || !status?.base_url}
+          className="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-40 text-slate-700 text-sm font-bold">
+          {testing ? 'Testing…' : '🔌 Test Connection'}
+        </button>
+      </div>
+      {testResult && (
+        <div className={`mt-3 p-3 rounded-lg text-xs font-mono break-words ${testResult.success ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+          {testResult.message}
+        </div>
+      )}
       <p className="text-xs text-slate-400 mt-3">
         The API key is generated on the Registration side (Admin → Integrations → ThynkFlow CRM) and pasted here.
       </p>
     </SectionCard>
   )
+
 }
 
 function ConsultantMappingSection() {
