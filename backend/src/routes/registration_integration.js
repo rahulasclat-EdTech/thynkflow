@@ -236,8 +236,53 @@ router.delete('/registration-integration/product-mapping/:id', auth, adminOnly, 
 })
 
 // ─────────────────────────────────────────────────────────────
+// GET /api/leads/:id/registration-link — resolves the exact curated
+// registration URL for this lead's consultant + program, so the
+// "Create School" button can open Registration's real public form
+// (pre-filled with ?consultant=<code>) instead of creating anything
+// via a background API call. No school exists until the form is
+// actually submitted there — same as any other curated link.
+// ─────────────────────────────────────────────────────────────
+router.get('/leads/:id/registration-link', auth, async (req, res) => {
+  try {
+    const { rows: leadRows } = await db.query(`SELECT * FROM leads WHERE id = $1`, [req.params.id])
+    const lead = leadRows[0]
+    if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' })
+
+    const isAgent = req.user.role_name === 'agent'
+    if (isAgent && lead.assigned_to !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'You can only do this for your own leads' })
+    }
+    if (!lead.assigned_to) return res.status(400).json({ success: false, message: 'Lead has no assigned consultant' })
+    if (!lead.product_id) return res.status(400).json({ success: false, message: 'Lead has no product set' })
+
+    const { rows: cmRows } = await db.query(`SELECT * FROM consultant_mapping WHERE thynkflow_user_id = $1`, [lead.assigned_to])
+    const consultantMap = cmRows[0]
+    if (!consultantMap?.registration_consultant_code) {
+      return res.status(400).json({ success: false, message: 'This consultant is not mapped yet, or is missing a consultant code. Add/update it in Settings → Registration Sync.' })
+    }
+
+    const { rows: pmRows } = await db.query(`SELECT * FROM product_program_mapping WHERE thynkflow_product_id = $1`, [lead.product_id])
+    const productMap = pmRows[0]
+    if (!productMap?.registration_project_slug) {
+      return res.status(400).json({ success: false, message: 'This product is not mapped yet, or is missing a program slug. Add/update it in Settings → Registration Sync.' })
+    }
+
+    const regConfig = await getRegistrationConfig()
+    if (!regConfig.base_url) return res.status(400).json({ success: false, message: 'Registration Base URL is not configured yet.' })
+
+    const url = `${regConfig.base_url}/registration/${productMap.registration_project_slug}/?consultant=${encodeURIComponent(consultantMap.registration_consultant_code)}`
+    res.json({ success: true, data: { url } })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
+// ─────────────────────────────────────────────────────────────
 // THE PUSH — POST /api/leads/:id/push-to-registration
-// Called by the "Create School" button once a lead is Converted.
+// (Currently unused by the "Create School" button — that now opens
+// Registration's public form directly via /registration-link above.
+// Left in place in case a background-creation flow is wanted later.)
 // Any authenticated user can trigger it for their own lead (agents
 // convert their own leads); admins can trigger it for any lead.
 // ─────────────────────────────────────────────────────────────

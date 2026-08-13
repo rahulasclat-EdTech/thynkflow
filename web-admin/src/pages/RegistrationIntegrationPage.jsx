@@ -189,6 +189,7 @@ function ProductMappingSection() {
 
   const save = async () => {
     if (!form.thynkflow_product_id || !form.registration_project_id) return toast.error('Pick a product and enter the Registration program ID')
+    if (!form.registration_project_slug) return toast.error("Program slug is required — it's what makes the consultant's registration link work")
     setSaving(true)
     try {
       await api.post('/registration-integration/product-mapping', form)
@@ -209,7 +210,7 @@ function ProductMappingSection() {
 
   return (
     <SectionCard title="📦 Product ↔ Program Mapping" description="Which Registration program (project) a ThynkFlow product corresponds to. Find the Registration project_id on Registration's Admin → Projects/Programs page.">
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 mb-4">
         <select value={form.thynkflow_product_id} onChange={e => setForm({ ...form, thynkflow_product_id: e.target.value })}
           className="border border-slate-200 rounded-lg px-3 py-2 text-sm">
           <option value="">ThynkFlow product…</option>
@@ -219,6 +220,8 @@ function ProductMappingSection() {
         </select>
         <input value={form.registration_project_id} onChange={e => setForm({ ...form, registration_project_id: e.target.value })}
           placeholder="Registration project_id (uuid)" className="border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+        <input value={form.registration_project_slug} onChange={e => setForm({ ...form, registration_project_slug: e.target.value })}
+          placeholder="Program slug (e.g. summer-camp-2026)" className="border border-slate-200 rounded-lg px-3 py-2 text-sm" />
         <input value={form.registration_project_name} onChange={e => setForm({ ...form, registration_project_name: e.target.value })}
           placeholder="Program name (optional label)" className="border border-slate-200 rounded-lg px-3 py-2 text-sm" />
         <button onClick={save} disabled={saving}
