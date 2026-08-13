@@ -271,7 +271,14 @@ router.get('/leads/:id/registration-link', auth, async (req, res) => {
     const regConfig = await getRegistrationConfig()
     if (!regConfig.base_url) return res.status(400).json({ success: false, message: 'Registration Base URL is not configured yet.' })
 
-    const url = `${regConfig.base_url}/registration/${productMap.registration_project_slug}/?consultant=${encodeURIComponent(consultantMap.registration_consultant_code)}`
+    const params = new URLSearchParams({ consultant: consultantMap.registration_consultant_code })
+    if (lead.school_name)  params.set('name', lead.school_name)
+    if (lead.city)         params.set('city', lead.city)
+    if (lead.contact_name) params.set('contactName', lead.contact_name)
+    if (lead.email)        params.set('contactEmail', lead.email)
+    if (lead.phone)        params.set('contactMobile', lead.phone)
+
+    const url = `${regConfig.base_url}/registration/${productMap.registration_project_slug}/?${params.toString()}`
     res.json({ success: true, data: { url } })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
