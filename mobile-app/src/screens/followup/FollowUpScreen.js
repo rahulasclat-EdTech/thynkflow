@@ -59,7 +59,12 @@ let ALL_STATUSES = Object.keys(STATUS_COLORS)
 
 function formatDate(d) {
   if (!d) return ''
-  try { return new Date(d).toLocaleDateString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) }
+  // Follow-up dates are plain calendar dates with no time component — the
+  // DB returns them as UTC midnight, so formatting with hour/minute here
+  // converted that to IST and always showed "5:30 am" on every follow-up.
+  // Forcing timeZone:'UTC' also keeps the date itself from shifting a day
+  // on devices set to a timezone behind UTC.
+  try { return new Date(d).toLocaleDateString('en-IN',{day:'numeric',month:'short',timeZone:'UTC'}) }
   catch { return String(d) }
 }
 
