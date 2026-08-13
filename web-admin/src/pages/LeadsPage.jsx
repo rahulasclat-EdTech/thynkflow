@@ -149,6 +149,7 @@ export default function LeadsPage() {
   const [showPasteModal, setShowPasteModal]   = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showDetailModal, setShowDetailModal] = useState(false)
+  const [pushingSchool, setPushingSchool] = useState(false)
   const [selectedLead, setSelectedLead]       = useState(null)
   const [detailTab, setDetailTab]             = useState('info')
   const [editingInfo, setEditingInfo]         = useState(false)
@@ -320,6 +321,21 @@ export default function LeadsPage() {
       follow_up_date: lead.next_followup_date ? new Date(lead.next_followup_date).toISOString().split('T')[0] : '',
     })
     setShowDetailModal(true); fetchCommLogs(lead.id); fetchTimeline(lead)
+  }
+
+  const createSchoolInRegistration = async () => {
+    if (!selectedLead) return
+    setPushingSchool(true)
+    try {
+      const res = await api.post(`/leads/${selectedLead.id}/push-to-registration`)
+      const data = res.data || res
+      setSelectedLead(p => ({ ...p, registration_school_id: data.registration_school_id, registration_school_code: data.registration_school_code }))
+      toast.success('School created in Thynk Registration 🎉')
+    } catch (e) {
+      toast.error(e.message || 'Could not create school')
+    } finally {
+      setPushingSchool(false)
+    }
   }
 
   const saveEditForm = async () => {
@@ -751,6 +767,28 @@ export default function LeadsPage() {
                       <Badge status={selectedLead.status} />
                     </div>
                   </div>
+
+                  {/* Create School in Registration — only once Converted */}
+                  {selectedLead.status === 'converted' && (
+                    <div>
+                      {selectedLead.registration_school_id ? (
+                        <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3">
+                          <p className="text-sm font-bold text-emerald-800">
+                            ✅ School created in Thynk Registration{selectedLead.registration_school_code ? ` — code: ${selectedLead.registration_school_code}` : ''}
+                          </p>
+                          <p className="text-xs text-emerald-700 mt-1">Finish pricing & documents there to complete approval.</p>
+                        </div>
+                      ) : (
+                        <button
+                          disabled={pushingSchool}
+                          onClick={createSchoolInRegistration}
+                          className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white text-sm font-bold transition-colors">
+                          {pushingSchool ? 'Creating…' : '🏫 Create School in Registration'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
                   <button onClick={() => setEditingInfo(true)}
                     className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-indigo-300 text-indigo-600 rounded-xl hover:bg-indigo-50 text-sm font-bold transition-colors">
                     <EditIcon /> Edit Lead Info
