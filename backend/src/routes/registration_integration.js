@@ -78,8 +78,17 @@ router.post('/registration-integration/config', auth, adminOnly, async (req, res
   try {
     const { base_url, api_key } = req.body
     const existing = await getRegistrationConfig()
+    const finalBaseUrl = (base_url ?? existing.base_url ?? '').trim().replace(/\/+$/, '')
+
+    if (finalBaseUrl && !/^https?:\/\//i.test(finalBaseUrl)) {
+      return res.status(400).json({
+        success: false,
+        message: `"${finalBaseUrl}" doesn't look like a website address. It must start with https:// — e.g. https://app.thynksuccess.com`,
+      })
+    }
+
     const merged = {
-      base_url: (base_url ?? existing.base_url ?? '').replace(/\/+$/, ''),
+      base_url: finalBaseUrl,
       api_key:  api_key?.trim() ? api_key.trim() : existing.api_key,
     }
     await db.query(
@@ -257,6 +266,9 @@ router.post('/leads/:id/push-to-registration', auth, async (req, res) => {
     if (!regConfig.base_url || !regConfig.api_key) {
       return res.status(400).json({ success: false, message: 'Registration integration is not configured yet (base URL / API key missing).' })
     }
+    if (!/^https?:\/\//i.test(regConfig.base_url)) {
+      return res.status(400).json({ success: false, message: `The saved Registration Base URL ("${regConfig.base_url}") is invalid — it must start with https://. Fix it in Settings → Registration Sync.` })
+    }
 
     // Build the (partial) payload — Registration fills in whatever's missing
     const contactPersons = []
@@ -287,7 +299,14 @@ router.post('/leads/:id/push-to-registration', auth, async (req, res) => {
         headers: { 'Content-Type': 'application/json', 'x-api-key': regConfig.api_key },
         body: JSON.stringify(payload),
       })
-      apiJson = await apiRes.json()
+      const rawText = await apiRes.text()
+      try {
+        apiJson = JSON.parse(rawText)
+      } catch {
+        const msg = `Registration returned a non-JSON response (status ${apiRes.status}). This usually means the URL is wrong, the endpoint isn't deployed yet, or something on Registration's server (a login wall, firewall, or crash page) is blocking the request before it reaches the app. First 200 chars: ${rawText.slice(0, 200)}`
+        await db.query(`UPDATE leads SET registration_push_error = $2 WHERE id = $1`, [leadId, msg])
+        return res.status(502).json({ success: false, message: msg })
+      }
     } catch (fetchErr) {
       await db.query(`UPDATE leads SET registration_push_error = $2 WHERE id = $1`, [leadId, fetchErr.message])
       return res.status(502).json({ success: false, message: `Could not reach Registration: ${fetchErr.message}` })
