@@ -35,7 +35,7 @@ const express = require('express')
 const { ImapFlow } = require('imapflow')
 const { simpleParser } = require('mailparser')
 const db = require('../config/db')
-const { auth, adminOnly } = require('../middleware/auth')
+const { auth, adminOnly, cronAuth } = require('../middleware/auth')
 const { getConfig, setConfig } = require('./integrations')
 const { createNotif } = require('./notifications')
 
@@ -301,7 +301,7 @@ router.post('/config', auth, adminOnly, async (req, res) => {
 })
 
 // POST /api/inbound-email/poll-now — manual trigger (also safe to hit from an external cron)
-router.post('/poll-now', auth, adminOnly, async (req, res) => {
+router.post('/poll-now', cronAuth, async (req, res) => {
   try {
     const result = await pollInboxOnce()
     res.json({ success: true, ...result })

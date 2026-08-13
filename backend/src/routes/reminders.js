@@ -12,7 +12,7 @@
 
 const express = require('express')
 const db = require('../config/db')
-const { auth, adminOnly } = require('../middleware/auth')
+const { auth, adminOnly, cronAuth } = require('../middleware/auth')
 const { buildTransporter, getFromAddress } = require('./integrations')
 
 const router = express.Router()
@@ -189,7 +189,7 @@ function startDigestScheduler() {
 // ══════════════════════════════════════════════════════════════
 
 // POST /api/reminders/run-daily-digest — admin trigger (also usable by an external cron)
-router.post('/run-daily-digest', auth, adminOnly, async (req, res) => {
+router.post('/run-daily-digest', cronAuth, async (req, res) => {
   try {
     const result = await runDailyDigestForAllAgents()
     res.json({ success: true, ...result })

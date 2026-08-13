@@ -27,4 +27,16 @@ const adminOnly = (req, res, next) => {
   next();
 };
 
-module.exports = { auth, adminOnly };
+// cronAuth — lets an external scheduler (cron-job.org, GitHub Actions, etc.)
+// trigger a route with a shared secret instead of a logged-in admin's JWT.
+// Needed on Vercel, where in-process setInterval schedulers don't survive
+// between serverless invocations. Set CRON_SECRET in your environment and
+// send it back as the `x-cron-secret` header.
+const cronAuth = (req, res, next) => {
+  const secret = process.env.CRON_SECRET;
+  const provided = req.headers['x-cron-secret'];
+  if (secret && provided && provided === secret) return next();
+  return auth(req, res, () => adminOnly(req, res, next));
+};
+
+module.exports = { auth, adminOnly, cronAuth };

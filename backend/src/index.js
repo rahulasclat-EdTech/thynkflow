@@ -60,13 +60,19 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`ThynkFlow API running on port ${PORT}`);
-  // In-process schedulers — safe here because this backend runs as a
-  // long-lived Node process (app.listen), not a serverless function.
-  // If this ever moves to a serverless host, replace these with an
-  // external cron hitting POST /api/inbound-email/poll-now and
-  // POST /api/reminders/run-daily-digest instead.
-  inboundEmailRoutes.startInboundEmailPoller();
-  reminderRoutes.startDigestScheduler();
-});
+
+// On Vercel (or any serverless host), a process never stays alive between
+// requests — app.listen() and setInterval-based schedulers would either
+// crash the function or silently do nothing. Skip both there; the external
+// cron (cron-job.org / GitHub Actions) hitting /poll-now and
+// /run-daily-digest with the x-cron-secret header replaces them instead.
+// Locally / on a persistent host (Railway, Render, VPS+PM2), nothing changes.
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`ThynkFlow API running on port ${PORT}`);
+    inboundEmailRoutes.startInboundEmailPoller();
+    reminderRoutes.startDigestScheduler();
+  });
+}
+
+module.exports = app;
