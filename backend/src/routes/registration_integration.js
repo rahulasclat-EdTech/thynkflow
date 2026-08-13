@@ -13,8 +13,25 @@ const express = require('express')
 const fetch   = global.fetch || require('node-fetch') // Node 18+ has global fetch
 const db      = require('../config/db')
 const { auth, adminOnly } = require('../middleware/auth')
+const runMigration = require('../config/migrate_registration_integration')
 
 const router = express.Router()
+
+// ─────────────────────────────────────────────────────────────
+// One-click setup — runs the same migration as
+// `npm run migrate:registration-integration`, but through the app's own
+// live DB connection. Exists because on Vercel there's no server shell to
+// run the CLI migration from, and it's easy to accidentally run the CLI
+// version against the wrong database. Safe to click more than once.
+// ─────────────────────────────────────────────────────────────
+router.post('/registration-integration/setup', auth, adminOnly, async (req, res) => {
+  try {
+    await runMigration()
+    res.json({ success: true, message: 'Registration integration tables are ready.' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
 
 // ─────────────────────────────────────────────────────────────
 // Registration connection config — reuses app_config (see integrations.js
