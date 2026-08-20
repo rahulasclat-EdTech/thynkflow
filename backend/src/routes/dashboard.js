@@ -63,6 +63,16 @@ router.get('/', auth, async (req, res) => {
 
     // ── Follow-up counts: use call_logs.next_followup_date ──
     // (There is no separate followups table — dates live on call_logs)
+    // IMPORTANT: pick the truly latest call_logs row per lead FIRST
+    // (regardless of whether it has a next_followup_date), then filter
+    // for a non-null date afterwards. Filtering inside the subquery
+    // (before DISTINCT ON) meant that once a follow-up was completed
+    // by logging a fresh call with no new next_followup_date, that
+    // newest row got excluded here and DISTINCT ON fell back to the
+    // previous (stale, overdue) row instead — so completed follow-ups
+    // kept counting under "missed" forever. Same fix as
+    // backend/src/routes/followups.js. Also tie-break on cl.id (not
+    // called_at, which can collide) so "latest" really means latest.
     let followups = { upcoming: 0, missed: 0 }
     try {
       const { rows: [f] } = await db.query(`
@@ -72,11 +82,11 @@ router.get('/', auth, async (req, res) => {
         FROM (
           SELECT DISTINCT ON (cl.lead_id) cl.lead_id, cl.next_followup_date
           FROM call_logs cl
-          WHERE cl.next_followup_date IS NOT NULL
-          ORDER BY cl.lead_id, cl.called_at DESC
+          ORDER BY cl.lead_id, cl.id DESC
         ) latest
         JOIN leads l ON l.id = latest.lead_id
-        WHERE l.status NOT IN ('converted','not_interested') ${scope}
+        WHERE latest.next_followup_date IS NOT NULL
+          AND l.status NOT IN ('converted','not_interested') ${scope}
       `)
       followups = f
     } catch { /* keep zeros */ }
@@ -146,6 +156,11 @@ router.get('/critical', auth, async (req, res) => {
 
     // ── Missed follow-ups: read from call_logs.next_followup_date ──
     // (no separate followups table in this schema)
+    // Same fix as above: filter for a non-null date AFTER picking the
+    // truly latest row per lead, tie-broken on cl.id — otherwise a
+    // follow-up that was just completed (latest row has
+    // next_followup_date = NULL) fell back to its previous overdue
+    // row and never left this "missed" list.
     let missedFollowups = []
     try {
       const { rows } = await db.query(`
@@ -161,12 +176,12 @@ router.get('/critical', auth, async (req, res) => {
           SELECT DISTINCT ON (cl.lead_id)
             cl.lead_id, cl.next_followup_date, cl.discussion
           FROM call_logs cl
-          WHERE cl.next_followup_date IS NOT NULL
-          ORDER BY cl.lead_id, cl.called_at DESC
+          ORDER BY cl.lead_id, cl.id DESC
         ) latest
         JOIN leads l ON l.id = latest.lead_id
         LEFT JOIN users u ON l.assigned_to = u.id
-        WHERE latest.next_followup_date < CURRENT_DATE - INTERVAL '3 days'
+        WHERE latest.next_followup_date IS NOT NULL
+          AND latest.next_followup_date < CURRENT_DATE - INTERVAL '3 days'
           AND l.status NOT IN ('converted','not_interested') ${scope}
         ORDER BY latest.next_followup_date ASC LIMIT 50
       `)

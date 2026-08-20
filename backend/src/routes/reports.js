@@ -182,10 +182,15 @@ router.get('/daily-calls', auth, async (req, res) => {
       LEFT JOIN users u   ON u.id  = cl.agent_id
       LEFT JOIN products p ON p.id = l.product_id
       LEFT JOIN (
-        SELECT DISTINCT ON (lead_id) lead_id, next_followup_date
-        FROM call_logs
+        -- Pick the truly latest call_logs row per lead first, filter for
+        -- a non-null date after (same fix as followups.js) — otherwise a
+        -- just-completed follow-up shows its stale previous date here.
+        SELECT lead_id, next_followup_date FROM (
+          SELECT DISTINCT ON (lead_id) lead_id, next_followup_date
+          FROM call_logs
+          ORDER BY lead_id, id DESC
+        ) latest
         WHERE next_followup_date IS NOT NULL
-        ORDER BY lead_id, called_at DESC
       ) fu ON fu.lead_id = l.id
       WHERE cl.type = 'call'
         AND DATE(cl.created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN $1 AND $2
@@ -453,7 +458,7 @@ router.get('/pending-followups', auth, async (req, res) => {
         -- row and never leaves this "pending" list.
         SELECT DISTINCT ON (cl.lead_id) cl.lead_id, cl.next_followup_date, cl.discussion
         FROM call_logs cl
-        ORDER BY cl.lead_id, cl.called_at DESC
+        ORDER BY cl.lead_id, cl.id DESC
       ) latest
       JOIN leads l    ON l.id  = latest.lead_id
       LEFT JOIN users u    ON u.id  = l.assigned_to
@@ -492,7 +497,7 @@ router.get('/upcoming-followups', auth, async (req, res) => {
         -- Same fix as above.
         SELECT DISTINCT ON (cl.lead_id) cl.lead_id, cl.next_followup_date, cl.discussion
         FROM call_logs cl
-        ORDER BY cl.lead_id, cl.called_at DESC
+        ORDER BY cl.lead_id, cl.id DESC
       ) latest
       JOIN leads l    ON l.id  = latest.lead_id
       LEFT JOIN users u    ON u.id  = l.assigned_to
@@ -717,8 +722,9 @@ router.get('/login-activity', auth, async (req, res) => {
 
     const whereStr = where.length ? 'WHERE ' + where.join(' AND ') : ''
 
-    const { rows } = await db.query(`
-      SELECT ll.*, u.name AS user_name, u.email AS user_email, r.name AS role_name
+    const { rows: realLogs } = await db.query(`
+      SELECT ll.*, u.name AS user_name, u.email AS user_email, r.name AS role_name,
+             false AS is_record_login
       FROM login_logs ll
       LEFT JOIN users u ON ll.user_id = u.id
       LEFT JOIN roles r ON u.role_id = r.id
@@ -727,13 +733,73 @@ router.get('/login-activity', auth, async (req, res) => {
       LIMIT 1000
     `, params)
 
-    // Per-user rollup: total logins, successful, failed, last login
+    // ── Record-based (inferred) logins ─────────────────────────
+    // For any day a user was actively using the app (a row in
+    // user_daily_activity) but never actually hit POST /auth/login
+    // that day (long-lived JWT, no fresh login), treat their first
+    // request of that day as their login time. Flagged with
+    // is_record_login: true so the UI can highlight it distinctly.
+    // Only applies to the "success" bucket — there's no such thing as
+    // a record-based *failed* login — so skip it entirely when the
+    // caller explicitly filtered for status='failed'.
+    let recordLogs = []
+    if (status !== 'failed') {
+      const actWhere = []
+      const actParams = []
+      let j = 1
+      if (!admin) {
+        actWhere.push(`uda.user_id = $${j++}`)
+        actParams.push(req.user.id)
+      } else if (user_id) {
+        actWhere.push(`uda.user_id = $${j++}`)
+        actParams.push(user_id)
+      }
+      if (from) { actWhere.push(`uda.first_seen_at >= $${j++}`); actParams.push(from) }
+      if (to)   { actWhere.push(`uda.first_seen_at <  $${j++}::date + INTERVAL '1 day'`); actParams.push(to) }
+      const actWhereStr = actWhere.length ? 'AND ' + actWhere.join(' AND ') : ''
+
+      const { rows } = await db.query(`
+        SELECT
+          uda.id, uda.user_id, u.email, 'success'::text AS status,
+          NULL::text AS reason, NULL::text AS ip_address, NULL::text AS user_agent,
+          uda.first_seen_at AS logged_in_at,
+          u.name AS user_name, u.email AS user_email, r.name AS role_name,
+          true AS is_record_login
+        FROM user_daily_activity uda
+        JOIN users u ON u.id = uda.user_id
+        LEFT JOIN roles r ON u.role_id = r.id
+        WHERE NOT EXISTS (
+          SELECT 1 FROM login_logs ll
+          WHERE ll.user_id = uda.user_id AND ll.status = 'success'
+            AND (ll.logged_in_at AT TIME ZONE 'Asia/Kolkata')::date = uda.activity_date
+        ) ${actWhereStr}
+        ORDER BY uda.first_seen_at DESC
+        LIMIT 1000
+      `, actParams)
+      recordLogs = rows
+    }
+
+    const rows = [...realLogs, ...recordLogs]
+      .sort((a, b) => new Date(b.logged_in_at) - new Date(a.logged_in_at))
+      .slice(0, 1000)
+
+    // Per-user rollup: total logins (real + record-based), failed, last login
     const { rows: rollup } = await db.query(`
       SELECT
         u.id AS user_id, u.name AS user_name, u.email AS user_email, r.name AS role_name,
-        COUNT(ll.*) FILTER (WHERE ll.status='success')                       AS total_logins,
-        COUNT(ll.*) FILTER (WHERE ll.status='failed')                       AS failed_logins,
-        MAX(ll.logged_in_at) FILTER (WHERE ll.status='success')             AS last_login_at,
+        COUNT(ll.*) FILTER (WHERE ll.status='success')                       AS real_logins,
+        COUNT(ll.*) FILTER (WHERE ll.status='failed')                        AS failed_logins,
+        (SELECT COUNT(*) FROM user_daily_activity uda2
+          WHERE uda2.user_id = u.id
+            AND NOT EXISTS (
+              SELECT 1 FROM login_logs ll2 WHERE ll2.user_id = u.id AND ll2.status='success'
+                AND (ll2.logged_in_at AT TIME ZONE 'Asia/Kolkata')::date = uda2.activity_date
+            )
+        ) AS record_logins,
+        GREATEST(
+          MAX(ll.logged_in_at) FILTER (WHERE ll.status='success'),
+          (SELECT MAX(first_seen_at) FROM user_daily_activity uda3 WHERE uda3.user_id = u.id)
+        ) AS last_login_at,
         (SELECT ip_address FROM login_logs WHERE user_id=u.id AND status='success' ORDER BY logged_in_at DESC LIMIT 1) AS last_ip
       FROM users u
       LEFT JOIN roles r ON u.role_id = r.id
@@ -743,7 +809,12 @@ router.get('/login-activity', auth, async (req, res) => {
       ORDER BY last_login_at DESC NULLS LAST
     `, !admin ? [req.user.id] : [])
 
-    res.json({ success: true, data: rows, total: rows.length, rollup })
+    const rollupOut = rollup.map(r => ({
+      ...r,
+      total_logins: (parseInt(r.real_logins) || 0) + (parseInt(r.record_logins) || 0),
+    }))
+
+    res.json({ success: true, data: rows, total: rows.length, rollup: rollupOut })
   } catch (err) {
     console.error('login-activity error:', err.message)
     res.status(500).json({ success: false, message: err.message })
