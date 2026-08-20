@@ -304,8 +304,19 @@ export default function FollowUpScreen({ navigation }) {
                 <Text style={{fontSize:14,fontWeight:'600',color:'#6B7280'}}>Skip</Text>
               </TouchableOpacity>
               <TouchableOpacity style={s.popupUpdate} onPress={()=>{
+                // Freeze fix: navigating in the SAME tick as closing a native
+                // <Modal> races the modal's own dismiss animation — on both
+                // iOS and Android this can leave the newly-pushed screen
+                // touch-unresponsive (looks like the whole app "froze") even
+                // though visible={false} was set. Let the modal actually
+                // finish closing (one frame is enough) before pushing the
+                // next screen.
                 setShowPostCall(false)
-                if (callLead) navigation.navigate('Leads',{screen:'PostCall',params:{lead:callLead}})
+                if (callLead) {
+                  const lead = callLead
+                  requestAnimationFrame(() => setTimeout(
+                    () => navigation.navigate('Leads',{screen:'PostCall',params:{lead}}), 250))
+                }
               }}>
                 <Text style={{fontSize:14,fontWeight:'700',color:'#fff'}}>Update Call →</Text>
               </TouchableOpacity>

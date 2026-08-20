@@ -80,6 +80,9 @@ export default function LoginReportPage() {
             <p className="text-xs text-slate-400">{u.user_email}</p>
             <div className="flex items-center gap-4 mt-2 text-sm">
               <span className="font-black text-green-600">{u.total_logins ?? 0}<span className="text-[10px] font-medium text-slate-400 ml-1">logins</span></span>
+              {parseInt(u.record_logins) > 0 && (
+                <span className="font-black text-amber-600">{u.record_logins}<span className="text-[10px] font-medium text-slate-400 ml-1">record-based</span></span>
+              )}
               {parseInt(u.failed_logins) > 0 && (
                 <span className="font-black text-red-500">{u.failed_logins}<span className="text-[10px] font-medium text-slate-400 ml-1">failed</span></span>
               )}
@@ -91,6 +94,10 @@ export default function LoginReportPage() {
           </button>
         ))}
       </div>
+
+      <p className="text-xs text-slate-400 -mt-2">
+        <span className="inline-flex items-center gap-1 font-semibold text-amber-600">● Record-based</span> = no fresh login that day (session token still valid) — first activity of the day is used as the login time instead.
+      </p>
 
       {/* Filters for the detail log */}
       <div className="flex flex-wrap gap-2 items-center">
@@ -133,13 +140,20 @@ export default function LoginReportPage() {
               <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">No login activity found</td></tr>
             )}
             {!loading && sortedLogs.map(l => (
-              <tr key={l.id} className="hover:bg-slate-50">
+              <tr key={`${l.is_record_login ? 'r' : 'l'}-${l.id}`}
+                className={`hover:bg-slate-50 ${l.is_record_login ? 'bg-amber-50/60' : ''}`}>
                 <td className="px-4 py-2.5 font-semibold text-slate-700">{l.user_name || l.email || 'Unknown'}</td>
                 <td className="px-4 py-2.5 capitalize text-slate-500">{l.role_name || '—'}</td>
                 <td className="px-4 py-2.5">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${l.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                     {l.status}
                   </span>
+                  {l.is_record_login && (
+                    <span title="No fresh login — first activity of the day used as login time"
+                      className="ml-1.5 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200">
+                      ● record-based
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-2.5 text-xs text-slate-400">{l.reason || '—'}</td>
                 <td className="px-4 py-2.5 font-mono text-xs text-slate-500">{l.ip_address || '—'}</td>

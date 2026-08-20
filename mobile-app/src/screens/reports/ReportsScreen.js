@@ -749,6 +749,7 @@ export default function ReportsScreen({ navigation }) {
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
               <CalendarPicker
                 value={showMainCal === 'from' ? mainFrom : mainTo}
+                allowPast
                 onChange={d => {
                   const nf = showMainCal === 'from' ? d : mainFrom
                   const nt = showMainCal === 'to' ? d : mainTo
@@ -766,6 +767,7 @@ export default function ReportsScreen({ navigation }) {
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
               <CalendarPicker
                 value={showDailyCal === 'from' ? dailyFrom : dailyTo}
+                allowPast
                 onChange={d => {
                   const nf = showDailyCal === 'from' ? d : dailyFrom
                   const nt = showDailyCal === 'to' ? d : dailyTo
@@ -783,6 +785,7 @@ export default function ReportsScreen({ navigation }) {
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
               <CalendarPicker
                 value={showScCal === 'from' ? scFrom : scTo}
+                allowPast
                 onChange={d => {
                   const nf = showScCal === 'from' ? d : scFrom
                   const nt = showScCal === 'to' ? d : scTo
@@ -800,6 +803,7 @@ export default function ReportsScreen({ navigation }) {
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
               <CalendarPicker
                 value={showFdCal === 'from' ? fdFrom : fdTo}
+                allowPast
                 onChange={d => {
                   const nf = showFdCal === 'from' ? d : fdFrom
                   const nt = showFdCal === 'to' ? d : fdTo

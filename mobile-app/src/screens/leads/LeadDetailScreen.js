@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons'
 import api from '../../api/client'
 import COLORS from '../../utils/colors'
 import CalendarPicker from '../../components/CalendarPicker'
+import LeadFormModal from '../../components/LeadFormModal'
 
 const STATUS_COLORS = {
   new:            { bg:'#DBEAFE', text:'#1E40AF' },
@@ -58,6 +59,7 @@ export default function LeadDetailScreen({ route, navigation }) {
   const [showCal, setShowCal]         = useState(false)
   const [followUpDate, setFollowUpDate] = useState('')
   const [pushingSchool, setPushingSchool] = useState(false)
+  const [showEdit, setShowEdit]       = useState(false)
 
   // Post-call detection
   const appStateRef = useRef(AppState.currentState)
@@ -219,6 +221,9 @@ export default function LeadDetailScreen({ route, navigation }) {
         <View style={[s.sBadge,{backgroundColor:sc.bg}]}>
           <Text style={[s.sBadgeText,{color:sc.text}]}>{lead.status?.replace(/_/g,' ')}</Text>
         </View>
+        <TouchableOpacity onPress={()=>setShowEdit(true)} style={{padding:6,marginLeft:6}}>
+          <Ionicons name="pencil" size={18} color="#4F46E5" />
+        </TouchableOpacity>
       </View>
 
       {/* Quick actions */}
@@ -488,6 +493,17 @@ export default function LeadDetailScreen({ route, navigation }) {
           <CalendarPicker value={followUpDate} onChange={d=>{setFollowUpDate(d);setShowCal(false)}} onClose={()=>setShowCal(false)} />
         </View>
       )}
+
+      <LeadFormModal visible={showEdit} editLead={lead} onClose={()=>setShowEdit(false)}
+        products={products} agents={agents}
+        onSave={()=>{
+          // Re-fetch the full lead so every tab (Info/Product/Assign)
+          // reflects whatever just changed in the edit form.
+          api.get(`/leads/${lead.id}`).then(r => {
+            const full = r.data?.data || r.data
+            if (full && full.id) setLead(prev => ({ ...prev, ...full }))
+          }).catch(() => {})
+        }} />
     </View>
   )
 }

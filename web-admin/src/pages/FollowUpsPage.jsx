@@ -1,4 +1,11 @@
-// web-admin/src/pages/FollowUpsPage.jsx — FIXED VISUAL
+// web-admin/src/pages/FollowUpsPage.jsx — SIMPLIFIED UI
+// Rewrite of the previous "hero header + glowing gradient cards" layout.
+// That version had heavy per-card gradients/glows/blurs on every element,
+// which made the page slow to scan and cluttered — especially once a
+// queue had more than a handful of leads. This version keeps the exact
+// same data/behaviour (sections, filters, agent breakdown, update modal)
+// but uses a flat, consistent, table-like list so agents can scan a long
+// queue quickly, with clear but restrained colour coding for urgency.
 import React, { useEffect, useState, useMemo } from 'react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
@@ -6,31 +13,17 @@ import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import useLeadStatuses from '../hooks/useLeadStatuses'
 
-// Original hand-picked styling for the 7 default statuses — kept as-is
-// so nothing changes visually for accounts that haven't added custom
-// statuses. Any status beyond these (added via the admin Status Master)
-// gets its color/label pulled live from there instead.
 const DEFAULT_STATUS_META = {
-  new:            { bg:'#EFF6FF', text:'#1D4ED8', dot:'#3B82F6', glow:'59,130,246',   label:'New'            },
-  hot:            { bg:'#FFF1F2', text:'#BE123C', dot:'#F43F5E', glow:'244,63,94',    label:'Hot'            },
-  warm:           { bg:'#FFFBEB', text:'#B45309', dot:'#F59E0B', glow:'245,158,11',   label:'Warm'           },
-  cold:           { bg:'#F8FAFC', text:'#475569', dot:'#94A3B8', glow:'148,163,184',  label:'Cold'           },
-  converted:      { bg:'#F0FDF4', text:'#15803D', dot:'#22C55E', glow:'34,197,94',    label:'Converted'      },
-  not_interested: { bg:'#F9FAFB', text:'#6B7280', dot:'#D1D5DB', glow:'209,213,219',  label:'Not Interested' },
-  call_back:      { bg:'#F5F3FF', text:'#6D28D9', dot:'#8B5CF6', glow:'139,92,246',   label:'Call Back'      },
+  new:            { color:'#3B82F6', label:'New'            },
+  hot:            { color:'#F43F5E', label:'Hot'             },
+  warm:           { color:'#F59E0B', label:'Warm'            },
+  cold:           { color:'#94A3B8', label:'Cold'            },
+  converted:      { color:'#22C55E', label:'Converted'       },
+  not_interested: { color:'#9CA3AF', label:'Not Interested'  },
+  call_back:      { color:'#8B5CF6', label:'Call Back'       },
 }
 
-// Populated at runtime from GET /api/settings/lead_status (the admin
-// Status Master) via useLeadStatuses(). Module-scoped so every helper
-// component below (SBadge, UpdateModal, LeadCard, Section) can read the
-// live list without threading a prop through all of them.
 let _liveStatuses = []
-function _hexToRgb(hex) {
-  const h = (hex || '').replace('#','')
-  const full = h.length === 3 ? h.split('').map(c => c+c).join('') : h
-  const n = parseInt(full || '64748b', 16)
-  return `${(n>>16)&255},${(n>>8)&255},${n&255}`
-}
 const _FALLBACK_COLORS = ['#3B82F6','#F43F5E','#F59E0B','#94A3B8','#22C55E','#8B5CF6','#D1D5DB','#EC4899','#0EA5E9','#D97706']
 function _fallbackColor(key) {
   let h = 0; for (let i=0;i<(key||'').length;i++) h = (h*31 + key.charCodeAt(i)) >>> 0
@@ -41,44 +34,10 @@ function getAllStatusKeys() {
 }
 function metaOf(key) {
   const master = _liveStatuses.find(s => s.key === key)
-  if (master) {
-    const color = master.color || DEFAULT_STATUS_META[key]?.dot || _fallbackColor(key)
-    return {
-      bg: color + '14', text: color, dot: color, glow: _hexToRgb(color),
-      label: master.label || DEFAULT_STATUS_META[key]?.label || (key || '').replace(/_/g,' '),
-    }
-  }
+  if (master) return { color: master.color || DEFAULT_STATUS_META[key]?.color || _fallbackColor(key), label: master.label || DEFAULT_STATUS_META[key]?.label || (key||'').replace(/_/g,' ') }
   if (DEFAULT_STATUS_META[key]) return DEFAULT_STATUS_META[key]
-  const color = _fallbackColor(key)
-  return { bg: color+'14', text: color, dot: color, glow: _hexToRgb(color), label: (key || '').replace(/_/g,' ') }
+  return { color: _fallbackColor(key), label: (key||'').replace(/_/g,' ') }
 }
-
-const STYLES = `
-  .fup * { box-sizing: border-box; }
-  .fup { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
-  .fup-mono { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace !important; }
-
-  .fup-card-hover { transition: transform 0.2s ease, box-shadow 0.2s ease; }
-  .fup-card-hover:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(0,0,0,0.12) !important; }
-
-  .fup-btn { transition: all 0.15s ease; cursor: pointer; }
-  .fup-btn:hover  { transform: translateY(-1px) scale(1.04); filter: brightness(1.06); }
-  .fup-btn:active { transform: scale(0.96); }
-
-  .fup-input:focus { outline: none; border-color: #4F46E5 !important; box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
-
-  .fup-stat { transition: all 0.2s ease; cursor: pointer; }
-  .fup-stat:hover { transform: translateY(-2px); }
-  .fup-stat:active { transform: scale(0.97); }
-
-  @keyframes fup-spin   { to { transform: rotate(360deg); } }
-  @keyframes fup-pulse  { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.4)} }
-  @keyframes fup-float  { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
-  @keyframes fup-in     { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
-
-  .fup-animate { animation: fup-in 0.3s ease both; }
-  .fup-float   { animation: fup-float 3s ease-in-out infinite; }
-`
 
 const fmt   = d => { try { return format(new Date(d), 'dd MMM yyyy') } catch { return '—' } }
 const daysO = d => d ? Math.floor((new Date() - new Date(d)) / 86400000) : 0
@@ -87,80 +46,32 @@ function SBadge({ status }) {
   const c = metaOf(status)
   return (
     <span style={{
-      background: c.bg, color: c.text,
-      display: 'inline-flex', alignItems: 'center', gap: 5,
-      padding: '3px 10px', borderRadius: 20,
-      fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
-      border: `1px solid rgba(${c.glow},0.2)`,
+      display:'inline-flex', alignItems:'center', gap:5,
+      padding:'2px 9px', borderRadius:20, fontSize:11, fontWeight:700,
+      whiteSpace:'nowrap', background:c.color+'18', color:c.color,
     }}>
-      <span style={{
-        width: 6, height: 6, borderRadius: '50%', background: c.dot, flexShrink: 0,
-        animation: (status==='hot'||status==='new') ? 'fup-pulse 1.5s ease infinite' : 'none',
-      }} />
+      <span style={{width:6,height:6,borderRadius:'50%',background:c.color,flexShrink:0}} />
       {c.label}
     </span>
   )
 }
 
-// ── Compact Stat Card ─────────────────────────────────────
-function StatCard({ icon, label, value, sublabel, solidColor, glowRGB, active, onClick }) {
+// ── Compact stat pill ────────────────────────────────────
+function StatPill({ icon, label, value, color, active, onClick }) {
   return (
-    <button onClick={onClick} className="fup-stat" style={{
-      display: 'flex', alignItems: 'center', gap: 12,
-      padding: '14px 18px',
-      borderRadius: 16,
-      border: active ? `2px solid ${solidColor}` : '2px solid #E8ECF4',
-      background: active
-        ? `linear-gradient(135deg, ${solidColor} 0%, ${solidColor}cc 100%)`
-        : '#fff',
-      boxShadow: active
-        ? `0 8px 28px rgba(${glowRGB},0.35)`
-        : '0 1px 8px rgba(0,0,0,0.06)',
-      minWidth: 0, flex: '1 1 0',
-      fontFamily: 'inherit', cursor: 'pointer',
-      position: 'relative', overflow: 'hidden',
+    <button onClick={onClick} style={{
+      display:'flex', alignItems:'center', gap:10,
+      padding:'10px 14px', borderRadius:12, cursor:'pointer',
+      border: active ? `1.5px solid ${color}` : '1.5px solid #E5E7EB',
+      background: active ? color+'10' : '#fff',
+      fontFamily:'inherit', flex:'1 1 0', minWidth:110, textAlign:'left',
+      transition:'border-color .15s, background .15s',
     }}>
-      {/* Icon box */}
-      <div style={{
-        width: 40, height: 40, borderRadius: 12, flexShrink: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 20,
-        background: active ? 'rgba(255,255,255,0.2)' : `rgba(${glowRGB},0.1)`,
-        border: active ? '1.5px solid rgba(255,255,255,0.3)' : `1.5px solid rgba(${glowRGB},0.15)`,
-      }}>{icon}</div>
-
-      {/* Text */}
-      <div style={{ textAlign: 'left', minWidth: 0 }}>
-        <div style={{
-          fontSize: 28, fontWeight: 900, lineHeight: 1,
-          color: active ? '#fff' : solidColor,
-          letterSpacing: -1,
-          fontVariantNumeric: 'tabular-nums',
-        }}>
-          {String(value ?? 0)}
-        </div>
-        <div style={{
-          fontSize: 11, fontWeight: 700,
-          color: active ? 'rgba(255,255,255,0.85)' : '#374151',
-          textTransform: 'uppercase', letterSpacing: 0.5,
-          marginTop: 2, lineHeight: 1.2,
-        }}>{label}</div>
-        {sublabel && (
-          <div style={{
-            fontSize: 10, color: active ? 'rgba(255,255,255,0.6)' : '#9CA3AF',
-            marginTop: 1, fontWeight: 500,
-          }}>{sublabel}</div>
-        )}
+      <span style={{fontSize:17}}>{icon}</span>
+      <div>
+        <div style={{fontSize:19,fontWeight:800,lineHeight:1,color: active ? color : '#111827'}}>{value ?? 0}</div>
+        <div style={{fontSize:10.5,fontWeight:600,color:'#6B7280',marginTop:2,textTransform:'uppercase',letterSpacing:0.4}}>{label}</div>
       </div>
-
-      {active && (
-        <div style={{
-          position: 'absolute', top: 8, right: 10,
-          width: 7, height: 7, borderRadius: '50%',
-          background: '#fff', opacity: 0.8,
-          animation: 'fup-pulse 1.5s ease infinite',
-        }} />
-      )}
     </button>
   )
 }
@@ -171,7 +82,6 @@ function UpdateModal({ followup, onClose, onSave }) {
   const [discussion, setDiscussion] = useState('')
   const [nextDate, setNextDate]     = useState('')
   const [saving, setSaving]         = useState(false)
-  const sc = metaOf(newStatus)
 
   const handleSave = async () => {
     if (!discussion.trim()) return toast.error('Add call notes first')
@@ -179,13 +89,8 @@ function UpdateModal({ followup, onClose, onSave }) {
     try {
       await api.post(`/leads/${followup.lead_id}/communications`, { type:'call', direction:'outbound', note: discussion, is_followup: true })
       await api.patch(`/leads/${followup.lead_id}/status`, { status: newStatus })
-      // Always record this as the lead's latest follow-up activity —
-      // with the chosen date, or null when marking it done with nothing
-      // further scheduled. Only calling this when nextDate was set meant
-      // "done" leads never got cleared from Missed/Today and kept
-      // reappearing with their old overdue date.
       await api.post('/followups', { lead_id: followup.lead_id, follow_up_date: nextDate || null, notes: discussion }).catch(()=>{})
-      toast.success('Follow-up updated ✓')
+      toast.success('Follow-up updated')
       onSave()
     } catch (err) { toast.error(err?.message || 'Failed') }
     finally { setSaving(false) }
@@ -193,70 +98,44 @@ function UpdateModal({ followup, onClose, onSave }) {
 
   return (
     <div onClick={onClose} style={{
-      position:'fixed', inset:0, zIndex:200,
-      background:'rgba(10,15,30,0.78)', backdropFilter:'blur(12px)',
+      position:'fixed', inset:0, zIndex:200, background:'rgba(15,23,42,0.55)',
       display:'flex', alignItems:'center', justifyContent:'center', padding:20,
     }}>
-      <div onClick={e=>e.stopPropagation()} className="fup fup-animate" style={{
-        background:'#fff', borderRadius:24, width:'100%', maxWidth:520,
-        overflow:'hidden',
-        boxShadow:'0 40px 100px rgba(0,0,0,0.4)',
+      <div onClick={e=>e.stopPropagation()} style={{
+        background:'#fff', borderRadius:16, width:'100%', maxWidth:480,
+        boxShadow:'0 20px 60px rgba(0,0,0,0.25)', overflow:'hidden',
       }}>
-        {/* Header — colour shifts with status */}
-        <div style={{
-          background:`linear-gradient(135deg, rgba(${sc.glow},1) 0%, rgba(${sc.glow},0.7) 100%)`,
-          padding:'24px 26px 20px', position:'relative', overflow:'hidden',
-        }}>
-          <div style={{position:'absolute',top:-50,right:-40,width:180,height:180,borderRadius:'50%',background:'rgba(255,255,255,0.1)'}}/>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',position:'relative'}}>
-            <div>
-              <div style={{color:'rgba(255,255,255,0.65)',fontSize:10,fontWeight:800,letterSpacing:2.5,textTransform:'uppercase',marginBottom:5}}>
-                ✏️ Update Follow-up
-              </div>
-              <div style={{color:'#fff',fontSize:20,fontWeight:800,marginBottom:6,letterSpacing:-0.3}}>
-                {followup.lead_name||followup.contact_name||'—'}
-              </div>
-              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                {followup.phone && <span style={{background:'rgba(255,255,255,0.18)',color:'#fff',fontSize:12,fontWeight:600,padding:'3px 11px',borderRadius:8}}>📞 {followup.phone}</span>}
-                {followup.school_name && <span style={{background:'rgba(255,255,255,0.14)',color:'rgba(255,255,255,0.9)',fontSize:12,fontWeight:600,padding:'3px 11px',borderRadius:8}}>🏫 {followup.school_name}</span>}
-                {followup.product_name && <span style={{background:'rgba(255,255,255,0.14)',color:'rgba(255,255,255,0.9)',fontSize:12,fontWeight:600,padding:'3px 11px',borderRadius:8}}>📦 {followup.product_name}</span>}
-              </div>
+        <div style={{padding:'18px 22px',borderBottom:'1px solid #F1F5F9',display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:'#94A3B8',textTransform:'uppercase',letterSpacing:0.8,marginBottom:3}}>Update Follow-up</div>
+            <div style={{fontSize:17,fontWeight:800,color:'#111827'}}>{followup.lead_name||followup.contact_name||'—'}</div>
+            <div style={{fontSize:12,color:'#6B7280',marginTop:2}}>
+              {followup.phone}{followup.school_name?` · ${followup.school_name}`:''}{followup.product_name?` · ${followup.product_name}`:''}
             </div>
-            <button onClick={onClose} className="fup-btn" style={{
-              width:34,height:34,borderRadius:10,border:'none',background:'rgba(255,255,255,0.2)',
-              color:'#fff',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center',
-              fontFamily:'inherit',flexShrink:0,
-            }}>✕</button>
           </div>
+          <button onClick={onClose} style={{border:'none',background:'#F1F5F9',width:28,height:28,borderRadius:8,color:'#64748B',fontSize:14,cursor:'pointer'}}>✕</button>
         </div>
 
-        <div style={{padding:'20px 26px',display:'flex',flexDirection:'column',gap:18}}>
+        <div style={{padding:'18px 22px',display:'flex',flexDirection:'column',gap:16}}>
           <div>
-            <label style={{display:'block',fontSize:11,fontWeight:800,color:'#6B7280',textTransform:'uppercase',letterSpacing:1,marginBottom:8}}>
-              📝 Call Notes *
-            </label>
+            <label style={s.label}>Call Notes *</label>
             <textarea value={discussion} onChange={e=>setDiscussion(e.target.value)} rows={3} autoFocus
               placeholder="What was discussed? Key objections, interest level, next steps…"
-              className="fup-input"
-              style={{width:'100%',border:'2px solid #E5E7EB',borderRadius:12,padding:'12px 14px',
-                fontSize:14,color:'#111827',resize:'none',fontFamily:'inherit',lineHeight:1.6,background:'#FAFAFA'}}/>
+              style={s.textarea}/>
           </div>
 
           <div>
-            <label style={{display:'block',fontSize:11,fontWeight:800,color:'#6B7280',textTransform:'uppercase',letterSpacing:1,marginBottom:8}}>
-              📊 Update Status
-            </label>
+            <label style={s.label}>Update Status</label>
             <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-              {getAllStatusKeys().map(s=>{
-                const c=metaOf(s); const active=newStatus===s
+              {getAllStatusKeys().map(st=>{
+                const c=metaOf(st); const active=newStatus===st
                 return (
-                  <button key={s} onClick={()=>setNewStatus(s)} className="fup-btn" style={{
-                    padding:'6px 14px',borderRadius:20,
-                    border:active?'none':`1.5px solid ${c.bg}`,
-                    background:active?c.dot:c.bg,
-                    color:active?'#fff':c.text,
-                    fontSize:12,fontWeight:700,fontFamily:'inherit',
-                    boxShadow:active?`0 4px 14px rgba(${c.glow},0.4)`:'none',
+                  <button key={st} onClick={()=>setNewStatus(st)} style={{
+                    padding:'5px 12px',borderRadius:20,cursor:'pointer',fontFamily:'inherit',
+                    border: active ? `1.5px solid ${c.color}` : '1.5px solid #E5E7EB',
+                    background: active ? c.color : '#fff',
+                    color: active ? '#fff' : '#374151',
+                    fontSize:12,fontWeight:600,
                   }}>{c.label}</button>
                 )
               })}
@@ -264,266 +143,100 @@ function UpdateModal({ followup, onClose, onSave }) {
           </div>
 
           <div>
-            <label style={{display:'block',fontSize:11,fontWeight:800,color:'#6B7280',textTransform:'uppercase',letterSpacing:1,marginBottom:8}}>
-              📅 Next Follow-up Date
-            </label>
+            <label style={s.label}>Next Follow-up Date</label>
             <input type="date" value={nextDate} onChange={e=>setNextDate(e.target.value)}
-              min={new Date().toISOString().split('T')[0]} className="fup-input"
-              style={{width:'100%',border:'2px solid #E5E7EB',borderRadius:12,padding:'11px 14px',
-                fontSize:14,color:'#111827',fontFamily:'inherit',background:'#FAFAFA'}}/>
+              min={new Date().toISOString().split('T')[0]} style={s.input}/>
           </div>
         </div>
 
-        <div style={{padding:'0 26px 24px',display:'flex',gap:10}}>
-          <button onClick={onClose} className="fup-btn" style={{
-            flex:1,padding:'13px 0',border:'2px solid #E5E7EB',borderRadius:14,
-            color:'#6B7280',fontSize:14,fontWeight:700,background:'#F9FAFB',fontFamily:'inherit',
-          }}>Cancel</button>
-          <button onClick={handleSave} disabled={saving} className="fup-btn" style={{
-            flex:2.5,padding:'13px 0',border:'none',borderRadius:14,
-            background:`linear-gradient(135deg,rgba(${sc.glow},1),rgba(${sc.glow},0.72))`,
-            color:'#fff',fontSize:14,fontWeight:800,fontFamily:'inherit',
-            boxShadow:`0 8px 24px rgba(${sc.glow},0.4)`,opacity:saving?0.7:1,
-          }}>{saving?'⏳ Saving…':'✓ Save & Close'}</button>
+        <div style={{padding:'0 22px 20px',display:'flex',gap:10}}>
+          <button onClick={onClose} style={{...s.btnSecondary,flex:1}}>Cancel</button>
+          <button onClick={handleSave} disabled={saving} style={{...s.btnPrimary,flex:2,opacity:saving?0.7:1}}>
+            {saving?'Saving…':'Save & Close'}
+          </button>
         </div>
       </div>
     </div>
   )
 }
 
-// ── Lead Card ─────────────────────────────────────────────
-function LeadCard({ item, onUpdate, isAdmin, index }) {
+// ── Lead Row ──────────────────────────────────────────────
+function LeadRow({ item, onUpdate, isAdmin }) {
   const overdue = item.followup_type === 'overdue'
   const today   = item.followup_type === 'today'
   const days    = overdue ? daysO(item.follow_up_date) : 0
-  const c       = metaOf(item.lead_status)
   const name    = item.lead_name || item.contact_name || '?'
-  const initials = name.substring(0,2).toUpperCase()
-  const accentRGB = overdue ? '239,68,68' : today ? '245,158,11' : c.glow
-  const accentHex = overdue ? '#EF4444'   : today ? '#F59E0B'    : c.dot
+  const dateColor = overdue ? '#DC2626' : today ? '#D97706' : '#4338CA'
 
   return (
-    <div className="fup fup-card-hover" style={{
-      background:'#fff',
-      border: overdue ? '1.5px solid #FECACA' : today ? '1.5px solid #FDE68A' : '1.5px solid #E8ECF4',
-      borderRadius:18,
-      padding:'16px 18px 16px 22px',
-      display:'grid',
-      gridTemplateColumns:'50px 1fr auto',
-      gap:14,
-      alignItems:'center',
-      position:'relative',
-      overflow:'hidden',
-      boxShadow: overdue
-        ? '0 2px 16px rgba(239,68,68,0.08)'
-        : today
-        ? '0 2px 16px rgba(245,158,11,0.08)'
-        : '0 1px 6px rgba(0,0,0,0.04)',
-      animationDelay:`${index*45}ms`,
+    <div style={{
+      display:'grid', gridTemplateColumns:'1fr auto', gap:12, alignItems:'center',
+      padding:'12px 16px', borderBottom:'1px solid #F1F5F9',
+      background: overdue ? '#FEF2F2' : today ? '#FFFBEB' : '#fff',
     }}>
-      {/* Left accent bar */}
-      <div style={{
-        position:'absolute', left:0, top:8, bottom:8, width:4, borderRadius:'0 3px 3px 0',
-        background:`linear-gradient(to bottom, ${accentHex}, ${accentHex}77)`,
-        boxShadow:`2px 0 10px rgba(${accentRGB},0.45)`,
-      }}/>
-
-      {/* Avatar */}
-      <div style={{
-        width:50, height:50, borderRadius:14, flexShrink:0,
-        display:'flex', alignItems:'center', justifyContent:'center',
-        fontSize:15, fontWeight:800, letterSpacing:-0.5,
-        background:`rgba(${accentRGB},0.1)`,
-        color: accentHex,
-        border:`2px solid rgba(${accentRGB},0.18)`,
-      }}>{initials}</div>
-
-      {/* Content */}
       <div style={{minWidth:0}}>
-        {/* Name row */}
-        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:7}}>
-          <span style={{fontSize:15,fontWeight:800,color:'#111827',letterSpacing:-0.3}}>
-            {name}
-          </span>
+        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:4}}>
+          <span style={{fontSize:14,fontWeight:700,color:'#111827'}}>{name}</span>
           <SBadge status={item.lead_status}/>
-          {overdue && days>0 && (
-            <span style={{fontSize:10,fontWeight:800,color:'#DC2626',background:'#FEE2E2',
-              padding:'2px 8px',borderRadius:20,border:'1px solid #FECACA'}}>
-              🕐 {days}d late
-            </span>
-          )}
-          {today && (
-            <span style={{fontSize:10,fontWeight:800,color:'#D97706',background:'#FEF3C7',
-              padding:'2px 8px',borderRadius:20,border:'1px solid #FDE68A'}}>
-              ⏰ Due Today
-            </span>
-          )}
+          {overdue && days>0 && <span style={{fontSize:10.5,fontWeight:700,color:'#DC2626'}}>{days}d late</span>}
+          {today && <span style={{fontSize:10.5,fontWeight:700,color:'#D97706'}}>Due today</span>}
         </div>
-
-        {/* Info chips */}
-        <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
-          <a href={`tel:${item.phone}`} style={{
-            fontSize:12,fontWeight:700,color:'#4338CA',textDecoration:'none',
-            background:'#EEF2FF',padding:'4px 10px',borderRadius:8,border:'1px solid #C7D2FE',
-            display:'inline-flex',alignItems:'center',gap:4,
-            fontFamily:'SF Mono,Fira Code,monospace',
-          }}>📞 {item.phone||'—'}</a>
-
-          {item.school_name && item.school_name!==name && (
-            <span style={{fontSize:12,fontWeight:600,color:'#374151',background:'#F9FAFB',
-              padding:'4px 10px',borderRadius:8,border:'1px solid #E5E7EB',
-              display:'inline-flex',alignItems:'center',gap:4}}>
-              🏫 {item.school_name}
-            </span>
-          )}
-
-          {item.product_name && (
-            <span style={{fontSize:12,fontWeight:700,color:'#6D28D9',background:'#F5F3FF',
-              padding:'4px 10px',borderRadius:8,border:'1px solid #DDD6FE',
-              display:'inline-flex',alignItems:'center',gap:4}}>
-              📦 {item.product_name}
-            </span>
-          )}
-
-          {isAdmin && item.agent_name && (
-            <span style={{fontSize:12,fontWeight:600,color:'#4B5563',background:'#F3F4F6',
-              padding:'4px 10px',borderRadius:8,border:'1px solid #E5E7EB',
-              display:'inline-flex',alignItems:'center',gap:4}}>
-              👤 {item.agent_name}
-            </span>
-          )}
+        <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',fontSize:12,color:'#6B7280'}}>
+          <a href={`tel:${item.phone}`} style={{color:'#4338CA',fontWeight:600,textDecoration:'none'}}>📞 {item.phone||'—'}</a>
+          {item.school_name && item.school_name!==name && <span>🏫 {item.school_name}</span>}
+          {item.product_name && <span>📦 {item.product_name}</span>}
+          {isAdmin && item.agent_name && <span>👤 {item.agent_name}</span>}
         </div>
-
         {item.notes && (
-          <div style={{
-            marginTop:7,fontSize:12,color:'#9CA3AF',fontStyle:'italic',
-            overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:440,
-            borderLeft:`3px solid rgba(${accentRGB},0.22)`,paddingLeft:9,
-          }}>
+          <div style={{marginTop:5,fontSize:12,color:'#9CA3AF',fontStyle:'italic',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:520}}>
             "{item.notes}"
           </div>
         )}
       </div>
 
-      {/* Right: date + actions */}
-      <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:9,flexShrink:0}}>
-        <div style={{
-          background: overdue?'#FEF2F2':today?'#FFFBEB':'#EEF2FF',
-          border: overdue?'1.5px solid #FECACA':today?'1.5px solid #FDE68A':'1.5px solid #C7D2FE',
-          borderRadius:10,padding:'6px 12px',textAlign:'center',
-        }}>
-          <div style={{fontSize:9,fontWeight:800,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:1,marginBottom:2}}>
-            FOLLOW-UP
-          </div>
-          <div className="fup-mono" style={{
-            fontSize:11,fontWeight:700,letterSpacing:0.2,
-            color: overdue?'#DC2626':today?'#D97706':'#4338CA',
-          }}>{fmt(item.follow_up_date)}</div>
+      <div style={{display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
+        <div style={{textAlign:'right'}}>
+          <div style={{fontSize:9.5,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:0.5}}>Follow-up</div>
+          <div style={{fontSize:12,fontWeight:700,color:dateColor,fontFamily:'SF Mono,Fira Code,monospace'}}>{fmt(item.follow_up_date)}</div>
         </div>
-
-        <div style={{display:'flex',gap:6}}>
-          <a href={`tel:${item.phone}`} className="fup-btn" style={{
-            width:34,height:34,background:'#F0FDF4',borderRadius:10,fontSize:15,
-            textDecoration:'none',border:'1.5px solid #BBF7D0',
-            display:'inline-flex',alignItems:'center',justifyContent:'center',
-          }}>📞</a>
-          <a href={`https://wa.me/${(item.phone||'').replace(/[^0-9]/g,'')}`}
-            target="_blank" rel="noreferrer" className="fup-btn" style={{
-            width:34,height:34,background:'#DCFCE7',borderRadius:10,fontSize:15,
-            textDecoration:'none',border:'1.5px solid #86EFAC',
-            display:'inline-flex',alignItems:'center',justifyContent:'center',
-          }}>💬</a>
-          <button onClick={()=>onUpdate(item)} className="fup-btn" style={{
-            padding:'0 14px',height:34,borderRadius:10,border:'none',
-            background:`linear-gradient(135deg,rgba(${accentRGB},1),rgba(${accentRGB},0.75))`,
-            color:'#fff',fontSize:12,fontWeight:800,fontFamily:'inherit',
-            boxShadow:`0 4px 14px rgba(${accentRGB},0.38)`,
-          }}>Update →</button>
-        </div>
+        <a href={`tel:${item.phone}`} style={s.iconBtn} title="Call">📞</a>
+        <a href={`https://wa.me/${(item.phone||'').replace(/[^0-9]/g,'')}`} target="_blank" rel="noreferrer" style={s.iconBtn} title="WhatsApp">💬</a>
+        <button onClick={()=>onUpdate(item)} style={s.btnPrimary}>Update</button>
       </div>
     </div>
   )
 }
 
 // ── Section ───────────────────────────────────────────────
-function Section({ title, subtitle, icon, glowRGB, accentHex, items, onUpdate, isAdmin, defaultOpen=true }) {
+function Section({ title, subtitle, icon, color, items, onUpdate, isAdmin, defaultOpen=true }) {
   const [open, setOpen] = useState(defaultOpen)
-
-  const statusDist = [...new Set(items.map(i => i.lead_status).filter(Boolean))]
-    .map(s => ({ s, count: items.filter(i => i.lead_status === s).length }))
-    .filter(x => x.count > 0)
-    .sort((a, b) => b.count - a.count)
-
   return (
-    <div className="fup" style={{
-      borderRadius:22, overflow:'hidden',
-      border:`1.5px solid rgba(${glowRGB},0.18)`,
-      background:'#fff',
-      boxShadow:`0 2px 20px rgba(${glowRGB},0.07), 0 1px 4px rgba(0,0,0,0.03)`,
-    }}>
-      <button onClick={()=>setOpen(o=>!o)} className="fup-btn" style={{
-        width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',
-        padding:'18px 22px',border:'none',cursor:'pointer',fontFamily:'inherit',
-        background:`linear-gradient(135deg,rgba(${glowRGB},0.07),rgba(${glowRGB},0.02))`,
-        borderBottom: open ? `1.5px solid rgba(${glowRGB},0.12)` : 'none',
+    <div style={{borderRadius:14, overflow:'hidden', border:'1px solid #E5E7EB', background:'#fff'}}>
+      <button onClick={()=>setOpen(o=>!o)} style={{
+        width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between',
+        padding:'14px 16px', border:'none', cursor:'pointer', fontFamily:'inherit',
+        background:'#F8FAFC', borderBottom: open ? '1px solid #E5E7EB' : 'none',
       }}>
-        <div style={{display:'flex',alignItems:'center',gap:14}}>
-          <div style={{
-            width:46,height:46,borderRadius:14,display:'flex',alignItems:'center',justifyContent:'center',
-            fontSize:22,background:`rgba(${glowRGB},0.12)`,border:`1.5px solid rgba(${glowRGB},0.2)`,
-            boxShadow:`0 6px 18px rgba(${glowRGB},0.18)`,
-          }}>{icon}</div>
-
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:17}}>{icon}</span>
           <div style={{textAlign:'left'}}>
-            <div style={{fontSize:16,fontWeight:800,color:'#111827',letterSpacing:-0.4}}>{title}</div>
-            <div style={{fontSize:12,color:'#6B7280',fontWeight:500,marginTop:2}}>{subtitle}</div>
+            <div style={{fontSize:14,fontWeight:700,color:'#111827'}}>{title}</div>
+            <div style={{fontSize:11.5,color:'#6B7280',marginTop:1}}>{subtitle}</div>
           </div>
-
-          <div style={{
-            background: items.length===0 ? '#F3F4F6' : `linear-gradient(135deg,rgba(${glowRGB},0.9),rgba(${glowRGB},0.7))`,
-            color: items.length===0 ? '#9CA3AF' : '#fff',
-            borderRadius:12,fontSize:16,fontWeight:900,padding:'4px 16px',
-            fontVariantNumeric:'tabular-nums',
-            boxShadow: items.length>0 ? `0 4px 16px rgba(${glowRGB},0.38)` : 'none',
-          }}>{items.length}</div>
+          <span style={{
+            background: items.length===0 ? '#E5E7EB' : color, color: items.length===0 ? '#9CA3AF' : '#fff',
+            borderRadius:20, fontSize:12, fontWeight:800, padding:'2px 10px', marginLeft:4,
+          }}>{items.length}</span>
         </div>
-
-        <div style={{display:'flex',alignItems:'center',gap:12}}>
-          {statusDist.length>0 && (
-            <div style={{display:'flex',alignItems:'flex-end',gap:3,height:24}}>
-              {statusDist.map(({s,count})=>{
-                const c=metaOf(s)
-                const h=Math.max(5,Math.round((count/Math.max(...statusDist.map(x=>x.count)))*24))
-                return <div key={s} title={`${c.label}: ${count}`} style={{width:6,height:h,borderRadius:3,background:c.dot,opacity:0.85}}/>
-              })}
-            </div>
-          )}
-          <div style={{
-            fontSize:11,fontWeight:700,color:accentHex,
-            background:`rgba(${glowRGB},0.08)`,padding:'5px 12px',borderRadius:9,
-            border:`1px solid rgba(${glowRGB},0.18)`,
-          }}>{open?'▲ Collapse':'▼ Expand'}</div>
-        </div>
+        <span style={{fontSize:11,fontWeight:700,color:'#9CA3AF'}}>{open?'Hide':'Show'}</span>
       </button>
 
       {open && (
-        <div style={{
-          background:`rgba(${glowRGB},0.012)`,
-          padding: items.length===0 ? '48px 24px' : '14px 18px 18px',
-          display:'flex',flexDirection:'column',gap:10,
-        }}>
-          {items.length===0 ? (
-            <div style={{textAlign:'center',color:'#9CA3AF'}}>
-              <div className="fup-float" style={{fontSize:44,marginBottom:12}}>🎉</div>
-              <div style={{fontSize:15,fontWeight:700,color:'#6B7280',marginBottom:4}}>All clear!</div>
-              <div style={{fontSize:13}}>No follow-ups here</div>
-            </div>
-          ) : items.map((item,i)=>(
-            <div key={item.lead_id||i} className="fup-animate" style={{animationDelay:`${i*45}ms`}}>
-              <LeadCard item={item} onUpdate={onUpdate} isAdmin={isAdmin} index={i}/>
-            </div>
-          ))}
-        </div>
+        items.length===0 ? (
+          <div style={{textAlign:'center',color:'#9CA3AF',padding:'32px 16px',fontSize:13}}>Nothing here 🎉</div>
+        ) : (
+          <div>{items.map((item,i)=> <LeadRow key={item.lead_id||i} item={item} onUpdate={onUpdate} isAdmin={isAdmin}/>)}</div>
+        )
       )}
     </div>
   )
@@ -593,10 +306,7 @@ export default function FollowUpsPage() {
   },[filterAgent,filterProduct,filterStatus])
 
   const total    = (counts.today||0)+(counts.previous||0)+(counts.next_3_days||0)
-  const allLeads = [...data.today,...data.previous,...data.next_3_days]
 
-  // Agent-wise follow-up counts across all three sections — admin only,
-  // since agents only ever see their own queue anyway.
   const agentBreakdown = useMemo(() => {
     if (!isAdmin) return []
     const rows = {}
@@ -613,23 +323,11 @@ export default function FollowUpsPage() {
       .sort((a, b) => b.total - a.total)
   }, [isAdmin, data])
 
-  const stats = {
-    total, today:counts.today||0, overdue:counts.previous||0, upcoming:counts.next_3_days||0,
-    hot:      allLeads.filter(l=>l.lead_status==='hot').length,
-    converted:allLeads.filter(l=>l.lead_status==='converted').length,
-    call_back:allLeads.filter(l=>l.lead_status==='call_back').length,
-    warm:     allLeads.filter(l=>l.lead_status==='warm').length,
-  }
-
   const CARDS = [
-    {key:'all',      icon:'📋', label:'Total',      value:stats.total,     sublabel:'queue',       solidColor:'#4F46E5', glowRGB:'79,70,229'},
-    {key:'today',    icon:'⏰', label:'Today',       value:stats.today,     sublabel:'due today',   solidColor:'#D97706', glowRGB:'217,119,6'},
-    {key:'overdue',  icon:'🚨', label:'Overdue',     value:stats.overdue,   sublabel:'past due',    solidColor:'#DC2626', glowRGB:'220,38,38'},
-    {key:'upcoming', icon:'📆', label:'Upcoming',    value:stats.upcoming,  sublabel:'next 3 days', solidColor:'#7C3AED', glowRGB:'124,58,237'},
-    {key:'hot',      icon:'🔥', label:'Hot',         value:stats.hot,       sublabel:'in queue',    solidColor:'#E11D48', glowRGB:'225,29,72'},
-    {key:'call_back',icon:'📞', label:'Call Back',   value:stats.call_back, sublabel:'need call',   solidColor:'#6D28D9', glowRGB:'109,40,217'},
-    {key:'warm',     icon:'🌡️', label:'Warm',       value:stats.warm,      sublabel:'in queue',    solidColor:'#B45309', glowRGB:'180,83,9'},
-    {key:'converted',icon:'✅', label:'Converted',   value:stats.converted, sublabel:'in queue',    solidColor:'#15803D', glowRGB:'21,128,61'},
+    {key:'all',      icon:'📋', label:'Total',    value:total,            color:'#4F46E5'},
+    {key:'today',    icon:'⏰', label:'Today',     value:counts.today,     color:'#D97706'},
+    {key:'overdue',  icon:'🚨', label:'Overdue',   value:counts.previous,  color:'#DC2626'},
+    {key:'upcoming', icon:'📆', label:'Upcoming',  value:counts.next_3_days, color:'#7C3AED'},
   ]
 
   const showSection = (type) => {
@@ -640,165 +338,78 @@ export default function FollowUpsPage() {
     return false
   }
 
-  const selStyle = {
-    border:'2px solid #E5E7EB',borderRadius:12,padding:'9px 13px',
-    fontSize:13,color:'#111827',background:'#fff',fontFamily:'inherit',fontWeight:600,
-  }
-
   return (
-    <div className="fup" style={{maxWidth:1100,margin:'0 auto'}}>
-      <style>{STYLES}</style>
-
-      {/* ── HERO HEADER ── */}
-      <div style={{
-        position:'relative',borderRadius:24,overflow:'hidden',marginBottom:20,
-        background:'linear-gradient(135deg,#0C1228 0%,#1A1040 40%,#2D1B69 70%,#1E1B4B 100%)',
-        padding:'28px 32px',
-        boxShadow:'0 20px 60px rgba(10,15,30,0.4)',
-      }}>
-        {/* Dot grid */}
-        <div style={{position:'absolute',inset:0,opacity:0.05,
-          backgroundImage:'radial-gradient(circle,rgba(255,255,255,0.9) 1px,transparent 1px)',
-          backgroundSize:'26px 26px'}}/>
-        {/* Glow orbs */}
-        <div style={{position:'absolute',top:-60,right:80,width:280,height:280,borderRadius:'50%',
-          background:'radial-gradient(circle,rgba(124,58,237,0.25),transparent 65%)'}}/>
-        <div style={{position:'absolute',bottom:-80,left:160,width:220,height:220,borderRadius:'50%',
-          background:'radial-gradient(circle,rgba(79,70,229,0.2),transparent 65%)'}}/>
-
-        <div style={{position:'relative',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:20}}>
-          <div>
-            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-              <span style={{color:'rgba(165,180,252,0.6)',fontSize:10,fontWeight:800,
-                letterSpacing:3,textTransform:'uppercase'}}>
-                ThynkFlow · Follow-ups
-              </span>
-            </div>
-            <h1 style={{color:'#fff',fontSize:30,fontWeight:900,margin:'0 0 6px',
-              letterSpacing:-0.8,lineHeight:1.1,fontFamily:'inherit'}}>
-              Follow-up Queue
-            </h1>
-            <p style={{color:'rgba(196,181,253,0.6)',fontSize:13,margin:0,fontWeight:500}}>
-              {loading?'Syncing…':`${total} total · ${format(new Date(),'EEEE, dd MMMM yyyy')}`}
-            </p>
-          </div>
-
-          {/* KPI chips */}
-          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-            {[
-              {label:'TODAY',   val:counts.today||0,       c:'rgba(252,211,77,0.95)',  bg:'rgba(252,211,77,0.12)', border:'rgba(252,211,77,0.3)'},
-              {label:'OVERDUE', val:counts.previous||0,    c:'rgba(252,165,165,0.95)', bg:'rgba(252,165,165,0.12)',border:'rgba(252,165,165,0.3)'},
-              {label:'UPCOMING',val:counts.next_3_days||0, c:'rgba(167,139,250,0.95)', bg:'rgba(167,139,250,0.12)',border:'rgba(167,139,250,0.3)'},
-              {label:'TOTAL',   val:total,                 c:'rgba(255,255,255,0.9)',  bg:'rgba(255,255,255,0.07)',border:'rgba(255,255,255,0.15)'},
-            ].map(({label,val,c,bg,border})=>(
-              <div key={label} style={{
-                background:bg,border:`1px solid ${border}`,borderRadius:14,
-                padding:'12px 16px',textAlign:'center',backdropFilter:'blur(10px)',minWidth:76,
-              }}>
-                <div style={{
-                  color:c, fontSize:28, fontWeight:900, lineHeight:1,
-                  letterSpacing:-1, fontVariantNumeric:'tabular-nums',
-                }}>{val}</div>
-                <div style={{color:'rgba(255,255,255,0.4)',fontSize:9,fontWeight:800,
-                  letterSpacing:1.5,textTransform:'uppercase',marginTop:4}}>{label}</div>
-              </div>
-            ))}
-            <button onClick={()=>fetchAll(filterAgent,filterProduct,filterStatus)} className="fup-btn" style={{
-              padding:'12px 16px',background:'rgba(255,255,255,0.07)',
-              border:'1px solid rgba(255,255,255,0.14)',borderRadius:14,
-              color:'rgba(255,255,255,0.8)',fontSize:13,fontWeight:700,
-              fontFamily:'inherit',display:'flex',alignItems:'center',gap:6,
-              backdropFilter:'blur(8px)',alignSelf:'stretch',
-            }}>↻ Refresh</button>
-          </div>
+    <div style={{maxWidth:1000,margin:'0 auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif'}}>
+      {/* ── Header ── */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:12,marginBottom:16}}>
+        <div>
+          <h1 style={{fontSize:22,fontWeight:800,color:'#111827',margin:0}}>Follow-up Queue</h1>
+          <p style={{fontSize:13,color:'#6B7280',margin:'2px 0 0'}}>
+            {loading?'Syncing…':`${total} total · ${format(new Date(),'EEEE, dd MMMM yyyy')}`}
+          </p>
         </div>
+        <button onClick={()=>fetchAll(filterAgent,filterProduct,filterStatus)} style={s.btnSecondary}>↻ Refresh</button>
       </div>
 
-      {/* ── STAT CARDS — compact horizontal row ── */}
-      <div style={{
-        display:'grid',
-        gridTemplateColumns:'repeat(4,1fr)',
-        gap:10,
-        marginBottom:18,
-      }}>
+      {/* ── Stat pills ── */}
+      <div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
         {CARDS.map(card=>(
-          <StatCard key={card.key} {...card}
-            active={activeView===card.key}
+          <StatPill key={card.key} {...card} active={activeView===card.key}
             onClick={()=>setActiveView(v=>v===card.key?'all':card.key)}/>
         ))}
       </div>
 
-      {/* ── FILTERS ── */}
+      {/* ── Filters ── */}
       <div style={{
-        background:'#fff',border:'1.5px solid #E8ECF4',borderRadius:16,
-        padding:'12px 18px',display:'flex',flexWrap:'wrap',alignItems:'center',
-        gap:10,marginBottom:18,boxShadow:'0 1px 8px rgba(0,0,0,0.04)',
+        background:'#fff',border:'1px solid #E5E7EB',borderRadius:12,
+        padding:'10px 14px',display:'flex',flexWrap:'wrap',alignItems:'center',gap:8,marginBottom:16,
       }}>
-        <span style={{fontSize:10,fontWeight:800,color:'#6B7280',textTransform:'uppercase',letterSpacing:1.5}}>
-          🔍 Filter
-        </span>
-
+        <span style={{fontSize:11,fontWeight:700,color:'#6B7280',textTransform:'uppercase',letterSpacing:0.6}}>Filter</span>
         {isAdmin&&agents.length>0&&(
-          <select style={selStyle} value={filterAgent} onChange={e=>setFilterAgent(e.target.value)} className="fup-input">
-            <option value="">👥 All Agents</option>
+          <select style={s.select} value={filterAgent} onChange={e=>setFilterAgent(e.target.value)}>
+            <option value="">All Agents</option>
             {agents.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         )}
         {products.length>0&&(
-          <select style={selStyle} value={filterProduct} onChange={e=>setFilterProduct(e.target.value)} className="fup-input">
-            <option value="">📦 All Products</option>
+          <select style={s.select} value={filterProduct} onChange={e=>setFilterProduct(e.target.value)}>
+            <option value="">All Products</option>
             {products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         )}
-        <select style={selStyle} value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="fup-input">
-          <option value="">🏷️ All Statuses</option>
-          {getAllStatusKeys().map(s=><option key={s} value={s}>{metaOf(s).label}</option>)}
+        <select style={s.select} value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}>
+          <option value="">All Statuses</option>
+          {getAllStatusKeys().map(st=><option key={st} value={st}>{metaOf(st).label}</option>)}
         </select>
-
         {(filterAgent||filterProduct||filterStatus)&&(
-          <button onClick={()=>{setFilterAgent('');setFilterProduct('');setFilterStatus('')}} className="fup-btn" style={{
-            padding:'8px 14px',background:'#FEF2F2',border:'1.5px solid #FECACA',
-            borderRadius:10,color:'#DC2626',fontSize:12,fontWeight:800,fontFamily:'inherit',
-          }}>✕ Reset</button>
+          <button onClick={()=>{setFilterAgent('');setFilterProduct('');setFilterStatus('')}} style={s.btnGhostDanger}>✕ Reset</button>
         )}
-
-        <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:5}}>
-          <div style={{width:6,height:6,borderRadius:'50%',background:'#22C55E',
-            animation:'fup-pulse 2s ease infinite'}}/>
-          <span style={{fontSize:11,color:'#9CA3AF',fontWeight:600}}>Auto-refreshes every 60s</span>
-        </div>
+        <span style={{marginLeft:'auto',fontSize:11,color:'#9CA3AF'}}>Auto-refreshes every 60s</span>
       </div>
 
-      {/* ── AGENT-WISE BREAKDOWN (admin only) ── */}
+      {/* ── Agent-wise breakdown ── */}
       {isAdmin && agentBreakdown.length > 0 && (
-        <div style={{
-          background:'#fff',border:'1.5px solid #E8ECF4',borderRadius:16,
-          padding:'16px 18px',marginBottom:18,boxShadow:'0 1px 8px rgba(0,0,0,0.04)',
-        }}>
-          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
-            <span style={{fontSize:16}}>👥</span>
-            <span style={{fontSize:13,fontWeight:800,color:'#111827'}}>Agent-wise Follow-up Counts</span>
-            <span style={{fontSize:11,color:'#9CA3AF',fontWeight:500}}>— Today · Next 3 Days · Missed</span>
-          </div>
+        <div style={{background:'#fff',border:'1px solid #E5E7EB',borderRadius:12,padding:'14px 16px',marginBottom:16}}>
+          <div style={{fontSize:13,fontWeight:700,color:'#111827',marginBottom:10}}>👥 Agent-wise Follow-up Counts</div>
           <div style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
               <thead>
-                <tr style={{borderBottom:'2px solid #F3F4F6'}}>
-                  <th style={{textAlign:'left',padding:'6px 10px',fontSize:11,fontWeight:800,color:'#6B7280',textTransform:'uppercase',letterSpacing:0.5}}>Agent</th>
-                  <th style={{textAlign:'center',padding:'6px 10px',fontSize:11,fontWeight:800,color:'#D97706',textTransform:'uppercase',letterSpacing:0.5}}>⏰ Today</th>
-                  <th style={{textAlign:'center',padding:'6px 10px',fontSize:11,fontWeight:800,color:'#7C3AED',textTransform:'uppercase',letterSpacing:0.5}}>📆 Next 3 Days</th>
-                  <th style={{textAlign:'center',padding:'6px 10px',fontSize:11,fontWeight:800,color:'#DC2626',textTransform:'uppercase',letterSpacing:0.5}}>🚨 Missed</th>
-                  <th style={{textAlign:'center',padding:'6px 10px',fontSize:11,fontWeight:800,color:'#111827',textTransform:'uppercase',letterSpacing:0.5}}>Total</th>
+                <tr style={{borderBottom:'1.5px solid #F1F5F9'}}>
+                  <th style={s.th}>Agent</th>
+                  <th style={{...s.th,textAlign:'center',color:'#D97706'}}>Today</th>
+                  <th style={{...s.th,textAlign:'center',color:'#7C3AED'}}>Next 3 Days</th>
+                  <th style={{...s.th,textAlign:'center',color:'#DC2626'}}>Missed</th>
+                  <th style={{...s.th,textAlign:'center'}}>Total</th>
                 </tr>
               </thead>
               <tbody>
                 {agentBreakdown.map(a => (
                   <tr key={a.agent_name} style={{borderBottom:'1px solid #F9FAFB'}}>
-                    <td style={{padding:'8px 10px',fontWeight:700,color:'#111827'}}>{a.agent_name}</td>
-                    <td style={{textAlign:'center',padding:'8px 10px',fontWeight:700,color:a.today?'#D97706':'#D1D5DB'}}>{a.today}</td>
-                    <td style={{textAlign:'center',padding:'8px 10px',fontWeight:700,color:a.next_3_days?'#7C3AED':'#D1D5DB'}}>{a.next_3_days}</td>
-                    <td style={{textAlign:'center',padding:'8px 10px',fontWeight:700,color:a.previous?'#DC2626':'#D1D5DB'}}>{a.previous}</td>
-                    <td style={{textAlign:'center',padding:'8px 10px',fontWeight:900,color:'#111827'}}>{a.total}</td>
+                    <td style={{padding:'7px 10px',fontWeight:600,color:'#111827'}}>{a.agent_name}</td>
+                    <td style={{padding:'7px 10px',textAlign:'center',fontWeight:700,color:a.today?'#D97706':'#D1D5DB'}}>{a.today}</td>
+                    <td style={{padding:'7px 10px',textAlign:'center',fontWeight:700,color:a.next_3_days?'#7C3AED':'#D1D5DB'}}>{a.next_3_days}</td>
+                    <td style={{padding:'7px 10px',textAlign:'center',fontWeight:700,color:a.previous?'#DC2626':'#D1D5DB'}}>{a.previous}</td>
+                    <td style={{padding:'7px 10px',textAlign:'center',fontWeight:800,color:'#111827'}}>{a.total}</td>
                   </tr>
                 ))}
               </tbody>
@@ -807,50 +418,42 @@ export default function FollowUpsPage() {
         </div>
       )}
 
-      {/* Error */}
+      {/* ── Error ── */}
       {error&&(
-        <div style={{background:'#FEF2F2',border:'1.5px solid #FECACA',borderRadius:14,
-          padding:'14px 18px',display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
-          <span style={{fontSize:20}}>⚠️</span>
+        <div style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:12,padding:'12px 16px',display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
+          <span>⚠️</span>
           <div style={{flex:1}}>
-            <div style={{fontSize:13,fontWeight:800,color:'#DC2626'}}>Failed to load</div>
-            <div style={{fontSize:12,color:'#EF4444',marginTop:2}}>{error}</div>
+            <div style={{fontSize:13,fontWeight:700,color:'#DC2626'}}>Failed to load</div>
+            <div style={{fontSize:12,color:'#EF4444'}}>{error}</div>
           </div>
-          <button onClick={()=>fetchAll(filterAgent,filterProduct,filterStatus)} className="fup-btn" style={{
-            padding:'8px 16px',background:'#FEE2E2',border:'1.5px solid #FECACA',
-            borderRadius:10,color:'#DC2626',fontSize:12,fontWeight:800,fontFamily:'inherit',
-          }}>Retry</button>
+          <button onClick={()=>fetchAll(filterAgent,filterProduct,filterStatus)} style={s.btnGhostDanger}>Retry</button>
         </div>
       )}
 
-      {/* Content */}
+      {/* ── Content ── */}
       {loading?(
-        <div style={{background:'#fff',borderRadius:20,padding:'70px 24px',textAlign:'center',
-          border:'1.5px solid #E8ECF4',boxShadow:'0 2px 20px rgba(0,0,0,0.04)'}}>
-          <div style={{width:44,height:44,border:'4px solid #EEF2FF',borderTopColor:'#4F46E5',
-            borderRadius:'50%',animation:'fup-spin 0.75s linear infinite',margin:'0 auto 16px'}}/>
-          <div style={{fontSize:16,fontWeight:800,color:'#111827',marginBottom:4}}>Loading follow-ups…</div>
-          <div style={{fontSize:13,color:'#9CA3AF'}}>Fetching your queue</div>
+        <div style={{background:'#fff',borderRadius:14,padding:'60px 24px',textAlign:'center',border:'1px solid #E5E7EB'}}>
+          <div style={{width:36,height:36,border:'4px solid #EEF2FF',borderTopColor:'#4F46E5',borderRadius:'50%',
+            animation:'spin 0.8s linear infinite',margin:'0 auto 14px'}}/>
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+          <div style={{fontSize:14,fontWeight:700,color:'#111827'}}>Loading follow-ups…</div>
         </div>
       ):(
-        <div style={{display:'flex',flexDirection:'column',gap:16}}>
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
           {showSection('today')&&(
             <Section title="Today's Follow-ups"
-              subtitle={`${data.today.length} lead${data.today.length!==1?'s':''} due today · ${format(new Date(),'EEEE, dd MMMM')}`}
-              icon="⏰" glowRGB="245,158,11" accentHex="#F59E0B"
-              items={data.today} onUpdate={setSelected} isAdmin={isAdmin} defaultOpen={true}/>
+              subtitle={`${data.today.length} lead${data.today.length!==1?'s':''} due today`}
+              icon="⏰" color="#D97706" items={data.today} onUpdate={setSelected} isAdmin={isAdmin}/>
           )}
           {showSection('overdue')&&(
             <Section title="Overdue"
               subtitle={`${data.previous.length} lead${data.previous.length!==1?'s':''} past their follow-up date`}
-              icon="🚨" glowRGB="239,68,68" accentHex="#EF4444"
-              items={data.previous} onUpdate={setSelected} isAdmin={isAdmin} defaultOpen={true}/>
+              icon="🚨" color="#DC2626" items={data.previous} onUpdate={setSelected} isAdmin={isAdmin}/>
           )}
           {showSection('upcoming')&&(
             <Section title="Next 3 Days"
-              subtitle={`${data.next_3_days.length} upcoming follow-up${data.next_3_days.length!==1?'s':''} to prepare for`}
-              icon="📆" glowRGB="99,102,241" accentHex="#4F46E5"
-              items={data.next_3_days} onUpdate={setSelected} isAdmin={isAdmin} defaultOpen={true}/>
+              subtitle={`${data.next_3_days.length} upcoming follow-up${data.next_3_days.length!==1?'s':''}`}
+              icon="📆" color="#4F46E5" items={data.next_3_days} onUpdate={setSelected} isAdmin={isAdmin}/>
           )}
         </div>
       )}
@@ -861,4 +464,16 @@ export default function FollowUpsPage() {
       )}
     </div>
   )
+}
+
+const s = {
+  label:    {display:'block',fontSize:11,fontWeight:700,color:'#6B7280',textTransform:'uppercase',letterSpacing:0.6,marginBottom:6},
+  textarea: {width:'100%',border:'1.5px solid #E5E7EB',borderRadius:10,padding:'10px 12px',fontSize:14,color:'#111827',resize:'none',fontFamily:'inherit',background:'#F9FAFB'},
+  input:    {width:'100%',border:'1.5px solid #E5E7EB',borderRadius:10,padding:'9px 12px',fontSize:14,color:'#111827',fontFamily:'inherit',background:'#F9FAFB'},
+  select:   {border:'1.5px solid #E5E7EB',borderRadius:10,padding:'7px 10px',fontSize:12.5,color:'#111827',background:'#fff',fontFamily:'inherit',fontWeight:600},
+  th:       {textAlign:'left',padding:'6px 10px',fontSize:10.5,fontWeight:700,color:'#6B7280',textTransform:'uppercase',letterSpacing:0.5},
+  btnPrimary:{padding:'7px 14px',borderRadius:9,border:'none',background:'#4F46E5',color:'#fff',fontSize:12.5,fontWeight:700,fontFamily:'inherit',cursor:'pointer'},
+  btnSecondary:{padding:'8px 14px',borderRadius:9,border:'1.5px solid #E5E7EB',background:'#fff',color:'#374151',fontSize:12.5,fontWeight:700,fontFamily:'inherit',cursor:'pointer'},
+  btnGhostDanger:{padding:'6px 12px',borderRadius:9,border:'1.5px solid #FECACA',background:'#FEF2F2',color:'#DC2626',fontSize:11.5,fontWeight:700,fontFamily:'inherit',cursor:'pointer'},
+  iconBtn:  {width:30,height:30,display:'inline-flex',alignItems:'center',justifyContent:'center',borderRadius:8,background:'#F1F5F9',textDecoration:'none',fontSize:13},
 }

@@ -3,7 +3,7 @@ import React, { useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
-export default function CalendarPicker({ value, onChange, onClose }) {
+export default function CalendarPicker({ value, onChange, onClose, allowPast = false }) {
   const today = new Date()
   const [viewDate, setViewDate] = useState(value ? new Date(value + 'T00:00:00') : new Date())
   const year  = viewDate.getFullYear()
@@ -29,7 +29,7 @@ export default function CalendarPicker({ value, onChange, onClose }) {
   const selectDay = (day) => {
     const d = new Date(year, month, day)
     const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-    if (d < todayMidnight) return // no past dates
+    if (!allowPast && d < todayMidnight) return // no past dates (e.g. scheduling a follow-up)
     const iso = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`
     onChange(iso)
     onClose()
@@ -56,7 +56,7 @@ export default function CalendarPicker({ value, onChange, onClose }) {
           if (!day) return <View key={`e${i}`} style={s.cell} />
           const thisStr  = new Date(year, month, day).toDateString()
           const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-          const isPast   = new Date(year, month, day) < todayMid
+          const isPast   = !allowPast && new Date(year, month, day) < todayMid
           const isSel    = thisStr === selStr
           const isToday  = thisStr === todayStr
           return (
