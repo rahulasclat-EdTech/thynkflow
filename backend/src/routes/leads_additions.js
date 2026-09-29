@@ -64,6 +64,34 @@ router.post('/cleanup-duplicate-calls', auth, adminOnly, async (req, res) => {
   }
 });
 
+// POST /api/leads/backfill-followup-flags  — ADMIN ONLY, one-time fix
+// Re-tags historic 'call' communication_logs as follow-up calls when, at
+// the moment of the call, the lead's most recent call_logs entry had a
+// next_followup_date on/before that day. Add ?dry=true to only count.
+router.post('/backfill-followup-flags', auth, adminOnly, async (req, res) => {
+  try {
+    const dry = req.query.dry === 'true';
+    const candidate = `
+      c.type = 'call' AND COALESCE(c.is_followup, false) = false AND EXISTS (
+        SELECT 1 FROM (
+          SELECT cl.next_followup_date FROM call_logs cl
+           WHERE cl.lead_id = c.lead_id AND cl.called_at < c.created_at
+           ORDER BY cl.called_at DESC, cl.id DESC LIMIT 1
+        ) prev
+        WHERE prev.next_followup_date IS NOT NULL
+          AND prev.next_followup_date <= (c.created_at AT TIME ZONE 'Asia/Kolkata')::date
+      )`;
+    if (dry) {
+      const { rows: [r] } = await db.query(`SELECT COUNT(*)::int AS n FROM communication_logs c WHERE ${candidate}`);
+      return res.json({ success: true, dry: true, would_update: r.n });
+    }
+    const { rows } = await db.query(`UPDATE communication_logs c SET is_followup = true WHERE ${candidate} RETURNING c.id`);
+    res.json({ success: true, updated: rows.length, message: `Tagged ${rows.length} past call(s) as follow-up calls` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // PATCH /api/leads/:id/product  — assign or update product on a lead
 router.patch('/:id/product', auth, async (req, res) => {
   try {
@@ -120,6 +148,29 @@ router.post('/:id/communications', auth, async (req, res) => {
       return res.status(400).json({ success: false, message: 'type must be call, whatsapp, or email' });
     }
 
+    // ── Follow-up detection (server-side) ─────────────────────────
+    // A call counts as a FOLLOW-UP call when the lead has a follow-up
+    // that is due (today) or overdue at the moment the call is logged —
+    // no matter which screen the agent used (Follow-ups tab, Leads list
+    // "Call", Post-Call "Update", lead detail…). Previously only the two
+    // Follow-ups screens sent is_followup:true, so any follow-up done
+    // via the normal Call/Update flow was never counted in Daily Calls.
+    let followupFlag = !!is_followup;
+    if (type === 'call' && !followupFlag) {
+      try {
+        const { rows: due } = await db.query(
+          `SELECT 1 FROM (
+             SELECT next_followup_date FROM call_logs
+              WHERE lead_id = $1 ORDER BY id DESC LIMIT 1
+           ) latest
+           WHERE latest.next_followup_date IS NOT NULL
+             AND latest.next_followup_date <= (NOW() AT TIME ZONE 'Asia/Kolkata')::date`,
+          [req.params.id]
+        );
+        followupFlag = due.length > 0;
+      } catch (e) { console.error('follow-up detection error:', e.message); }
+    }
+
     if (type === 'call') {
       const { rows: existing } = await db.query(
         `SELECT id, is_followup FROM communication_logs
@@ -133,7 +184,7 @@ router.post('/:id/communications', auth, async (req, res) => {
         // tag even if a later (non-follow-up) call that same day updates
         // this row — otherwise the follow-up count silently loses entries
         // whenever an agent also dials the same lead ad-hoc that day.
-        const keepFollowupTag = existing[0].is_followup || !!is_followup;
+        const keepFollowupTag = existing[0].is_followup || followupFlag;
         const { rows } = await db.query(
           `UPDATE communication_logs
               SET agent_id = $1, direction = $2, note = $3,
@@ -151,7 +202,7 @@ router.post('/:id/communications', auth, async (req, res) => {
       `INSERT INTO communication_logs (lead_id, agent_id, type, direction, note, duration_sec, is_followup)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [req.params.id, req.user.id, type, direction || 'outbound', note || '', duration_sec || null, !!is_followup]
+      [req.params.id, req.user.id, type, direction || 'outbound', note || '', duration_sec || null, followupFlag]
     );
     res.status(201).json({ success: true, data: rows[0] });
   } catch (err) {
@@ -248,11 +299,27 @@ router.post('/bulk', auth, async (req, res) => {
     `
     const { rows } = await db.query(sql, params)
 
+    // How many of the just-imported leads share a phone with another lead
+    // (an existing one, or another row in this same import)?
+    let duplicates = 0
+    try {
+      const { rows: [d] } = await db.query(
+        `SELECT COUNT(*)::int AS n FROM leads l
+          WHERE l.id = ANY($1::uuid[])
+            AND LENGTH(RIGHT(REGEXP_REPLACE(COALESCE(l.phone,''), '\\D', '', 'g'), 10)) >= 7
+            AND EXISTS (SELECT 1 FROM leads d WHERE d.id <> l.id
+                 AND RIGHT(REGEXP_REPLACE(COALESCE(d.phone,''), '\\D', '', 'g'), 10)
+                   = RIGHT(REGEXP_REPLACE(COALESCE(l.phone,''), '\\D', '', 'g'), 10))`,
+        [rows.map(r => r.id)])
+      duplicates = d.n
+    } catch (e) { /* non-critical */ }
+
     res.json({
       success: true,
       created: rows.length,
       submitted: valid.length,
       skipped: leads.length - valid.length,
+      duplicates,
     })
   } catch (err) {
     console.error('Bulk import error:', err.message)

@@ -87,6 +87,14 @@ router.get('/', auth, async (req, res) => {
       i++
     }
 
+    // Duplicate detection: same phone (last 10 digits) as another lead.
+    // `?duplicates=true` lists only leads that have at least one twin.
+    const NORM_L = `RIGHT(REGEXP_REPLACE(COALESCE(l.phone,''), '\\D', '', 'g'), 10)`
+    const NORM_D = `RIGHT(REGEXP_REPLACE(COALESCE(d.phone,''), '\\D', '', 'g'), 10)`
+    const DUP_EXISTS = `(LENGTH(${NORM_L}) >= 7 AND EXISTS (SELECT 1 FROM leads d WHERE d.id <> l.id AND ${NORM_D} = ${NORM_L}))`
+    const dupOnly = req.query.duplicates === 'true'
+    if (dupOnly) where.push(DUP_EXISTS)
+
     const whereStr = where.length ? 'WHERE ' + where.join(' AND ') : ''
 
     // Get total count
@@ -102,6 +110,8 @@ router.get('/', auth, async (req, res) => {
         l.*,
         u.name  AS agent_name,
         p.name  AS product_name,
+        ${DUP_EXISTS} AS is_duplicate,
+        (SELECT COUNT(*)::int FROM leads d WHERE d.id <> l.id AND LENGTH(${NORM_L}) >= 7 AND ${NORM_D} = ${NORM_L}) AS duplicate_count,
         (SELECT cl.status      FROM call_logs cl WHERE cl.lead_id = l.id ORDER BY cl.called_at DESC LIMIT 1) AS last_status,
         (SELECT cl.discussion  FROM call_logs cl WHERE cl.lead_id = l.id ORDER BY cl.called_at DESC LIMIT 1) AS last_remark,
         (SELECT cl.next_followup_date FROM call_logs cl WHERE cl.lead_id = l.id ORDER BY cl.called_at DESC LIMIT 1) AS next_followup_date,
@@ -128,7 +138,7 @@ router.get('/', auth, async (req, res) => {
       LEFT JOIN users    u ON l.assigned_to  = u.id
       LEFT JOIN products p ON l.product_id   = p.id
       ${whereStr}
-      ORDER BY l.created_at DESC
+      ORDER BY ${dupOnly ? `${NORM_L}, l.created_at ASC` : 'l.created_at DESC'}
       LIMIT $${i++} OFFSET $${i++}
     `, [...params, per_page, offset])
 
@@ -206,6 +216,19 @@ router.post('/', auth, async (req, res) => {
       ]
     )
     const newLead = rows[0]
+    // Non-blocking duplicate warning: other leads with the same phone.
+    let duplicates = []
+    try {
+      const digits = String(newLead.phone || '').replace(/\D/g, '').slice(-10)
+      if (digits.length >= 7) {
+        const { rows: dups } = await db.query(
+          `SELECT l.id, l.contact_name, l.school_name, l.phone, l.status, u.name AS agent_name
+             FROM leads l LEFT JOIN users u ON u.id = l.assigned_to
+            WHERE l.id <> $1 AND RIGHT(REGEXP_REPLACE(COALESCE(l.phone,''), '\\D', '', 'g'), 10) = $2
+            ORDER BY l.created_at ASC LIMIT 5`, [newLead.id, digits])
+        duplicates = dups
+      }
+    } catch (e) { /* never fail a create because of the duplicate check */ }
     // Notify assigned agent
     if (newLead.assigned_to && newLead.assigned_to !== req.user.id) {
       const leadName = (contact_name || name || school_name || 'New Lead').trim()
@@ -213,7 +236,7 @@ router.post('/', auth, async (req, res) => {
         `Lead "${leadName}" has been assigned to you`, newLead.id)
       notifyLeadAssignedEmail([newLead.id], newLead.assigned_to) // fire-and-forget email reminder
     }
-    res.status(201).json({ success: true, data: newLead })
+    res.status(201).json({ success: true, data: newLead, duplicates })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
   }

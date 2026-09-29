@@ -203,11 +203,16 @@ router.get('/activity-score', auth, async (req, res) => {
             AND (cl.created_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS calls_today,
+        -- Follow-up calls made today = today's calls tagged is_followup
+        -- (same source as the Daily Calls report). The old version counted
+        -- call_logs rows whose NEXT follow-up date was today, i.e. follow-ups
+        -- *scheduled* for today, not calls actually made.
         (SELECT COUNT(DISTINCT cl2.lead_id)
-          FROM call_logs cl2
-          WHERE cl2.user_id = u.id
-            AND cl2.next_followup_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
-            AND (cl2.called_at AT TIME ZONE 'Asia/Kolkata')::date
+          FROM communication_logs cl2
+          WHERE cl2.agent_id = u.id
+            AND cl2.type = 'call'
+            AND cl2.is_followup = true
+            AND (cl2.created_at AT TIME ZONE 'Asia/Kolkata')::date
                 = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ) AS followups_done_today,
         (SELECT COUNT(*) FROM leads l

@@ -5,6 +5,7 @@ const path = require('path');
 const authRoutes        = require('./routes/auth');
 const userRoutes        = require('./routes/users');
 const leadRoutes        = require('./routes/leads');
+const leadManageRoutes  = require('./routes/leads_manage');
 const leadAddRoutes     = require('./routes/leads_additions');
 const followupRoutes    = require('./routes/followups');
 const reportRoutes      = require('./routes/reports');
@@ -34,6 +35,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 app.use('/api/auth',        authRoutes);
 app.use('/api/users',       userRoutes);
+app.use('/api/leads',       leadManageRoutes);   // delete / restore / duplicates — must be first
 app.use('/api/leads',       leadAddRoutes);
 app.use('/api/leads',       leadRoutes);
 app.use('/api/followups',   followupRoutes);
