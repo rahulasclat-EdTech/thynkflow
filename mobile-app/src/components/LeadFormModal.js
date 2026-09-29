@@ -80,6 +80,7 @@ export default function LeadFormModal({
   }, [visible, editLead?.id])
 
   const handleSave = async () => {
+    let dupInfo = null
     if (!form.name.trim()) return Alert.alert('Required','Enter lead name')
     if (!form.phone.trim()) return Alert.alert('Required','Enter phone number')
     setSaving(true)
@@ -115,12 +116,20 @@ export default function LeadFormModal({
           product_id:form.product_id||null, admin_remark:form.notes||null,
           assigned_to:form.assigned_to||null,
         })
+        dupInfo = res?.duplicates || null
         if (form.follow_up_date) {
           const lead = res.data?.data || res.data
           if (lead?.id) await api.post('/followups',{lead_id:lead.id,follow_up_date:form.follow_up_date,notes:form.notes||''}).catch(()=>{})
         }
       }
       setForm(empty); onSave(); onClose()
+      // Non-blocking duplicate warning (same phone number already on another lead)
+      const dups = !isEdit && dupInfo
+      if (dups && dups.length) {
+        const d = dups[0]
+        Alert.alert('⚠️ Duplicate phone number',
+          `This number already exists on “${d.contact_name || d.school_name || 'another lead'}”${d.agent_name ? ` (${d.agent_name})` : ''}${dups.length > 1 ? ` and ${dups.length - 1} more` : ''}.\n\nThe lead was saved — open Leads → Duplicates to review.`)
+      }
     } catch(err) { Alert.alert('Error', err.message || `Failed to ${isEdit ? 'update' : 'create'} lead`) }
     finally { setSaving(false) }
   }

@@ -69,6 +69,8 @@ export default function LeadsScreen({ navigation }) {
   const [filterStatus, setFilterStatus] = useState('')
   const [filterProduct, setFilterProduct] = useState('')
   const [filterAgent, setFilterAgent] = useState('')
+  const [filterDuplicates, setFilterDuplicates] = useState(false)
+  const isAdminUser = user?.role_id === 1 || user?.role_name === 'admin'
   const [page, setPage]               = useState(1)
   const [hasMore, setHasMore]         = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -99,7 +101,8 @@ export default function LeadsScreen({ navigation }) {
       const params = new URLSearchParams({ page: pageNum, per_page: PER_PAGE,
         ...(search && { search }), ...(filterStatus && { status: filterStatus }),
         ...(filterProduct && { product_id: filterProduct }),
-        ...(filterAgent && { assigned_to: filterAgent }) })
+        ...(filterAgent && { assigned_to: filterAgent }),
+        ...(filterDuplicates && { duplicates: 'true' }) })
       const res = await api.get(`/leads?${params}`)
       // NOTE: api client's interceptor already unwraps res.data, so `res`
       // here IS the {success, data, total, page, per_page} body — `total`
@@ -114,7 +117,7 @@ export default function LeadsScreen({ navigation }) {
       setHasMore(pageNum * PER_PAGE < total)
     } catch (e) { console.log(e.message) }
     finally { setLoading(false); setLoadingMore(false); setRefreshing(false) }
-  }, [search, filterStatus, filterProduct, filterAgent])
+  }, [search, filterStatus, filterProduct, filterAgent, filterDuplicates])
 
   useEffect(() => { setPage(1); fetchLeads(1) }, [fetchLeads])
 
@@ -129,6 +132,24 @@ export default function LeadsScreen({ navigation }) {
       if (sts.length) { applyMobStatusColors(sts); ALL_STATUSES = sts.map(s2 => typeof s2==='string'?s2:s2.key) }
     }).catch(() => {})
   }, [])
+
+  // Delete → moves the lead (+ its history) to the Deleted Leads register.
+  // It disappears from Leads, Dashboard and all reports; admins can restore it.
+  const canDeleteLead = (lead) => isAdminUser || (!!lead.assigned_to && lead.assigned_to === user?.id)
+  const handleDelete = (lead) => {
+    const label = lead.name || lead.contact_name || lead.school_name || lead.phone
+    Alert.alert('Delete lead',
+      `Delete “${label}”?\n\nIt will be removed from Leads, Dashboard and Reports and kept in Deleted Leads${isAdminUser ? ' (you can restore it later)' : ''}.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: async () => {
+          try {
+            await api.delete(`/leads/${lead.id}`)
+            setLeads(prev => prev.filter(l => l.id !== lead.id))
+          } catch (e) { Alert.alert('Error', e.message || 'Could not delete lead') }
+        } },
+      ])
+  }
 
   const handleCall = (lead) => {
     const phone = (lead.phone || '').replace(/\s+/g, '')
@@ -159,6 +180,11 @@ export default function LeadsScreen({ navigation }) {
                 <View style={{flexDirection:'row',alignItems:'center',gap:2,backgroundColor:nameColor+'1A',paddingHorizontal:5,paddingVertical:1,borderRadius:8}}>
                   <Ionicons name="pulse-outline" size={10} color={nameColor} />
                   <Text style={{fontSize:10,fontWeight:'700',color:nameColor}}>{item.activity_count}</Text>
+                </View>
+              )}
+              {item.is_duplicate && (
+                <View style={{paddingHorizontal:6,paddingVertical:1,borderRadius:8,backgroundColor:'#FFEDD5',borderWidth:1,borderColor:'#FDBA74'}}>
+                  <Text style={{fontSize:9,fontWeight:'800',color:'#C2410C'}}>DUPLICATE</Text>
                 </View>
               )}
               {item.lead_type && (
@@ -229,6 +255,11 @@ export default function LeadsScreen({ navigation }) {
             onPress={() => setEditingLead(item)}>
             <Ionicons name="pencil" size={14} color="#B45309" /><Text style={[s.aTxt,{color:'#B45309'}]}>Edit</Text>
           </TouchableOpacity>
+          {canDeleteLead(item) && (
+            <TouchableOpacity style={[s.aBtn, { backgroundColor:'#FEE2E2', flex:0.7 }]} onPress={() => handleDelete(item)}>
+              <Ionicons name="trash-outline" size={14} color="#DC2626" /><Text style={[s.aTxt,{color:'#DC2626'}]}>Delete</Text>
+            </TouchableOpacity>
+          )}
         </View>
         <View style={s.updatedFooter}>
           <Ionicons name="time-outline" size={11} color="#9CA3AF" />
@@ -244,9 +275,17 @@ export default function LeadsScreen({ navigation }) {
     <View style={s.container}>
       <View style={s.header}>
         <Text style={s.title}>Leads</Text>
+        <View style={{flexDirection:'row',alignItems:'center',gap:8}}>
+          <TouchableOpacity style={s.hIconBtn} onPress={() => navigation.navigate('Duplicates')}>
+            <Ionicons name="copy-outline" size={18} color="#C2410C" />
+          </TouchableOpacity>
+          <TouchableOpacity style={s.hIconBtn} onPress={() => navigation.navigate('DeletedLeads')}>
+            <Ionicons name="trash-outline" size={18} color="#475569" />
+          </TouchableOpacity>
         <TouchableOpacity style={s.addBtn} onPress={() => setShowCreate(true)}>
           <Ionicons name="add" size={24} color="#fff" />
         </TouchableOpacity>
+        </View>
       </View>
 
       <View style={{ backgroundColor:'#fff', paddingHorizontal:12, paddingVertical:8 }}>
@@ -273,6 +312,10 @@ export default function LeadsScreen({ navigation }) {
         )}
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
           contentContainerStyle={{paddingHorizontal:12,paddingTop:6,paddingBottom:4,flexDirection:'row',alignItems:'center'}}>
+          <TouchableOpacity onPress={()=>{setFilterDuplicates(v=>!v);setPage(1)}}
+            style={[s.chip, filterDuplicates && {backgroundColor:'#EA580C',borderColor:'#EA580C'}]}>
+            <Text style={[s.chipTxt, filterDuplicates && {color:'#fff',fontWeight:'700'}]}>🔁 Duplicates</Text>
+          </TouchableOpacity>
           {[{label:'All',value:''}, ...ALL_STATUSES.map(s2=>({label:s2.replace(/_/g,' '),value:s2}))].map(item=>(
             <TouchableOpacity key={item.value} onPress={()=>{setFilterStatus(item.value);setPage(1)}}
               style={[s.chip, filterStatus===item.value && s.chipActive]}>
@@ -345,6 +388,7 @@ export default function LeadsScreen({ navigation }) {
 }
 
 const s = StyleSheet.create({
+  hIconBtn: { width:36, height:36, borderRadius:18, backgroundColor:'#F3F4F6', alignItems:'center', justifyContent:'center' },
   container: {flex:1,backgroundColor:'#F9FAFB'},
   center:    {flex:1,alignItems:'center',justifyContent:'center',padding:32},
   header:    {flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:16,paddingTop:52,paddingBottom:12,backgroundColor:'#fff',borderBottomWidth:1,borderBottomColor:'#E5E7EB'},

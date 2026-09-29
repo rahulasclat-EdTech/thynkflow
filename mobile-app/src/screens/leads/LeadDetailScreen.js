@@ -6,6 +6,7 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import api from '../../api/client'
+import { useAuth } from '../../context/AuthContext'
 import COLORS from '../../utils/colors'
 import CalendarPicker from '../../components/CalendarPicker'
 import LeadFormModal from '../../components/LeadFormModal'
@@ -44,6 +45,7 @@ const COMM_COLORS  = { call:'#16A34A', whatsapp:'#15803D', email:'#1D4ED8' }
 
 export default function LeadDetailScreen({ route, navigation }) {
   const { lead: initialLead } = route.params || {}
+  const { user } = useAuth()
   const [lead, setLead]               = useState(initialLead)
   const [products, setProducts]       = useState([])
   const [agents, setAgents]           = useState([])
@@ -194,6 +196,22 @@ export default function LeadDetailScreen({ route, navigation }) {
     logComm('email', commNote||'Email from lead detail')
   }
 
+  const canDeleteLead = user?.role_id === 1 || user?.role_name === 'admin' || (!!lead?.assigned_to && lead.assigned_to === user?.id)
+  const deleteThisLead = () => {
+    const label = lead.name || lead.contact_name || lead.school_name || lead.phone
+    Alert.alert('Delete lead',
+      `Delete “${label}”?\n\nIt will be removed from Leads, Dashboard and Reports and kept in Deleted Leads.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: async () => {
+          try {
+            await api.delete(`/leads/${lead.id}`)
+            Alert.alert('Deleted', 'Lead moved to Deleted Leads', [{ text: 'OK', onPress: () => navigation.goBack() }])
+          } catch (e) { Alert.alert('Error', e.message || 'Could not delete lead') }
+        } },
+      ])
+  }
+
   const assignToAgent = async (agentId) => {
     try {
       await api.put(`/leads/${lead.id}`,{...lead,assigned_to:agentId})
@@ -224,6 +242,11 @@ export default function LeadDetailScreen({ route, navigation }) {
         <TouchableOpacity onPress={()=>setShowEdit(true)} style={{padding:6,marginLeft:6}}>
           <Ionicons name="pencil" size={18} color="#4F46E5" />
         </TouchableOpacity>
+        {canDeleteLead && (
+          <TouchableOpacity onPress={deleteThisLead} style={{padding:6}}>
+            <Ionicons name="trash-outline" size={18} color="#DC2626" />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Quick actions */}

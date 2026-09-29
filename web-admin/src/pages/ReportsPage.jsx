@@ -845,23 +845,28 @@ export default function ReportsPage() {
           {/* ── DAILY CALLS ── */}
           {tab === 'daily' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
                 {[
                   ['Total Calls',    (Array.isArray(data)?data:[]).length,                                          '📞','#2563eb',null],
                   ['Fresh (New)',    (Array.isArray(data)?data:[]).filter(d=>d.status==='new').length,              '🆕','#0891b2','new'],
                   ['Hot Leads',      (Array.isArray(data)?data:[]).filter(d=>d.status==='hot').length,             '🔥','#dc2626','hot'],
                   ['Warm Leads',     (Array.isArray(data)?data:[]).filter(d=>d.status==='warm').length,            '☀️','#d97706','warm'],
                   // FIX 4: next_followup_date instead of followup_created (column doesn't exist in call_logs)
-                  ['Follow-ups Set', (Array.isArray(data)?data:[]).filter(d=>d.next_followup_date).length,         '📅','#16a34a',null],
+                  // Calls that were made against a due/overdue follow-up (or logged from the Follow-ups screen)
+                  ['Follow-up Calls',(Array.isArray(data)?data:[]).filter(d=>d.is_followup).length,               '🔔','#7c3aed','__followup'],
+                  ['Follow-ups Set', (Array.isArray(data)?data:[]).filter(d=>d.next_followup_date).length,         '📅','#16a34a','__fuset'],
                 ].map(([label,val,icon,color,status])=>(
                   <StatCard key={label} label={label} value={val} icon={icon} color={color}
-                    onClick={()=>{const rows=Array.isArray(data)?data:[];openDataDrill(label,status?rows.filter(d=>d.status===status):rows)}} />
+                    onClick={()=>{const rows=Array.isArray(data)?data:[];openDataDrill(label,
+                      status==='__followup' ? rows.filter(d=>d.is_followup)
+                      : status==='__fuset'  ? rows.filter(d=>d.next_followup_date)
+                      : status ? rows.filter(d=>d.status===status) : rows)}} />
                 ))}
               </div>
 
               {isAdmin && Array.isArray(data) && data.length > 0 && (()=>{
-                const agentMap={}
-                data.forEach(r=>{const k=r.agent_name||'Unassigned';agentMap[k]=(agentMap[k]||0)+1})
+                const agentMap={}, agentFu={}
+                data.forEach(r=>{const k=r.agent_name||'Unassigned';agentMap[k]=(agentMap[k]||0)+1; if(r.is_followup) agentFu[k]=(agentFu[k]||0)+1})
                 return (
                   <div className="card p-4">
                     <h3 className="font-bold text-slate-700 mb-3">Agent Breakdown — {dateFilter}</h3>
@@ -872,6 +877,7 @@ export default function ReportsPage() {
                           <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">{name[0]}</div>
                           <span className="text-sm font-semibold text-slate-700">{name}</span>
                           <span className="text-lg font-black text-blue-600">{count}</span>
+                          {agentFu[name] > 0 && <span className="text-[10px] font-bold text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded-full">{agentFu[name]} follow-up</span>}
                         </div>
                       ))}
                     </div>

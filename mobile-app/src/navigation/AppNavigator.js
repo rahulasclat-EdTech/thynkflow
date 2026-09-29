@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext'
 
 // Safe imports
 let LoginScreen, ProfileScreen, LeadsScreen, LeadDetailScreen,
-    PostCallScreen, LeadHistoryScreen, FollowUpScreen,
+    PostCallScreen, LeadHistoryScreen, DuplicatesScreen, DeletedLeadsScreen, FollowUpScreen,
     ReportsScreen, DashboardScreen, ProductScreen, ChatNavigator
 
 const Placeholder = ({ name }) => (
@@ -40,6 +40,12 @@ catch(e) { PostCallScreen = () => <Placeholder name="Post Call" /> }
 try { LeadHistoryScreen = require('../screens/leads/LeadHistoryScreen').default }
 catch(e) { LeadHistoryScreen = () => <Placeholder name="Lead History" /> }
 
+try { DuplicatesScreen  = require('../screens/leads/DuplicatesScreen').default }
+catch(e) { DuplicatesScreen = () => <Placeholder name="Duplicates" /> }
+
+try { DeletedLeadsScreen = require('../screens/leads/DeletedLeadsScreen').default }
+catch(e) { DeletedLeadsScreen = () => <Placeholder name="Deleted Leads" /> }
+
 try { FollowUpScreen    = require('../screens/followup/FollowUpScreen').default }
 catch(e) { FollowUpScreen = () => <Placeholder name="Follow Ups" /> }
 
@@ -62,6 +68,8 @@ function LeadsStack() {
       <Stack.Screen name="LeadDetail"  component={LeadDetailScreen} />
       <Stack.Screen name="PostCall"    component={PostCallScreen} />
       <Stack.Screen name="LeadHistory" component={LeadHistoryScreen} />
+      <Stack.Screen name="Duplicates"    component={DuplicatesScreen} />
+      <Stack.Screen name="DeletedLeads"  component={DeletedLeadsScreen} />
     </Stack.Navigator>
   )
 }

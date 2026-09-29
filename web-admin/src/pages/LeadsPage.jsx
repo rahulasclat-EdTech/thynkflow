@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
 import { format, parseISO } from 'date-fns'
 import * as XLSX from 'xlsx'
+import { DuplicatesModal, DeletedLeadsModal } from '../components/leads/LeadManageModals'
 
 const Icon = ({ d, cls = '', size = 16, fill = 'none', stroke = 'currentColor' }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={stroke}
@@ -22,6 +23,7 @@ const XIcon       = () => <Icon d="M18 6L6 18M6 6l12 12" />
 const UploadIcon  = () => <Icon d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
 const ClipIcon    = () => <Icon d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2M9 2h6a1 1 0 011 1v2a1 1 0 01-1 1H9a1 1 0 01-1-1V3a1 1 0 011-1z" />
 const LogIcon     = () => <Icon d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+const TrashIcon   = () => <Icon d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6" />
 const PackageIcon = () => <Icon d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
 
 const STATUS_COLORS = {
@@ -140,6 +142,11 @@ export default function LeadsPage() {
   const [PER_PAGE, setPER_PAGE]           = useState(50)
   const [filterUnassigned, setFilterUnassigned] = useState(false)
   const [filterNoProduct, setFilterNoProduct]   = useState(false)
+  const [filterDuplicates, setFilterDuplicates] = useState(false)
+  const [showDupModal, setShowDupModal]         = useState(false)
+  const [showDeletedModal, setShowDeletedModal] = useState(false)
+  const [selectedIds, setSelectedIds]           = useState([])
+  const [deleting, setDeleting]                 = useState(false)
   const [sortField, setSortField] = useState('created_at')
   const [sortDir, setSortDir]     = useState('desc')
   const [activeTab, setActiveTab] = useState('all')
@@ -218,7 +225,14 @@ export default function LeadsPage() {
     { key:'call_back',  icon:'📞', label:'Call Back',     value:stats.call_back,  gradient:['#5b21b6','#8b5cf6'], sub:'awaiting call' },
   ]
 
+  const digitsOf = (l) => String(l.phone || '').replace(/\D/g, '').slice(-10)
   const sortedLeads = [...leads].sort((a, b) => {
+    // Duplicates view: keep twins adjacent (grouped by phone), oldest first
+    if (filterDuplicates) {
+      const pa = digitsOf(a), pb = digitsOf(b)
+      if (pa !== pb) return pa < pb ? -1 : 1
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    }
     let va = a[sortField] || '', vb = b[sortField] || ''
     if (sortField === 'created_at') { va = new Date(va).getTime(); vb = new Date(vb).getTime() }
     else { va = String(va).toLowerCase(); vb = String(vb).toLowerCase() }
@@ -271,6 +285,7 @@ export default function LeadsPage() {
         ...(filterProduct.length && { product_id: filterProduct.join(',') }),
         ...(filterSchool.length  && { school_name: filterSchool.join(',') }),
         ...(filterUnassigned && { unassigned: 'true' }),
+        ...(filterDuplicates && { duplicates: 'true' }),
       })
       const [leadsRes, prodRes, agentRes, settRes] = await Promise.all([
         api.get(`/leads?${params}`),
@@ -301,7 +316,7 @@ export default function LeadsPage() {
       })
     } catch { toast.error('Failed to load leads') }
     finally { setLoading(false) }
-  }, [page, PER_PAGE, search, filterStatus, filterAgent, filterProduct, filterSchool, filterUnassigned])
+  }, [page, PER_PAGE, search, filterStatus, filterAgent, filterProduct, filterSchool, filterUnassigned, filterDuplicates])
 
   useEffect(() => { fetchAll(); fetchAllLeads() }, [fetchAll])
   useEffect(() => { const t = setInterval(() => { fetchAll(); fetchAllLeads() }, 30000); return () => clearInterval(t) }, [fetchAll])
@@ -420,6 +435,27 @@ export default function LeadsPage() {
     } catch (err) { toast.error(err.message||'Failed') } finally { setSavingProduct(false) }
   }
 
+  // ── Delete (moves the lead + its history to the Deleted Leads register) ──
+  const canDelete = (lead) => isAdmin || (lead?.assigned_to && lead.assigned_to === user?.id)
+  const deleteLeads = async (ids, label) => {
+    if (!ids.length) return
+    const reason = window.prompt(
+      `Delete ${label}?\n\nThey will be removed from Leads, Dashboard and Reports and kept in the Deleted Leads register${isAdmin ? ' (you can restore them later)' : ''}.\n\nOptional reason:`, '')
+    if (reason === null) return           // cancelled
+    setDeleting(true)
+    try {
+      const res = ids.length === 1
+        ? await api.delete(`/leads/${ids[0]}`, { data: { reason: reason || undefined } })
+        : await api.post('/leads/bulk-delete', { ids, reason: reason || undefined })
+      toast.success((res && res.message) || 'Deleted')
+      setSelectedIds(prev => prev.filter(id => !ids.includes(id)))
+      if (selectedLead && ids.includes(selectedLead.id)) setShowDetailModal(false)
+      fetchAll(); fetchAllLeads()
+    } catch (err) { toast.error(err?.message || 'Delete failed') }
+    finally { setDeleting(false) }
+  }
+  const toggleSelect = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+
   const handleCreate = async (e) => {
     e.preventDefault()
     if (!form.name?.trim()) return toast.error('Name required')
@@ -429,7 +465,12 @@ export default function LeadsPage() {
       const res = await api.post('/leads', { name:form.name.trim(), contact_name:form.name.trim(), school_name:form.school_name||null, lead_type:form.lead_type||null, creation_comment:form.notes||form.creation_comment||null, phone:form.phone.trim(), email:form.email||null, city:form.city||null, source:form.source||null, status:form.status||'new', product_id:form.product_id||null, product_detail:form.product_detail||null, assigned_to:form.assigned_to||null, admin_remark:form.notes||form.admin_remark||null })
       const newLead = (res||{}).data || res
       if (form.follow_up_date && newLead?.id) api.post('/followups',{lead_id:newLead.id,follow_up_date:form.follow_up_date,notes:form.notes||''}).catch(()=>{})
-      toast.success('Lead created! 🎉'); setShowCreateModal(false); setForm(emptyForm)
+      toast.success('Lead created! 🎉')
+      if (Array.isArray((res||{}).duplicates) && res.duplicates.length) {
+        const d = res.duplicates[0]
+        toast(`⚠️ Duplicate: this phone number already exists on "${d.contact_name || d.school_name || 'another lead'}"${d.agent_name ? ` (${d.agent_name})` : ''}${res.duplicates.length>1 ? ` +${res.duplicates.length-1} more` : ''}`, { duration: 7000 })
+      }
+      setShowCreateModal(false); setForm(emptyForm)
       fetchAll(); fetchAllLeads()
     } catch (err) { toast.error(err.message||'Failed') } finally { setSaving(false) }
   }
@@ -451,8 +492,10 @@ export default function LeadsPage() {
     try {
       const productNames=[...new Set(pasteRows.map(r=>r.product).filter(Boolean))]; let productMap={}
       if (productNames.length) { const res=await api.post('/leads/lookup-products',{names:productNames}); productMap=(res||{}).data||(res||{})||{} }
-      await api.post('/leads/bulk',{leads:pasteRows.map(r=>({name:r.name,phone:r.phone,email:r.email,city:r.city,source:r.source,school_name:r.school_name||'',lead_type:r.lead_type||pasteLeadType||'B2C',creation_comment:r.creation_comment||pasteComment||'',status:'new',product_id:r.product?(productMap[r.product.toLowerCase()]||null):(pasteProduct||null)}))})
-      toast.success(`${pasteRows.length} leads imported 🎉`); setShowPasteModal(false); setPasteText(''); setPasteRows([]); setPasteStep(1); setPasteProduct(''); fetchAll(); fetchAllLeads()
+      const bulkRes = await api.post('/leads/bulk',{leads:pasteRows.map(r=>({name:r.name,phone:r.phone,email:r.email,city:r.city,source:r.source,school_name:r.school_name||'',lead_type:r.lead_type||pasteLeadType||'B2C',creation_comment:r.creation_comment||pasteComment||'',status:'new',product_id:r.product?(productMap[r.product.toLowerCase()]||null):(pasteProduct||null)}))})
+      toast.success(`${pasteRows.length} leads imported 🎉`)
+      if ((bulkRes||{}).duplicates) toast(`⚠️ ${bulkRes.duplicates} imported lead(s) have a duplicate phone number — open “Duplicates” to review`, { duration: 8000 })
+      setShowPasteModal(false); setPasteText(''); setPasteRows([]); setPasteStep(1); setPasteProduct(''); fetchAll(); fetchAllLeads()
     } catch (err) { toast.error(err.message||'Failed') } finally { setSaving(false) }
   }
 
@@ -470,9 +513,10 @@ export default function LeadsPage() {
       const productNames=[...new Set(importRows.map(r=>col(r,'product','course','program')).filter(Boolean))]; let productMap={}
       if (productNames.length) { const res=await api.post('/leads/lookup-products',{names:productNames}); productMap=(res||{}).data||(res||{})||{} }
       const payload=importRows.map(r=>({ name:col(r,'name','full name','student name'), contact_name:col(r,'name','full name','student name'), phone:col(r,'phone','mobile','contact'), email:col(r,'email','mail'), city:col(r,'city','location'), source:col(r,'source','lead source'), school_name:col(r,'school name','school','organisation'), lead_type:col(r,'lead type','type','b2b/b2c','lead_type')||'B2C', creation_comment:col(r,'creation comment','comment','notes','creation_comment'), status:'new', product_id:(()=>{ const pn=col(r,'product','course','program'); return pn?(productMap[pn.toLowerCase()]||null):null })() })).filter(r=>r.name||r.phone)
-      const CHUNK=100; let totalCreated=0
-      for(let i=0;i<payload.length;i+=CHUNK){ const res=await api.post('/leads/bulk',{leads:payload.slice(i,i+CHUNK)}); totalCreated+=(res||{}).created||CHUNK }
-      toast.success(`${totalCreated} leads imported 🎉`); setShowImportModal(false); setImportFile(null); setImportRows([]); setImportStep(1); if(fileInputRef.current)fileInputRef.current.value=''; fetchAll(); fetchAllLeads()
+      const CHUNK=100; let totalCreated=0, totalDup=0
+      for(let i=0;i<payload.length;i+=CHUNK){ const res=await api.post('/leads/bulk',{leads:payload.slice(i,i+CHUNK)}); totalCreated+=(res||{}).created||CHUNK; totalDup+=(res||{}).duplicates||0 }
+      toast.success(`${totalCreated} leads imported 🎉`)
+      if (totalDup) toast(`⚠️ ${totalDup} imported lead(s) have a duplicate phone number — open “Duplicates” to review`, { duration: 8000 }); setShowImportModal(false); setImportFile(null); setImportRows([]); setImportStep(1); if(fileInputRef.current)fileInputRef.current.value=''; fetchAll(); fetchAllLeads()
     } catch (err) { toast.error(err.message||'Failed') } finally { setSaving(false) }
   }
 
@@ -496,6 +540,14 @@ export default function LeadsPage() {
           <p className="text-slate-400 text-sm mt-0.5">Showing {filteredLeads.length} · Page {page} of {totalPages||1}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <button onClick={() => setShowDupModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-orange-50 border-2 border-orange-200 text-orange-700 rounded-xl hover:bg-orange-100 transition-colors">
+            🔁 Duplicates
+          </button>
+          <button onClick={() => setShowDeletedModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border-2 border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors">
+            <TrashIcon /> Deleted
+          </button>
           <button onClick={downloadTemplate}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border-2 border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors">
             <UploadIcon /> Template
@@ -575,8 +627,8 @@ export default function LeadsPage() {
           className="border-2 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
           {[25,50,100,200,500].map(n => <option key={n} value={n}>{n} / page</option>)}
         </select>
-        {(search||filterStatus.length||filterAgent.length||filterProduct.length||filterSchool.length||filterUnassigned||filterNoProduct||activeTab!=='all') && (
-          <button onClick={() => { setSearch(''); setFilterStatus([]); setFilterAgent([]); setFilterProduct([]); setFilterSchool([]); setFilterUnassigned(false); setFilterNoProduct(false); setActiveTab('all'); setPage(1) }}
+        {(search||filterStatus.length||filterAgent.length||filterProduct.length||filterSchool.length||filterUnassigned||filterNoProduct||filterDuplicates||activeTab!=='all') && (
+          <button onClick={() => { setSearch(''); setFilterStatus([]); setFilterAgent([]); setFilterProduct([]); setFilterSchool([]); setFilterUnassigned(false); setFilterNoProduct(false); setFilterDuplicates(false); setActiveTab('all'); setPage(1) }}
             className="border-2 rounded-xl px-3 py-2 text-xs font-bold text-red-500 border-red-200 hover:bg-red-50">
             ✕ Clear All
           </button>
@@ -588,6 +640,7 @@ export default function LeadsPage() {
         {[
           { checked: filterUnassigned, onChange: (v) => { setFilterUnassigned(v); setPage(1) }, label: '👤 Unassigned leads only', color: '#16a34a' },
           { checked: filterNoProduct,  onChange: (v) => setFilterNoProduct(v),                  label: '📦 No product assigned',  color: '#ea580c' },
+          { checked: filterDuplicates, onChange: (v) => { setFilterDuplicates(v); setPage(1) },    label: '🔁 Duplicates only',      color: '#c2410c' },
         ].map(({ checked, onChange, label, color }) => (
           <label key={label} className="flex items-center gap-2 text-sm font-semibold cursor-pointer select-none"
             style={{ color: checked ? color : '#64748b' }}>
@@ -597,6 +650,18 @@ export default function LeadsPage() {
           </label>
         ))}
       </div>
+
+      {/* Bulk selection bar */}
+      {selectedIds.length > 0 && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-red-50 border-2 border-red-200">
+          <span className="text-sm font-bold text-red-700">{selectedIds.length} lead(s) selected</span>
+          <div className="flex gap-2">
+            <button onClick={() => setSelectedIds([])} className="px-3 py-1.5 text-xs font-semibold border-2 border-slate-200 rounded-lg bg-white text-slate-600">Clear</button>
+            <button disabled={deleting} onClick={() => deleteLeads(selectedIds, `${selectedIds.length} selected lead(s)`)}
+              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">🗑 Delete selected</button>
+          </div>
+        </div>
+      )}
 
       {/* ── TABLE ── */}
       {loading ? (
@@ -615,6 +680,11 @@ export default function LeadsPage() {
           <table className="min-w-full text-sm">
             <thead>
               <tr style={{ background: 'linear-gradient(135deg, #312e81 0%, #4f46e5 50%, #7c3aed 100%)' }}>
+                <th className="pl-4 pr-1 py-3.5 w-8">
+                  <input type="checkbox" className="w-4 h-4 rounded"
+                    checked={filteredLeads.filter(canDelete).length > 0 && filteredLeads.filter(canDelete).every(l => selectedIds.includes(l.id))}
+                    onChange={e => setSelectedIds(e.target.checked ? filteredLeads.filter(canDelete).map(l => l.id) : [])} />
+                </th>
                 <SortableHeader label="Name"    field="contact_name" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <SortableHeader label="School"  field="school_name"  sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <SortableHeader label="City"    field="city"         sortField={sortField} sortDir={sortDir} onSort={handleSort} />
@@ -635,8 +705,16 @@ export default function LeadsPage() {
                     onClick={() => openDetail(lead)}
                     className="cursor-pointer transition-all duration-150 hover:brightness-95 border-b border-slate-100"
                     style={{ background: meta.bg, borderLeft: `4px solid ${meta.border}` }}>
+                    <td className="pl-4 pr-1 py-3" onClick={e => e.stopPropagation()}>
+                      {canDelete(lead) && <input type="checkbox" className="w-4 h-4 rounded" checked={selectedIds.includes(lead.id)} onChange={() => toggleSelect(lead.id)} />}
+                    </td>
                     <td className="px-4 py-3">
-                      <div className="font-bold text-slate-800 text-sm">{lead.name || lead.contact_name || '—'}</div>
+                      <div className="font-bold text-slate-800 text-sm">{lead.name || lead.contact_name || '—'}
+                        {lead.is_duplicate && (
+                          <span title={`${lead.duplicate_count} other lead(s) share this phone number`}
+                            className="ml-2 align-middle text-[10px] font-black px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 border border-orange-300">DUPLICATE</span>
+                        )}
+                      </div>
                       {(lead.last_remark || lead.admin_remark || lead.creation_comment) && <div className="text-xs text-slate-400 truncate max-w-[150px] mt-0.5">📝 {lead.last_remark || lead.admin_remark || lead.creation_comment}</div>}
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500 max-w-[120px]">
@@ -685,6 +763,7 @@ export default function LeadsPage() {
                           { icon: <PhoneIcon />, fn: ()=>{ const p=lead.phone||''; if(!p) return; window.open(`tel:${p.replace(/\s+/g,'')}`, '_self') }, cls:'hover:bg-green-50 text-green-500' },
                           { icon: <WAIcon />, fn: ()=>{ const p=(lead.phone||'').replace(/[^0-9]/g,''); if(!p) return; window.open(`https://wa.me/${p.startsWith('91')?p:'91'+p}`,'_blank') }, cls:'hover:bg-emerald-50 text-emerald-500' },
                           { icon: <MailIcon />, fn: ()=>{ if(!lead.email) return; window.open(`mailto:${lead.email}`,'_self') }, cls:'hover:bg-blue-50 text-blue-500' },
+                          ...(canDelete(lead) ? [{ icon: <TrashIcon />, fn: ()=>deleteLeads([lead.id], `“${lead.name||lead.contact_name||lead.phone}”`), cls:'hover:bg-red-50 text-red-500' }] : []),
                         ].map(({ icon, fn, cls }, i) => (
                           <button key={i} onClick={fn} className={`p-1.5 rounded-lg transition-colors ${cls}`}>{icon}</button>
                         ))}
@@ -714,6 +793,9 @@ export default function LeadsPage() {
         </div>
       )}
 
+      {showDupModal && <DuplicatesModal onClose={() => setShowDupModal(false)} onChanged={() => { fetchAll(); fetchAllLeads() }} />}
+      {showDeletedModal && <DeletedLeadsModal isAdmin={isAdmin} onClose={() => setShowDeletedModal(false)} onChanged={() => { fetchAll(); fetchAllLeads() }} />}
+
       {/* ── LEAD DETAIL MODAL ── */}
       {showDetailModal && selectedLead && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
@@ -727,6 +809,10 @@ export default function LeadsPage() {
               </div>
               <div className="flex items-center gap-2">
                 <Badge status={selectedLead.status} />
+                {canDelete(selectedLead) && (
+                  <button disabled={deleting} onClick={() => deleteLeads([selectedLead.id], `“${getName(selectedLead)}”`)}
+                    className="px-3 py-1.5 rounded-lg bg-red-500/90 hover:bg-red-600 text-white text-xs font-bold disabled:opacity-50">🗑 Delete</button>
+                )}
                 <button onClick={() => setShowDetailModal(false)} className="p-2 rounded-lg hover:bg-white/20 text-white"><XIcon /></button>
               </div>
             </div>
